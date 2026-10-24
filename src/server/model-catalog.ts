@@ -20,6 +20,8 @@
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { piModels } from "../agent/models.ts";
+import { customEndpointState, syncCustomEndpointProvider } from "./custom-endpoint.ts";
+import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "../core/custom-endpoint.ts";
 import { settingsStore } from "../store/settings.ts";
 import { effectiveSettings } from "./stores.ts";
 import { keyValue } from "./keys.ts";
@@ -121,11 +123,20 @@ export function catalogSlots(): SlotPins {
  *  with keyPresent read env-wins through the keys seam, fresh per call —
  *  saving a key immediately federates the provider into the picker. */
 export function catalogProviders(): CatalogProvider[] {
-	return AUTH_PROVIDER_KEYS.map((p) => ({
+	const custom = customEndpointState();
+	const rows: CatalogProvider[] = AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
 		envVar: p.envVar,
 		keyPresent: keyValue(p.envVar) !== undefined,
-	})).sort((a, b) => a.id.localeCompare(b.id));
+	}));
+	if (custom.endpoint) {
+		rows.push({
+			id: CUSTOM_ENDPOINT_PROVIDER_ID,
+			envVar: CUSTOM_ENDPOINT_KEY_ID,
+			keyPresent: custom.keyPresent,
+		});
+	}
+	return rows.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** The providers whose key is present — the picker federates exactly
@@ -144,12 +155,15 @@ export function toModelDto(model: Model<Api>): ModelDto {
 		reasoning: model.reasoning,
 		input: [...model.input],
 		supportedLevels: getSupportedThinkingLevels(model),
-		cost: {
-			input: model.cost.input,
-			output: model.cost.output,
-			cacheRead: model.cost.cacheRead,
-			cacheWrite: model.cost.cacheWrite,
-		},
+		cost:
+			model.provider === CUSTOM_ENDPOINT_PROVIDER_ID
+				? null
+				: {
+						input: model.cost.input,
+						output: model.cost.output,
+						cacheRead: model.cost.cacheRead,
+						cacheWrite: model.cost.cacheWrite,
+					},
 		contextWindow: model.contextWindow,
 		maxTokens: model.maxTokens,
 	};
@@ -179,6 +193,7 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
+	syncCustomEndpointProvider();
 	const keyed = keyedProviderIds();
 	const models = piModels()
 		.getProviders()
@@ -207,6 +222,7 @@ export type SettingsValidation =
  *    the model the picker writes against (settings.model, else config's
  *    prober/teacher pin; one controller, so the two specs share it). */
 export function validateChatSettings(settings: ChatSettings): SettingsValidation {
+	syncCustomEndpointProvider();
 	const providers = piModels().getProviders().map((p) => p.id);
 	if (settings.model) {
 		const { provider, id } = settings.model;
@@ -227,6 +243,7 @@ export function validateChatSettings(settings: ChatSettings): SettingsValidation
 }
 
 export function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
+	syncCustomEndpointProvider();
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
 		if (!slot) continue;

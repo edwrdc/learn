@@ -1,16 +1,23 @@
 import {
 	clampThinkingLevel,
 	createModels,
+	createProvider,
 	getSupportedThinkingLevels,
 	type Api,
 	type Model,
 	type Models,
+	type Provider,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
+import {
+	CUSTOM_ENDPOINT_PROVIDER_ID,
+	type CustomEndpointConfig,
+} from "../core/custom-endpoint.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
 
 /** App identity is immutable and shared by Models and every native Agent.
@@ -66,6 +73,75 @@ export function openRouterApiKey(): string | undefined {
 	return process.env.OPENROUTER_API_KEY || undefined;
 }
 
+interface CustomProviderSnapshot {
+	config: CustomEndpointConfig;
+	provider: Provider;
+	apiKey: string | undefined;
+}
+
+let customSnapshot: CustomProviderSnapshot | undefined;
+
+/**
+ * Register (or remove) THE user-configured OpenAI Responses provider in the
+ * process-wide collection. Called by the server composition boundary from
+ * the settings record — the agent layer never reads the store itself.
+ *
+ * The provider is rebuilt on every config/key signature change, so saved
+ * edits reach the catalog immediately. Static model entries carry the
+ * explicit limits/capabilities from the settings record; their numeric
+ * pi-ai costs are placeholders on purpose — the app's money channel reads
+ * core/prices.ts, where this provider is absent, so prices stay UNPRICED
+ * (never a fabricated zero) on every user-facing surface.
+ *
+ * `apiKey` is the key already resolved for this exact base URL by the
+ * server composition. Capturing it here (instead of an env lookup at
+ * request time) is what makes an engine's endpoint + credential immutable
+ * across later edits/removals. */
+export function setCustomEndpointProvider(config: CustomEndpointConfig | null, apiKey?: string): void {
+	const models = piModels();
+	if (!config) {
+		customSnapshot = undefined;
+		models.deleteProvider(CUSTOM_ENDPOINT_PROVIDER_ID);
+		return;
+	}
+	const provider = createProvider({
+		id: CUSTOM_ENDPOINT_PROVIDER_ID,
+		name: config.displayName,
+		baseUrl: config.baseUrl,
+		auth: {
+			apiKey: {
+				name: "Custom endpoint API key",
+				async resolve({ signal }) {
+					signal.throwIfAborted();
+					return apiKey ? { auth: { apiKey }, source: "custom endpoint key" } : undefined;
+				},
+			},
+		},
+		models: config.models.map((m): Model<"openai-responses"> => ({
+			id: m.id,
+			name: m.name,
+			api: "openai-responses",
+			provider: CUSTOM_ENDPOINT_PROVIDER_ID,
+			baseUrl: config.baseUrl,
+			reasoning: m.reasoning,
+			input: m.imageInput ? ["text", "image"] : ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: m.contextWindow,
+			maxTokens: m.maxTokens,
+		})),
+		api: openAIResponsesApi(),
+	});
+	customSnapshot = { config, provider, apiKey };
+	models.setProvider(provider);
+}
+
+/** Follow no redirects on a custom endpoint: the Authorization header must
+ *  never be replayed to a different origin. Composes the caller's fetch (the
+ *  test seam) when present. */
+function noRedirectFetch(upstream: typeof fetch): typeof fetch {
+	return (input, init) => upstream(input, { ...init, redirect: "error" });
+}
+
 /** A fully-resolved model pin — the shape every engine now comes from:
  *  the settings-resolution chain's output (role override → slot, or the
  *  chat's conversation chain). thinkingLevel is OPTIONAL: unset means
@@ -89,11 +165,38 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 }
 
 /** The production engine for a RESOLVED spec (model slots wave,
- *  2026-09-20): provider-aware catalog lookup + thinking clamp. The API
- *  key is resolved by pi-ai itself from the environment per request (the
- *  keys seam reflects file-saved keys into env), so the engine never
- *  hardcodes OpenRouter's. */
+ *  2026-09-20): provider-aware catalog lookup + thinking clamp. Builtin
+ *  engines resolve auth per request through the Models collection. A
+ *  custom engine instead captures the published provider + credential at
+ *  construction, so an edit/removal can never redirect an already-running
+ *  turn (or swap its key mid-turn). New engines resolve the fresh config. */
 export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
+	if (spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
+		const snapshot = customSnapshot;
+		const model = snapshot?.provider.getModels().find((m) => m.id === spec.id);
+		if (!snapshot || !model) {
+			throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
+		}
+		const level = spec.thinkingLevel
+			? clampThinkingLevel(model, spec.thinkingLevel)
+			: defaultThinkingLevel(model);
+		const provider = snapshot.provider;
+		const apiKey = snapshot.apiKey;
+		return {
+			model,
+			level,
+			streamFn: (requestModel, context, options) => {
+				const upstream = options?.fetch ?? fetch;
+				return provider.streamSimple(requestModel, context, {
+					...options,
+					apiKey,
+					identity: options?.identity ?? APP_IDENTITY,
+					reasoning: level === "off" ? undefined : level,
+					fetch: noRedirectFetch(upstream),
+				});
+			},
+		};
+	}
 	const models: Models = piModels();
 	const model = models.getModel(spec.provider, spec.id);
 	if (!model) {

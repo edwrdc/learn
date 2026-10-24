@@ -323,6 +323,39 @@ describe("send (one input event, verbatim consumption)", () => {
 		);
 	});
 
+	it("locally resets a model_unavailable refusal without posting and permits a later explicit send", async () => {
+		const posts: string[] = [];
+		globalThis.fetch = dietFetch({
+			onPost: (body) => posts.push(body),
+			post: () => posts.length === 1
+				? Response.json({ code: "model_unavailable", error: "gone" }, { status: 503 })
+				: Response.json({ ok: true }),
+			userText: "draft",
+			stream: () => sseResponse("[DONE]"),
+		});
+		const reconciled = [newUserMessage("earlier question"), assistantMsg("a1", "earlier answer")];
+		const m = model({ initialMessages: reconciled });
+
+		await m.send({ type: "text", text: "draft" });
+		assert.equal(m.getState().status, "error");
+		assert.equal(JSON.parse(m.getState().error!.message).code, "model_unavailable");
+		assert.equal(posts.length, 1);
+
+		m.setMessages(reconciled);
+		m.stop();
+		m.clearError();
+		assert.equal(m.getState().status, "ready");
+		assert.equal(m.getState().error, null);
+		assert.deepEqual(m.getState().nativeMessages, reconciled);
+		assert.equal(posts.length, 1, "local recovery does not auto-send");
+
+		await m.send({ type: "text", text: "draft" });
+		assert.equal(posts.length, 2);
+		assert.deepEqual(JSON.parse(posts[1]!), { chatId: "chat_x", input: { type: "text", text: "draft" } });
+		assert.equal(m.getState().status, "ready");
+		assert.equal(m.getState().error, null);
+	});
+
 	it("the optimistic answer result attaches to the pending quiz part at once", async () => {
 		const quizCall = {
 			id: "call-1",

@@ -30,7 +30,12 @@ import { useSettingsSaved } from "@/components/settings-signal";
 export function hasProviderKey(
 	statuses: readonly AuthKeyStatus[],
 	providers: readonly ProviderKeyInfo[] | undefined,
+	/** The custom endpoint's key is deliberately not a generic /api/keys
+	 *  row; its own GET reports presence. A configured endpoint with a key
+	 *  IS a model-provider key for this gate. */
+	customEndpointKeyPresent = false,
 ): boolean {
+	if (customEndpointKeyPresent) return true;
 	return classifyKeys(statuses, providers).providerRows.some((s) => s.present);
 }
 
@@ -42,10 +47,24 @@ export function hasProviderKey(
 export function useZeroKeys(): boolean {
 	const [zeroKeys, setZeroKeys] = useState(false);
 	const read = useCallback(() => {
-		fetch("/api/keys")
-			.then((r) => r.json())
-			.then((body: { keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[] }) => {
-				setZeroKeys(!hasProviderKey(body.keys ?? [], body.providers));
+		Promise.all([
+			fetch("/api/keys").then((r) => {
+				if (!r.ok) throw new Error(`keys request failed: ${r.status}`);
+				return r.json() as Promise<{ keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[] } | null>;
+			}),
+			fetch("/api/custom-endpoint").then((r) => {
+				if (!r.ok) throw new Error(`custom endpoint request failed: ${r.status}`);
+				return r.json() as Promise<{ keyPresent?: boolean } | null>;
+			}),
+		])
+			.then(([body, custom]) => {
+				if (!Array.isArray(body?.keys)
+					|| !body.keys.every((key) => key && typeof key.id === "string" && typeof key.present === "boolean")
+					|| (body.providers !== undefined && (!Array.isArray(body.providers)
+						|| !body.providers.every((provider) => provider && typeof provider.id === "string"
+							&& typeof provider.envVar === "string" && typeof provider.label === "string")))
+					|| typeof custom?.keyPresent !== "boolean") return;
+				setZeroKeys(!hasProviderKey(body.keys, body.providers, custom.keyPresent));
 			})
 			.catch(() => {});
 	}, []);

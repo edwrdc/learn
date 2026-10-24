@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsRefusal, parseProviderKeyRefusal } from "../components/chat.tsx";
+import { parseModelsRefusal, parseProviderKeyRefusal, parseModelUnavailableRefusal } from "../components/chat.tsx";
 import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../components/setup-dialog.tsx";
 import {
 	isModelsRefusal,
@@ -20,6 +20,23 @@ import type { ModelCatalogEntry, ModelSlotName } from "../src/core/index.ts";
  */
 
 const REFUSAL = JSON.stringify(modelsNotConfigured(["strong"]));
+
+describe("parseModelUnavailableRefusal", () => {
+	it("returns the unavailable envelope for session model recovery", () => {
+		const refusal = { code: "model_unavailable", error: "This session model is no longer available." };
+		assert.deepEqual(parseModelUnavailableRefusal(JSON.stringify(refusal)), refusal);
+		assert.deepEqual(parseModelUnavailableRefusal(JSON.stringify({ ...refusal, error: "" })), { ...refusal, error: "" });
+	});
+
+	it("leaves malformed envelopes and ordinary failures as ordinary errors", () => {
+		for (const message of [undefined, "", "not JSON", "null", "[]", "42", '"model_unavailable"',
+			REFUSAL, JSON.stringify({ code: "other", error: "Unavailable" }),
+			JSON.stringify({ code: "model_unavailable" }), JSON.stringify({ error: "Unavailable" }),
+			JSON.stringify({ code: "model_unavailable", error: null }), JSON.stringify({ code: "model_unavailable", error: 42 })]) {
+			assert.equal(parseModelUnavailableRefusal(message), null, message);
+		}
+	});
+});
 
 describe("parseModelsRefusal — the send refusal detector", () => {
 	it("reads the missing tiers from the envelope text", () => {

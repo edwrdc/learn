@@ -162,6 +162,22 @@ export function parseProviderKeyRefusal(message: string | undefined): boolean {
 	}
 }
 
+type ModelUnavailableRefusal = { code: "model_unavailable"; error: string };
+
+export function parseModelUnavailableRefusal(message: string | undefined): ModelUnavailableRefusal | null {
+	if (!message) return null;
+	try {
+		const body = JSON.parse(message) as unknown;
+		if (body !== null && typeof body === "object" && "code" in body && "error" in body
+			&& body.code === "model_unavailable" && typeof body.error === "string") {
+			return body as ModelUnavailableRefusal;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
 /** useLayoutEffect that is silent during SSR (client components still render on the server in Next). */
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -594,25 +610,30 @@ export function Chat({
 		// provider key is gone gets the SAME treatment — revert-draft and
 		// open setup (the dialog derives to its first-key stage on its own).
 		const keyRefused = parseProviderKeyRefusal(error.message);
-		if (!missing && !keyRefused) return; // a real error keeps the honest banner
+		const unavailable = parseModelUnavailableRefusal(error.message);
+		if (!missing && !keyRefused && !unavailable) return; // a real error keeps the honest banner
 		// ORDER MATTERS: clearError() flips this effect's own dep (`error`)
 		// and would cancel the in-flight work below — so the banner dismiss,
 		// the draft restore, and the dialog open all land TOGETHER after the
 		// record refetch (the honest truth minus the refused send).
 		let cancelled = false;
 		void (async () => {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
-			if (!cancelled && res.ok) {
-				const record = (await res.json().catch(() => null)) as { messages?: LhMessage[] } | null;
-				if (Array.isArray(record?.messages)) setMessages(record.messages);
-			}
+			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`).catch(() => null);
 			if (cancelled) return;
+			const record = res?.ok
+				? (await res.json().catch(() => null)) as { messages?: LhMessage[] } | null
+				: null;
+			if (cancelled) return;
+			if (Array.isArray(record?.messages)) setMessages(record.messages);
 			if (draftRef.current !== null) {
 				applyText(draftRef.current);
 				draftRef.current = null;
 			}
+			if (unavailable && !Array.isArray(record?.messages)) return;
+			stop();
 			clearError();
-			setSetupOpen(true);
+			if (unavailable) window.dispatchEvent(new Event(kbdEventForChat("open-model-picker")));
+			else setSetupOpen(true);
 		})();
 		return () => {
 			cancelled = true;

@@ -10,7 +10,9 @@ import type { BackgroundModelRole, ModelSlotName } from "../settings.ts";
 
 /** One picker row: everything the UI shows about a model, projected from
  *  pi-ai's catalog. Costs are USD per 1M tokens (the same catalog, the same
- *  units core/prices.ts's generated table carries). */
+ *  units core/prices.ts's generated table carries). NULL means the price is
+ *  UNKNOWN — custom endpoints have no price authority, and the UI must say
+ *  so rather than show a fabricated zero. */
 export interface ModelCatalogEntry {
 	id: string;
 	name: string;
@@ -21,7 +23,7 @@ export interface ModelCatalogEntry {
 	 * thinkingLevelMap — e.g. GLM-5.3-flash: low|high|max). The thinking
 	 * picker lists exactly these; anything else is a lie. */
 	supportedLevels: ThinkingLevel[];
-	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number } | null;
 	contextWindow: number;
 	maxTokens: number;
 }

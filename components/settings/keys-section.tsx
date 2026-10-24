@@ -29,6 +29,7 @@ import { SettingsGroup } from "./controls.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { CustomEndpointSection } from "./custom-endpoint-section.tsx";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
  *  derived from pi-ai's own env-key table; no drift possible). */
@@ -251,9 +252,11 @@ function KeyTableRow({
 function AddProviderRow({
 	addable,
 	onPick,
+	onCustom,
 }: {
 	addable: ProviderKeyInfo[];
 	onPick: (p: ProviderKeyInfo) => void;
+	onCustom: () => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
@@ -299,6 +302,18 @@ function AddProviderRow({
 					preferredSide="down"
 					menuClass="flex w-72 flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 				>
+					<button
+						type="button"
+						data-testid="add-provider-custom"
+						onClick={() => {
+							setOpen(false);
+							onCustom();
+						}}
+						className="mb-1 flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted"
+					>
+						<span className="truncate text-card-foreground">Custom endpoint</span>
+						<span className="shrink-0 font-mono text-[11px] text-muted-foreground">Responses</span>
+					</button>
 					{/* Close on pick (owner, fix wave): a chosen provider ends
 					    the dropdown — the paste row is the next step. */}
 					<ProviderMenuList
@@ -332,6 +347,7 @@ export function KeysSection({
 	/** The paste editor for a freshly chosen Add-provider target. */
 	const [adding, setAdding] = useState<ProviderKeyInfo | null>(null);
 	const [addError, setAddError] = useState<string | null>(null);
+	const [customOpen, setCustomOpen] = useState(false);
 
 	// Escape folds any open editor (unfolded row or the Add-provider paste)
 	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
@@ -438,8 +454,13 @@ export function KeysSection({
 							setAdding(p);
 							setAddError(null);
 						}}
+						onCustom={() => {
+							setAdding(null);
+							setCustomOpen(true);
+						}}
 					/>
 				)}
+				<CustomEndpointSection open={customOpen} onOpenChange={setCustomOpen} />
 				{adding && (
 					<div className="flex items-center gap-2 rounded-sm px-1 py-1.5" data-testid={`key-${adding.id}-editor`}>
 						<span className="shrink-0 font-ui text-xs text-foreground">{adding.label}</span>

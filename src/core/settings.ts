@@ -29,6 +29,7 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
+import { sanitizeCustomEndpoint, CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -156,7 +157,10 @@ export interface ProviderKeyMissing {
  * (the label prefix varies by provider). */
 const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
-	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
+	const label =
+		provider === CUSTOM_ENDPOINT_PROVIDER_ID
+			? "custom endpoint"
+			: (AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider);
 	return {
 		error: `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
 		code: PROVIDER_KEY_MISSING_CODE,
@@ -364,6 +368,10 @@ export interface UserSettings {
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
+	/** The ONE optional custom OpenAI Responses endpoint (custom-endpoint
+	 *  wave): nonsecret display name, base URL, and explicitly configured
+	 *  models. Its API key lives in auth.json, never in this record. */
+	customEndpoint?: CustomEndpointConfig;
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
@@ -625,6 +633,10 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		const models = sanitizeModels(r.models as Record<string, unknown>);
 		if (Object.keys(models).length) out.models = models;
 	}
+	if (r.customEndpoint !== undefined) {
+		const customEndpoint = sanitizeCustomEndpoint(r.customEndpoint);
+		if (customEndpoint) out.customEndpoint = customEndpoint;
+	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
 		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
@@ -637,7 +649,7 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	// 2026-09-28) — a fossil copy on disk must never resurrect through
 	// reads (and any later write flushes it from the file for good).
 	for (const [key, value] of Object.entries(r)) {
-		if (key === "chat") continue;
+		if (key === "chat" || key === "customEndpoint") continue;
 		if (!(key in out)) out[key] = value;
 	}
 	return out;

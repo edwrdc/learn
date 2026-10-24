@@ -52,6 +52,11 @@ import {
 	validateKeyShape,
 } from "../core/auth-keys.ts";
 import { authStore } from "../store/auth.ts";
+import {
+	CUSTOM_ENDPOINT_KEY_ID,
+	CUSTOM_ENDPOINT_PROVIDER_ID,
+	isCustomEndpointKeyId,
+} from "../core/custom-endpoint.ts";
 
 // The once-per-process boot record — globalThis anchor (HMR re-imports the
 // module; the snapshot must not re-run and misread fill-gapped vars as real
@@ -108,6 +113,7 @@ export function initAuthEnv(): void {
 		// an env-exported OPENAI_API_KEY with a file copy gets honest shadow
 		// semantics, exactly like the curated vars.
 		...AUTH_PROVIDER_KEYS.map((p) => p.envVar),
+		CUSTOM_ENDPOINT_KEY_ID,
 	]);
 	if (envKeysIgnored()) {
 		// THE FRESH-USER SWITCH: delete every managed env var (re-run on
@@ -152,6 +158,9 @@ export function resolveKeyStatuses(
 	providerEnvVars: ReadonlySet<string> = new Set(),
 ): AuthKeyStatus[] {
 	const ids = new Set<string>([...AUTH_KEYS.map((k) => k.id), ...Object.keys(fileVars)]);
+	for (const id of ids) {
+		if (isCustomEndpointKeyId(id)) ids.delete(id);
+	}
 	for (const envVar of providerEnvVars) {
 		if (env[envVar] !== undefined || fileVars[envVar] !== undefined) ids.add(envVar);
 	}
@@ -193,15 +202,49 @@ export function keyValue(id: string): string | undefined {
 	return process.env[id] ?? authStore.authVars()[id];
 }
 
+/** Is the live value for this id owned by the REAL environment (not the
+ *  store's fill-gap reflection)? The env-wins rule's provenance read — the
+ *  custom endpoint uses it to keep an env key read-only and origin-bound. */
+export function secretFromRealEnv(id: string): boolean {
+	if (envKeysIgnored()) return false;
+	return boot().realEnv.has(id) && process.env[id] !== undefined;
+}
+
 /** The key-presence truth for one model provider (provider-key interlude,
  * 2026-09-25): would this provider's key be present at request time?
  * Reads through keyValue — the SAME env-first lookup pi-ai performs
  * natively at every request — so an env-shadowed key counts as present
  * (gate by what would run). Providers absent from AUTH_PROVIDER_KEYS take
- * no key at all: nothing to gate, present by definition. */
-export function providerKeyPresent(provider: string): boolean {
+ * no key at all: nothing to gate, present by definition. The custom
+ * endpoint is special-cased by its composition (its key is origin-bound),
+ * so callers pass that verdict explicitly. */
+export function providerKeyPresent(provider: string, customEndpointKeyPresent = false): boolean {
+	if (provider === CUSTOM_ENDPOINT_PROVIDER_ID) return customEndpointKeyPresent;
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
+}
+
+/** Persist a secret into the auth store and reflect it into the env exactly
+ *  like saveKey does. Exported for the custom-endpoint composition, whose
+ *  key is deliberately NOT a builtin provider env var. */
+export function saveSecretVar(id: string, value: string): void {
+	authStore.setAuthVar(id, value);
+	const record = boot();
+	if (!record.realEnv.has(id)) {
+		process.env[id] = value;
+		record.fillGap.add(id);
+	}
+}
+
+/** Remove a secret: file always, env only when the copy was ours (a real
+ *  env var keeps precedence). */
+export function deleteSecretVar(id: string): void {
+	authStore.deleteAuthVar(id);
+	const record = boot();
+	if (record.fillGap.has(id) && !record.realEnv.has(id)) {
+		delete process.env[id];
+		record.fillGap.delete(id);
+	}
 }
 
 /**
@@ -214,12 +257,7 @@ export function saveKey(id: string, value: string): { ok: true; status: AuthKeyS
 	const shape = isProviderEnvVar(id) ? genericProviderKeyGuard(id, value) : validateKeyShape(id, value);
 	if (!shape.ok) return { ok: false, error: shape.error };
 	const trimmed = value.trim();
-	authStore.setAuthVar(id, trimmed);
-	const record = boot();
-	if (!record.realEnv.has(id)) {
-		process.env[id] = trimmed;
-		record.fillGap.add(id);
-	}
+	saveSecretVar(id, trimmed);
 	// validateKeyShape guarantees catalog membership, so the row exists.
 	return { ok: true, status: keyStatuses().find((s) => s.id === id)! };
 }
@@ -230,12 +268,7 @@ export function saveKey(id: string, value: string): { ok: true; status: AuthKeyS
  * wins) and the status shows the key still present from env.
  */
 export function deleteKey(id: string): AuthKeyStatus {
-	authStore.deleteAuthVar(id);
-	const record = boot();
-	if (record.fillGap.has(id) && !record.realEnv.has(id)) {
-		delete process.env[id];
-		record.fillGap.delete(id);
-	}
+	deleteSecretVar(id);
 	return keyStatuses().find((s) => s.id === id)!;
 }
 

@@ -42,6 +42,11 @@ describe("hasProviderKey — the zero-keys pill's truth", () => {
 		assert.equal(hasProviderKey([status("DEEPGRAM_API_KEY", true)], PROVIDERS), false);
 	});
 
+	it("a configured custom endpoint with its key counts as a provider", () => {
+		assert.equal(hasProviderKey([], PROVIDERS, true), true);
+		assert.equal(hasProviderKey([], PROVIDERS, false), false);
+	});
+
 	it("absent provider keys = zero keys (the pill shows)", () => {
 		assert.equal(hasProviderKey([status("OPENROUTER_API_KEY", false)], PROVIDERS), false);
 		assert.equal(hasProviderKey([], PROVIDERS), false);

@@ -27,6 +27,7 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
+import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../core/custom-endpoint.ts";
 import {
 	extractionEnabled,
 	graphToolsEnabled,
@@ -42,6 +43,7 @@ import { hasProbeDone, danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
+import { syncCustomEndpointProvider, customEndpointKeyPresent } from "./custom-endpoint.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
@@ -88,7 +90,7 @@ const jobRunner = createJobRunner({
 	// layer may not read the key store); a missing key refuses the spawn
 	// with the 503-envelope family instead of dying mid-run.
 	providerKeyMissing: (provider, tier) =>
-		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+		providerHasKey(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 	// Search port wave (2026-09-20): the researcher's web_search runs on the
 	// injected port — resolved FRESH per job (key rotations land immediately).
 	// null = honestly unavailable; the dispatch-level drop (below) uses the
@@ -110,7 +112,7 @@ export const extraction = createExtractionPipeline({
 	// the job runner gets — a stage engine whose provider key is gone
 	// refuses BEFORE any batch runs (the typed throw), never mid-run.
 	providerKeyMissing: (provider, tier) =>
-		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+		providerHasKey(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 });
 
 
@@ -125,13 +127,24 @@ setTurnRunner(async (chatId, input) => {
 	await res.arrayBuffer().catch(() => undefined);
 	return res.status;
 });
+function providerHasKey(provider: string): boolean {
+	return provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customEndpointKeyPresent() : providerKeyPresent(provider);
+}
+
 /** The settings-resolved engine for one role — BYOK (owner, 2026-09-22):
  *  the chain (role override → slot → NOTHING) may end empty, and undefined
  *  flows through to the per-need refusal gates (runner/extraction), read
  *  FRESH so a settings PUT between dispatch and spawn lands. */
 function resolveEngine(role: ModelRole): PiEngine | undefined {
+	syncCustomEndpointProvider();
 	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-	return spec ? piEngineForSpec(spec) : undefined;
+	if (!spec) return undefined;
+	try {
+		return piEngineForSpec(spec);
+	} catch (error) {
+		console.info(`[models] no engine for role ${role}: ${error instanceof Error ? error.message : String(error)}`);
+		return undefined;
+	}
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
@@ -201,7 +214,7 @@ export async function handleChatInput(
 	// persist (nothing durable changes); wake-pipeline turns ride the same
 	// path. The affected tier is strong — the conversation chain's own tier
 	// (a chat.model override still resolves through it).
-	if (!providerKeyPresent(conversation.provider)) {
+	if (!providerHasKey(conversation.provider)) {
 		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
@@ -216,7 +229,20 @@ export async function handleChatInput(
 	// placement mirrors the BYOK/key gates — BEFORE appends and
 	// beginTurn, no liveness effects — and the record re-reads after
 	// because compaction appends the marker.
-	const conversationEngine = piEngineForSpec(conversation);
+	syncCustomEndpointProvider();
+	let conversationEngine: PiEngine;
+	try {
+		conversationEngine = piEngineForSpec(conversation);
+	} catch (error) {
+		console.error(`[chat ${chatId}] model unavailable:`, error);
+		return Response.json(
+			{
+				error: "The selected model is no longer available — update your model settings",
+				code: "model_unavailable",
+			},
+			{ status: 503 },
+		);
+	}
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	await ensureCompacted(
 		{
@@ -522,10 +548,16 @@ export async function handleChatInput(
 				// fixtures; the service itself is pinned directly).
 				if (process.env.NODE_ENV !== "test")
 					kickCompaction(() => {
+						syncCustomEndpointProvider();
 						const fresh = effectiveSettings();
 						const spec = resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, fresh.models.strong);
 						if (!spec) return null;
-						const kickEngine = piEngineForSpec(spec);
+						let kickEngine: PiEngine;
+						try {
+							kickEngine = piEngineForSpec(spec);
+						} catch {
+							return null;
+						}
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
 						if (!freshRecord) return null;
