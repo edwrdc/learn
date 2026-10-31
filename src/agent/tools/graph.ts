@@ -50,7 +50,7 @@ export function proberGraphTools(ctx: GraphToolContext): Record<string, AgentToo
 				"Reading this first shows what he has already covered and when, before you probe anything.",
 			parameters: listSessionsInput,
 			execute: serverExecute("list_sessions", listSessionsInput, async (): Promise<string> => {
-				const sessions = graphSessionIndex(deps);
+				const sessions = await graphSessionIndex(deps);
 				if (sessions.length === 0) return "The knowledge graph is empty — no session has contributed propositions yet.";
 				const lines = sessions.map((s, i) =>
 					`${i + 1}. ${s.name} (${s.kind}, ${s.propositions} proposition${s.propositions === 1 ? "" : "s"}, ` +
@@ -67,7 +67,7 @@ export function proberGraphTools(ctx: GraphToolContext): Record<string, AgentToo
 				"Names only — no statement text, no session contents (owner ruling 2026-09-23: the map's ORGANIZATION is your business, its prose is not).",
 			parameters: listPropositionsInput,
 			execute: serverExecute("list_propositions", listPropositionsInput, async ({ session }): Promise<string> => {
-				const propositions = graphSessionPropositions(deps, session);
+				const propositions = await graphSessionPropositions(deps, session);
 				if (propositions.length === 0) {
 					return `No propositions born in session "${session}". Call list_sessions for the current ids.`;
 				}
@@ -154,7 +154,7 @@ export function auditorGraphTools(ctx: GraphToolContext): Record<string, AgentTo
 				"Each line: name, kind, proposition count, id. Use the id with list_propositions to see what a session covered.",
 			parameters: Type.Object({}),
 			execute: serverExecute("list_sessions", Type.Object({}), async (): Promise<string> => {
-				const sessions = graphSessionIndex(deps);
+				const sessions = await graphSessionIndex(deps);
 				if (sessions.length === 0) return "The knowledge graph is empty — no session has contributed propositions yet.";
 				const lines = sessions.map((s, i) => `${i + 1}. ${s.name} (${s.kind}, ${s.propositions} proposition${s.propositions === 1 ? "" : "s"}) — id: ${s.id}`);
 				return `${sessions.length} session(s):\n${lines.join("\n")}`;
@@ -168,7 +168,7 @@ export function auditorGraphTools(ctx: GraphToolContext): Record<string, AgentTo
 				"(deciding whether a new proposition is really one of these).",
 			parameters: listPropositionsInput,
 			execute: serverExecute("list_propositions", listPropositionsInput, async ({ session }): Promise<string> => {
-				const propositions = graphSessionPropositions(deps, session);
+				const propositions = await graphSessionPropositions(deps, session);
 				if (propositions.length === 0) return `No propositions born in session "${session}". Call list_sessions for the current ids.`;
 				const nodes = new Map(getGraph(deps.graphStore).nodes.map((n) => [n.id, n]));
 				const lines = propositions.map((p) => {

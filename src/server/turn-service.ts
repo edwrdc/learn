@@ -47,15 +47,15 @@ import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/setti
  *
  * Returns the stamped new messages (usage provenance reads them).
  */
-export function persistTurn(
+export async function persistTurn(
 	chatStore: ChatStore,
 	chatId: string,
 	baseCount: number,
 	turnMessages: readonly AgentMessage[],
 	isAborted: boolean,
-): LhMessage[] {
+): Promise<LhMessage[]> {
 	try {
-		const record = chatStore.getChat(chatId);
+		const record = await chatStore.getChat(chatId);
 		if (!record) return [];
 		const stamped: LhMessage[] = [];
 		for (const m of turnMessages.slice(baseCount)) {
@@ -75,7 +75,7 @@ export function persistTurn(
 			...record.messages,
 			...stamped,
 		]);
-		chatStore.saveMessages(chatId, [...record.messages, ...stamped, ...blocks]);
+		await chatStore.saveMessages(chatId, [...record.messages, ...stamped, ...blocks]);
 		return stamped;
 	} catch (err) {
 		console.error(`[chat ${chatId}] persist failed:`, err, { isAborted });
@@ -97,15 +97,15 @@ export function persistTurn(
  * trigger-agnostic. Skipped under tests: scripted chats are fixtures, not
  * knowledge (the pipeline itself is tested directly with mock models).
  */
-export function triggerExtraction(
+export async function triggerExtraction(
 	deps: { chatStore: ChatStore; graphStore: GraphStore },
 	extraction: ExtractionPipeline,
 	chatId: string,
 	chunkTokens: number,
-): void {
+): Promise<void> {
 	if (process.env.NODE_ENV === "test") return;
 	try {
-		const record = deps.chatStore.getChat(chatId);
+		const record = await deps.chatStore.getChat(chatId);
 		if (!record) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
 		if (covered.uncoveredTokens < chunkTokens) return;

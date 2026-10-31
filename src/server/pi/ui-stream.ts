@@ -79,8 +79,9 @@ export interface PiTurnSpec {
 	onError?: (error: unknown) => string;
 	/** The canonical end-of-turn seam: persist + usage + extraction + endTurn.
 	 *  Receives the agent's FULL final state (native messages) — the caller
-	 *  persists the slice past its own base count. */
-	onFinish: (messages: AgentMessage[], isAborted: boolean) => void;
+	 *  persists the slice past its own base count. AWAITED before the views
+	 *  close, so a [DONE] reader always finds the persisted record current. */
+	onFinish: (messages: AgentMessage[], isAborted: boolean) => void | Promise<void>;
 	/** Tool-call ids already used in this chat's record (THE LACAN FIX,
 	 *  owner-approved 2026-10-04): when present, a ToolCallIdUniquifier
 	 *  sits at this boundary — providers that reset ids every response
@@ -218,9 +219,12 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	// suppressing the fresh per-turn re-seed). Our app mints no system
 	// messages of its own (the prompt is composed per turn), so dropping
 	// the role wholesale is exact; revisit if prompt-updates ever land.
-	const settleWith = () => {
+	let settledOnce = false;
+	const settleWith = async () => {
+		if (settledOnce) return;
+		settledOnce = true;
 		const settled_ = [...agent.state.messages].filter((m) => (m as { role?: string }).role !== "system");
-		onFinish((uniquifier?.remapSettled(settled_) as AgentMessage[]) ?? settled_, sawAbort);
+		await onFinish((uniquifier?.remapSettled(settled_) as AgentMessage[]) ?? settled_, sawAbort);
 	};
 
 	const handle = (event: AgentEvent) => {
@@ -244,8 +248,10 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 			if (m?.role === "custom") noteSteerVisible(event.message as SteerMessage);
 		}
 		if (event.type === "agent_end") {
-			closeAll();
-			settleWith();
+			void (async () => {
+				await settleWith();
+				closeAll();
+			})();
 		}
 	};
 	agent.subscribe(handle);
@@ -261,8 +267,8 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 			if (settled) return;
 			console.error("[turn] agent loop failed:", err);
 			send({ type: "error", errorText: onError?.(err) ?? "An error occurred." });
+			await settleWith();
 			closeAll();
-			settleWith();
 		}
 	})();
 

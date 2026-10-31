@@ -1,10 +1,24 @@
 /**
- * ChatStore — the fs JSON adapter (one file per chat in data/chats/).
+ * ChatStore — the chat record adapter: METADATA in fs JSON, TRANSCRIPT in
+ * the durable store (src/store/durable.ts).
  *
  * Implements core/ports.ts ChatStore; the record shapes live in
- * core/contracts.ts (ChatRecord/ChatSummary). Idioms: sync fs, tiny
- * records, id-guarded filenames, JSON with tab indentation. Wired in the
- * composition root (src/server/stores.ts); nothing else constructs it.
+ * core/contracts.ts (ChatRecord/ChatSummary). One JSON file per chat keeps
+ * everything that is not the transcript — title, timestamps, plan tree,
+ * usage logs, settings, the schema stamp. The transcript is a read
+ * projection over the chat's durable entries, so `getChat` is async: the
+ * durable read is the truth, never a second cache.
+ *
+ * LEGACY IMPORT (owner-approved): a record written before the migration
+ * still carries `messages`. On first access the store copies the original
+ * file byte-for-byte into the chat's runtime directory
+ * (data/durable/<id>/legacy-chat.json), appends every message as a durable
+ * entry, and only then rewrites the JSON without `messages`. The import is
+ * idempotent — the empty-transcript check is the key — and the backup is
+ * never deleted automatically (session deletion removes it with the rest).
+ *
+ * Wired in the composition root (src/server/stores.ts); nothing else
+ * constructs it.
  */
 
 import * as fs from "node:fs";
@@ -15,23 +29,112 @@ import type { ChatStore } from "../core/ports.ts";
 import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
-import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
+import { danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
+import {
+	appendEntries,
+	appendMessages,
+	closeChatRuntime,
+	draftForMessage,
+	isEmptyTranscript,
+	openChatRuntime,
+	projectEntries,
+	readEntries,
+	removeChatRuntimeFiles,
+} from "./durable.ts";
+
+/** The on-disk metadata record: everything except the transcript. */
+type ChatMeta = Omit<ChatRecord, "messages">;
+
+interface ParsedRecord {
+	meta: ChatMeta;
+	/** Present only on a record written before the durable migration. */
+	legacyMessages?: LhMessage[];
+}
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
 	return path.join(PATHS.chats, `${id}.json`);
 }
 
-/** THE SILENCE LAW (push S6, 2026-10-02): chats-changed announces ONLY
- *  list-SHAPE mutations — createChat, renameChat, deleteChat (below,
- *  each emits post-write). The content writers (saveMessages,
- *  appendTurnUsage, appendExtractionUsage, saveSettings, saveTree) are
- *  DELIBERATELY SILENT: saveMessages fires per turn-persist and would
- *  spam the bus, and every list-visible change it causes (title, order,
- *  phase, busy, pendingQuestion) is already announced by turn-started /
- *  turn-settled, which the sidebar refetches on. Silence here is law,
- *  not oversight. */
+/** Per-chat metadata write queue: the old store was synchronous, so its
+ *  read-modify-write could not interleave. Async callers keep that
+ *  ordering by chaining here. */
+const metaQueues = new Map<string, Promise<unknown>>();
+
+async function withMetaLock<T>(id: string, run: () => Promise<T>): Promise<T> {
+	const previous = metaQueues.get(id) ?? Promise.resolve();
+	const next = previous.then(run, run);
+	metaQueues.set(
+		id,
+		next.catch(() => undefined),
+	);
+	try {
+		return await next;
+	} finally {
+		if (metaQueues.get(id) === undefined) metaQueues.delete(id);
+	}
+}
+
+/** Parse the metadata file. Null for unknown, corrupt, or future-version
+ *  records (the honest downgrade refusal: a read-modify-write store must
+ *  never rewrite what it does not understand). */
+function readRecord(id: string): ParsedRecord | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
+	} catch {
+		return null;
+	}
+	const v = (parsed as { version?: unknown }).version;
+	if (typeof v === "number" && v > CURRENT_CHAT_VERSION) {
+		console.error(
+			`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`,
+		);
+		return null;
+	}
+	const { messages, ...meta } = parsed as ChatRecord;
+	return { meta, legacyMessages: Array.isArray(messages) ? messages : undefined };
+}
+
+/** THE WRITE CHOKE POINT: every metadata persist goes through here and
+ *  carries the CURRENT version stamp (lazy migration: existing files are
+ *  stamped on their next write). */
+function writeMeta(meta: ChatMeta): void {
+	fs.mkdirSync(PATHS.chats, { recursive: true });
+	fs.writeFileSync(
+		chatFile(meta.id),
+		JSON.stringify({ ...meta, version: CURRENT_CHAT_VERSION }, null, "\t"),
+		"utf-8",
+	);
+}
+
+/** Import a pre-migration record: back up the original verbatim inside the
+ *  chat's runtime directory, append its messages as durable entries, then
+ *  drop `messages` from the metadata file. Idempotent: the transcript's
+ *  emptiness is the key, so a crash between the entry commit and the JSON
+ *  rewrite simply re-reads the same durable transcript on the next access. */
+async function importLegacy(id: string, meta: ChatMeta, messages: LhMessage[]): Promise<void> {
+	const runtime = await openChatRuntime(id);
+	if (await isEmptyTranscript(runtime)) {
+		const backup = path.join(runtime.dir, "legacy-chat.json");
+		if (!fs.existsSync(backup)) fs.copyFileSync(chatFile(id), backup);
+		await appendEntries(id, messages.map(draftForMessage));
+	}
+	writeMeta(meta);
+}
+
+async function readChat(id: string): Promise<ChatRecord | null> {
+	const parsed = readRecord(id);
+	if (!parsed) return null;
+	if (parsed.legacyMessages !== undefined) {
+		await importLegacy(id, parsed.meta, parsed.legacyMessages);
+	}
+	const runtime = await openChatRuntime(id);
+	const messages = projectEntries(await readEntries(runtime));
+	return { ...parsed.meta, messages };
+}
+
 function createChat(title: string, kind?: "practice"): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
@@ -44,165 +147,151 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 		// reads as teach — pre-practice records never migrate).
 		...(kind === "practice" ? { kind: "practice" as const } : {}),
 	};
-	fs.mkdirSync(PATHS.chats, { recursive: true });
-	writeChat(record);
+	const { messages: _messages, ...meta } = record;
+	writeMeta(meta);
 	emit("chats-changed", {});
-	return { ...record, version: CURRENT_CHAT_VERSION }; // the in-memory twin of what landed on disk
+	return { ...record, version: CURRENT_CHAT_VERSION };
 }
 
-/** THE WRITE CHOKE POINT (schema-versioning wave, owner 2026-10-10): every
- *  record persist goes through here and carries the CURRENT version stamp —
- *  lazy migration means existing files only get stamped on their next write.
- *  A future-version guard lives on the read side (getChat). */
-function writeChat(record: ChatRecord): void {
-	fs.writeFileSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
+/** The full record, or null if unknown / corrupt / newer-schema. */
+async function getChat(id: string): Promise<ChatRecord | null> {
+	return readChat(id);
 }
 
-function getChat(id: string): ChatRecord | null {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
-	} catch {
-		return null;
-	}
-	// Honest refusal (owner ruling 2026-10-10): a record stamped NEWER than
-	// this build (the downgrade scenario) reads as absent, never misparsed —
-	// the next read-modify-write must not rewrite what it doesn't understand.
-	const v = (parsed as { version?: unknown }).version;
-	if (typeof v === "number" && v > CURRENT_CHAT_VERSION) {
-		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
-		return null;
-	}
-	return parsed as ChatRecord;
-}
-
-function listChats(): ChatSummary[] {
+async function listChats(): Promise<ChatSummary[]> {
+	let names: string[];
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
-		return fs
-			.readdirSync(PATHS.chats)
-			.filter((f) => f.endsWith(".json"))
-			.map((f) => getChat(f.slice(0, -5)))
-			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, ...summary }) => {
-				// Per-record isolation (Wave B): a record whose messages fail the
-				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
-				// zero-back-compat wipe makes these "corrupt") must not blank the
-				// whole sidebar — same isolation getChat's per-file catch gives.
-				try {
-					return {
-						// turns and extractions stay out of the list payload (list =
-						// summaries; usage aggregates ride the full record, the picker
-						// never needs them).
-						...summary,
-						// Normalized kind: absent record field reads as teach.
-						kind: summary.kind ?? "teach",
-						messageCount: messages.length,
-						// Record-derived status for the session picker: phase from the
-						// transcript's explicit events (probe_done concluded / verdict
-						// accepted — docs/probe-teach-split.md §4), pending question
-						// from the native dangling-call scan. Wave D: both folds read
-						// the NATIVE record (core/phases.ts phaseAt3Lh +
-						// native-messages.ts danglingQuestionOf). Liveness (busy) is
-						// NOT record-derived — the API route merges it (ChatListItem).
-						phase: phaseAt3Lh(messages),
-						pendingQuestion: danglingQuestionOf(messages) !== null,
-					};
-				} catch (err) {
-					console.error(`[chat ${summary.id}] summary projection failed:`, err);
-					return null;
-				}
-			})
-			.filter((s): s is ChatSummary => s !== null)
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		names = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
 	} catch {
 		return [];
 	}
+	const out: ChatSummary[] = [];
+	for (const name of names) {
+		const record = await readChat(name.slice(0, -5)).catch(() => null);
+		if (!record) continue;
+		// Per-record isolation (Wave B): a record whose projection fails must
+		// not blank the whole sidebar.
+		try {
+			const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
+			out.push({
+				...summary,
+				// Normalized kind: absent record field reads as teach.
+				kind: summary.kind ?? "teach",
+				messageCount: messages.length,
+				// Record-derived status for the session picker: phase from the
+				// transcript's explicit events, pending question/problem from the
+				// native dangling-call scans.
+				phase: phaseAt3Lh(messages),
+				pendingQuestion: danglingQuestionOf(messages) !== null,
+			} as ChatSummary);
+		} catch (err) {
+			console.error(`[chat ${record.id}] summary projection failed:`, err);
+		}
+	}
+	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** Persist the full native message list (the record IS the agent state —
- *  Wave B: replay is state.messages = record.messages). SILENT by the
- *  events law — see the SILENCE LAW comment at createChat. */
-function saveMessages(id: string, messages: LhMessage[]): void {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.messages = messages;
-	record.updatedAt = new Date().toISOString();
-	writeChat(record);
+/** Persist the full native message list. The record IS the transcript, so
+ *  only the messages the durable store does not hold yet are appended (the
+ *  callers pass the whole desired list). SILENT by the events law — see the
+ *  SILENCE LAW comment at createChat. */
+async function saveMessages(id: string, messages: LhMessage[]): Promise<void> {
+	await appendMessages(id, messages);
+	await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		writeMeta({ ...parsed.meta, updatedAt: new Date().toISOString() });
+	});
 }
 
-/** Append one usage entry to the record's turn log — idempotent per
- * turn id: each REQUEST carries its own id, so a replay of the same turn's
- * persist appends once, while continuation turns (which share a response
+/** Append one usage entry to the record's turn log — idempotent per turn
+ *  id: each REQUEST carries its own id, so a replay of the same turn's
+ *  persist appends once, while continuation turns (which share a response
  *  message id) each keep their usage. */
-function appendTurnUsage(id: string, entry: TurnUsage): void {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.turns = record.turns?.some((t) => t.id === entry.id)
-		? record.turns
-		: [...(record.turns ?? []), entry];
-	writeChat(record);
+async function appendTurnUsage(id: string, entry: TurnUsage): Promise<void> {
+	await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		const turns = parsed.meta.turns ?? [];
+		writeMeta({
+			...parsed.meta,
+			turns: turns.some((t) => t.id === entry.id) ? turns : [...turns, entry],
+		});
+	});
 }
 
-/** Append one extraction-run usage entry to the record's extractions
- * log — idempotent per startedAt: a retry that reaches the append twice
- * (abort replays) does not double-count spend. */
-function appendExtractionUsage(id: string, entry: ExtractionRunUsage): void {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.extractions = record.extractions?.some((r) => r.startedAt === entry.startedAt)
-		? record.extractions
-		: [...(record.extractions ?? []), entry];
-	writeChat(record);
+/** Append one extraction-run usage entry — idempotent per startedAt. */
+async function appendExtractionUsage(id: string, entry: ExtractionRunUsage): Promise<void> {
+	await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		const extractions = parsed.meta.extractions ?? [];
+		writeMeta({
+			...parsed.meta,
+			extractions: extractions.some((r) => r.startedAt === entry.startedAt)
+				? extractions
+				: [...extractions, entry],
+		});
+	});
 }
 
-/** Persist the per-chat model/thinking settings — replace-whole (the
- * picker sends the complete object; absent = config defaults). */
-function saveSettings(id: string, settings: ChatSettings): void {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	// Like saveTree: a settings tweak is not conversation activity, so it
-	// deliberately does NOT bump updatedAt (sidebar order must not churn).
-	record.settings = settings;
-	writeChat(record);
+/** Persist the per-chat model/thinking settings — replace-whole. Like
+ *  saveTree: a settings tweak is not conversation activity, so it
+ *  deliberately does NOT bump updatedAt (sidebar order must not churn). */
+async function saveSettings(id: string, settings: ChatSettings): Promise<void> {
+	await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		writeMeta({ ...parsed.meta, settings });
+	});
 }
 
-/** Rename a session (the header's click-to-edit title, 2026-09-17). Like
- * saveSettings, a rename is NOT conversation activity: updatedAt stays put
- * so sidebar order never churns. Same fallback as createChat — the empty
- * string becomes "Untitled session" (the API gate rejects it first; this
- * is the honest floor for any other caller). */
-function renameChat(id: string, title: string): ChatRecord {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.title = title.trim() || "Untitled session";
-	writeChat(record);
+/** Rename a session. Like saveSettings, a rename is NOT conversation
+ *  activity: updatedAt stays put so sidebar order never churns. */
+async function renameChat(id: string, title: string): Promise<ChatRecord> {
+	const renamed = await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		const meta = { ...parsed.meta, title: title.trim() || "Untitled session" };
+		writeMeta(meta);
+		return meta;
+	});
 	emit("chats-changed", {});
-	return record;
+	const record = await readChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	return { ...record, ...renamed };
 }
 
-/** Delete the session record file entirely (session-deletion wave 6,
- *  owner 2026-09-22). False when the id is unknown — the route turns that
- *  into a 404. The record's graph traces and jobs are the route's
- *  choreography (core/graph-deletion.ts), not the store's. */
-function deleteChat(id: string): boolean {
+/** Hard-delete the session: close the runtime FIRST (no new work while it
+ *  closes, admitted commits settled), then remove its database, journals,
+ *  and the legacy backup, then the metadata file. False when the id is
+ *  unknown. The graph-ledger purge and job cleanup are the caller's
+ *  choreography (core/graph-deletion.ts + the DELETE route). */
+async function deleteChat(id: string): Promise<boolean> {
+	const file = chatFile(id);
+	const hadRecord = fs.existsSync(file);
+	const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
 	try {
-		fs.unlinkSync(chatFile(id));
-		emit("chats-changed", {}); // only a real removal — the present-entry law
-		return true;
+		await closeChatRuntime(id);
+		removeChatRuntimeFiles(id);
+		if (hadRecord) fs.unlinkSync(file);
+		if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
+		return hadRecord || hadRuntime;
 	} catch {
-		return false; // never existed, already deleted, or unreadable — same answer
+		return false;
 	}
 }
 
-/** Persist the session plan tree (plan tools call this in execute). */
-function saveTree(id: string, tree: PlanTree): void {
-	const record = getChat(id);
-	if (!record) throw new Error(`Chat not found: ${id}`);
-	record.tree = tree;
-	// Deliberately does NOT bump updatedAt: tree mutations piggyback on the
-	// turn's saveMessages, and sidebar ordering shouldn't churn on tree edits.
-	writeChat(record);
+/** Persist the session plan tree (plan tools call this in execute).
+ *  Deliberately does NOT bump updatedAt: tree mutations piggyback on the
+ *  turn's saveMessages, and sidebar ordering shouldn't churn on tree edits. */
+async function saveTree(id: string, tree: PlanTree): Promise<void> {
+	await withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) throw new Error(`Chat not found: ${id}`);
+		writeMeta({ ...parsed.meta, tree });
+	});
 }
 
 export const chatStore: ChatStore = {

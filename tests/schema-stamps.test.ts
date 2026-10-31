@@ -32,14 +32,14 @@ test.after(() => {
 
 // ── chats: lazy stamp at the write choke point ──────────────────────────────
 
-test("chats: createChat stamps version 1 on disk", () => {
-	const r = chatStore.createChat("stamp test");
+test("chats: createChat stamps version 1 on disk", async () => {
+	const r = await chatStore.createChat("stamp test");
 	assert.equal(r.version, 1, "the in-memory twin is stamped");
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${r.id}.json`), "utf8"));
 	assert.equal(onDisk.version, 1, "the record carries the stamp");
 });
 
-test("chats: an UNSTAMPED legacy record reads fine (absence = v1) and is stamped by its next write", () => {
+test("chats: an UNSTAMPED legacy record reads fine (absence = v1) and is stamped by its next write", async () => {
 	const id = "chat_legacy000_stamp0";
 	fs.mkdirSync(path.join(TMP_DATA, "chats"), { recursive: true });
 	fs.writeFileSync(
@@ -47,22 +47,22 @@ test("chats: an UNSTAMPED legacy record reads fine (absence = v1) and is stamped
 		JSON.stringify({ id, title: "legacy", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [] }),
 		"utf-8",
 	);
-	const r = chatStore.getChat(id);
+	const r = await chatStore.getChat(id);
 	assert.ok(r, "unstamped record reads (lazy v1)");
-	chatStore.saveMessages(id, []);
+	await chatStore.saveMessages(id, []);
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${id}.json`), "utf8"));
 	assert.equal(onDisk.version, 1, "the write choke point stamped it");
 });
 
-test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)", () => {
+test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)", async () => {
 	const id = "chat_future000_stamp0";
 	fs.writeFileSync(
 		path.join(TMP_DATA, "chats", `${id}.json`),
 		JSON.stringify({ id, title: "from the future", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [], version: 99 }),
 		"utf-8",
 	);
-	assert.equal(chatStore.getChat(id), null, "getChat refuses: reads as absent, never misparsed");
-	assert.ok(!chatStore.listChats().some((s) => s.id === id), "listChats skips it too");
+	assert.equal(await chatStore.getChat(id), null, "getChat refuses: reads as absent, never misparsed");
+	assert.ok(!(await chatStore.listChats()).some((s) => s.id === id), "listChats skips it too");
 	// and the refused record is NOT rewritten or downgraded by the visit:
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${id}.json`), "utf8"));
 	assert.equal(onDisk.version, 99, "the future record survives untouched");
@@ -70,14 +70,14 @@ test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)
 
 // ── the graph family: the lazy format.json sidecar ──────────────────────────
 
-test("graph: reads never write — no sidecar appears from reading alone", () => {
+test("graph: reads never write — no sidecar appears from reading alone", async () => {
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "no sidecar before any write");
 	assert.deepEqual(graphStore.readNodes(), [], "ledger reads fine without a sidecar");
 	assert.equal(readRenderSettings(), null, "render-settings reads fine without a sidecar");
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "reads did NOT create the sidecar (lazy = write-side only)");
 });
 
-test("graph: the first ledger append creates the sidecar at version 1", () => {
+test("graph: the first ledger append creates the sidecar at version 1", async () => {
 	graphStore.appendNode({
 		id: "n_stamp0",
 		name: "Stamps",
@@ -91,7 +91,7 @@ test("graph: the first ledger append creates the sidecar at version 1", () => {
 	assert.equal(graphStore.readNodes().length, 1, "the ledger reads back with the sidecar present");
 });
 
-test("graph: a NEWER-stamped sidecar is refused honestly", () => {
+test("graph: a NEWER-stamped sidecar is refused honestly", async () => {
 	fs.mkdirSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true });
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: 99 }), "utf-8");
 	assert.throws(() => graphStore.readNodes(), /older than its data|format version 99/);
@@ -99,7 +99,7 @@ test("graph: a NEWER-stamped sidecar is refused honestly", () => {
 	assert.throws(() => readRenderSettings(), /older than its data|format version 99/);
 });
 
-test("render-settings: its write stamps the family sidecar too", () => {
+test("render-settings: its write stamps the family sidecar too", async () => {
 	fs.rmSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true, force: true });
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE));
 	const written = writeRenderSettings({ sizeUnits: "world", nodeSize: 3 });
@@ -109,7 +109,7 @@ test("render-settings: its write stamps the family sidecar too", () => {
 
 // ── the fixtures stay the legacy pin: golden data reads unstamped ───────────
 
-test("golden fixtures are deliberately the unstamped legacy shape (lazy v1 = current-valid)", () => {
+test("golden fixtures are deliberately the unstamped legacy shape (lazy v1 = current-valid)", async () => {
 	const here = path.dirname(new URL(import.meta.url).pathname);
 	const teach = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "golden-data", "chats", "chat_mv27rrra_feff23b6.json"), "utf8"));
 	assert.equal(teach.version, undefined, "fixture records pin the unstamped read path");

@@ -11,7 +11,7 @@ import type { ChatListItem } from "@/src/core";
  *  (a running spinner per row would double-signal them), so busy means
  *  exactly "a teach turn is in flight". */
 export async function GET() {
-	const chats: ChatListItem[] = listChats().map((c) => ({
+	const chats: ChatListItem[] = (await listChats()).map((c) => ({
 		...c,
 		busy: isTurnRunning(c.id),
 		compacting: compactionInFlight(c.id),
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 	// refuses honestly until the setup flow fills the slot.
 	const strong = readSettingsRecord()?.models?.strong;
 	if (strong?.model) {
-		stores.chatStore.saveSettings(chat.id, {
+		await stores.chatStore.saveSettings(chat.id, {
 			model: { provider: strong.model.provider, id: strong.model.id },
 			thinkingLevel: strong.thinkingLevel,
 		});
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 		const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
 			formatChainLine(c, Object.fromEntries(byId)),
 		);
-		stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
+		await stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
 	}
 	return Response.json({ id: chat.id, title: chat.title });
 }

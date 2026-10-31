@@ -654,6 +654,10 @@ interface LhExtractionGlobal {
 		/** Last minted startedAt — kept monotonic so two runs starting in the
 		 *  same millisecond never collide on the usage idempotency key. */
 		lastStartedAt: number;
+		/** Runs that are admitted but have not reached their first phase yet
+		 *  (the durable record read is awaited): abort must still cancel them
+		 *  synchronously, or a hanging provider call could never be stopped. */
+		early?: Map<string, AbortController>;
 	};
 	/** The serialized-audit mutex (owner 2026-09-28): a FIFO promise
 	 *  chain — the audit+merge critical section runs one job at a time,
@@ -694,6 +698,11 @@ export function abortExtraction(chatId: string): boolean {
 	// entries (one per chunk/batch) — aborting the source aborts EVERY
 	// job of its fan-out.
 	let found = false;
+	const early = runs().early?.get(chatId);
+	if (early) {
+		early.abort();
+		found = true;
+	}
 	for (const run of runs().running.values()) {
 		if (run.chatId !== chatId) continue;
 		run.controller.abort();
@@ -842,7 +851,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			phase,
 			startedAt: prev?.startedAt ?? R.lastStartedAt,
 			usage: prev?.usage ?? {}, // phase changes never lose usage
-			controller: prev?.controller ?? new AbortController(),
+			controller: prev?.controller ?? forwardedController(R.early?.get(jobKey.split("#")[0]!)),
 		});
 		// Every phase transition announces the dock (push S5, 2026-10-02):
 		// notify-after-write — the registry is the feed's truth.
@@ -1008,7 +1017,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  or failure: a failed run still spent money, and its partial usage is
 	 *  exactly what the record should show (stats absent = never merged).
 	 *  Idempotent per startedAt (the store dedupes). */
-	function persistRunUsage(jobKey: string, durationMs: number, stats: EmissionStats | undefined): void {
+	async function persistRunUsage(jobKey: string, durationMs: number, stats: EmissionStats | undefined): Promise<void> {
 		const run = runningExtractions.get(jobKey);
 		if (!run) return; // not running (tests driving stages directly)
 		// PER-CHUNK JOBS (owner, 2026-09-28): the registry KEY may carry a
@@ -1018,7 +1027,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// usage log to append to — the record's death is the user's choice
 		// and its partial spend logs with it (appendSourceUsage below
 		// already no-ops for a vanished source; the chat path guards here).
-		if (run.kind === "chat" && !chatStore.getChat(run.chatId)) return;
+		if (run.kind === "chat" && !(await chatStore.getChat(run.chatId))) return;
 		const entry: ExtractionRunUsage = {
 			startedAt: run.startedAt,
 			at: new Date().toISOString(),
@@ -1030,7 +1039,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			},
 		};
 		if (run.kind === "notes") graphStore.appendSourceUsage(run.chatId, entry);
-		else chatStore.appendExtractionUsage(run.chatId, entry);
+		else await chatStore.appendExtractionUsage(run.chatId, entry);
 	}
 
 	/** One chunk/batch JOB (per-chunk jobs, owner 2026-09-28): the registry
@@ -1047,10 +1056,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const t0 = performance.now();
 		try {
 			const stats = await body(jobKey);
-			persistRunUsage(jobKey, Math.round(performance.now() - t0), stats);
+			await persistRunUsage(jobKey, Math.round(performance.now() - t0), stats);
 			return stats;
 		} catch (err) {
-			persistRunUsage(jobKey, Math.round(performance.now() - t0), undefined);
+			await persistRunUsage(jobKey, Math.round(performance.now() - t0), undefined);
 			throw err;
 		} finally {
 			finishExtraction(jobKey);
@@ -1092,9 +1101,25 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return stats;
 	}
 
+	/** A job's abort controller, forwarding an abort that landed while the run
+	 *  was still awaiting its first record read. */
+	function forwardedController(parent: AbortController | undefined): AbortController {
+		const controller = new AbortController();
+		if (!parent) return controller;
+		if (parent.signal.aborted) controller.abort();
+		else parent.signal.addEventListener("abort", () => controller.abort(), { once: true });
+		return controller;
+	}
+
 	async function runExtraction(chatId: string): Promise<EmissionStats> {
 		if (inFlight.has(chatId)) return { nodes: 0, chains: 0 };
 		inFlight.add(chatId);
+		// Admitted-but-unphased: the record read below is awaited, so an abort
+		// arriving in that window must still land (the dock's abort button and
+		// the deletion wind-down both fire immediately after dispatch).
+		const early = new AbortController();
+		const earlyMap = (runs().early ??= new Map());
+		earlyMap.set(chatId, early);
 		const t0 = performance.now();
 		// COVERAGE (vision-extraction-coverage.md, 2026-09-15): extract ONLY
 		// what the per-chat coverage ledger doesn't already hold — never the
@@ -1104,7 +1129,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// error below loses at most the in-flight batch — every earlier
 		// batch stays covered, the rest stays visibly uncovered.
 		try {
-			const record = chatStore.getChat(chatId);
+			const record = await chatStore.getChat(chatId);
 			if (!record) throw new Error(`Chat not found: ${chatId}`);
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): the write channel needs extractor + auditor
@@ -1174,7 +1199,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								// as one sync block; this closes the last window — a run that slipped
 								// past the wind-down finds the chat gone HERE and rides the existing
 								// abort path (info, not error): nothing merged, nothing checkpointed.
-								if (!chatStore.getChat(chatId)) {
+								if (!(await chatStore.getChat(chatId))) {
 									const gone = new Error(`chat deleted mid-run: ${chatId}`);
 									gone.name = "AbortError";
 									throw gone;
@@ -1223,6 +1248,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			console.error(`[extraction ${chatId}] pipeline failed (${Math.round(performance.now() - t0)}ms):`, err);
 			throw err;
 		} finally {
+			earlyMap.delete(chatId);
 			inFlight.delete(chatId);
 			finishExtraction(chatId); // done or failed — no longer running
 		}

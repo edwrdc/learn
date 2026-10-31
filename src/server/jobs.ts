@@ -428,7 +428,11 @@ async function pump(chatId: string): Promise<void> {
 			}
 
 			// Gone chat: nothing to deliver into.
-			const record = stores.chatStore.getChat(chatId);
+			const record = await stores.chatStore.getChat(chatId);
+			// The queue can change across the await (abortJob filters it, a
+			// delivery appends): restart with the current one, so a dropped
+			// steer is never fired from a stale snapshot.
+			if (s.queues.get(chatId) !== queue) continue;
 			if (!record) {
 				s.queues.delete(chatId);
 				for (const entry of queue) {
@@ -487,7 +491,11 @@ async function pump(chatId: string): Promise<void> {
 			// Re-fetch AFTER the gates open — waitForIdle can wait out a quiz
 			// answer (minutes), and sending the pre-wait snapshot would clobber
 			// the client's answer + continuation in the write-ahead persist.
-			const fresh = stores.chatStore.getChat(chatId);
+			const fresh = await stores.chatStore.getChat(chatId);
+			// The installed array is `stillPending` (set above), not the
+			// snapshot this iteration started from: compare against what the
+			// pump actually published.
+			if (s.queues.get(chatId) !== stillPending) continue;
 			if (!fresh) {
 				continue; // the gone-chat branch rejects next iteration
 			}
@@ -607,12 +615,12 @@ function failJob(jobId: string, err: Error): void {
  */
 async function waitForIdle(chatId: string): Promise<void> {
 	for (;;) {
-		const record = stores.chatStore.getChat(chatId);
+		const record = await stores.chatStore.getChat(chatId);
 		if (!record) return;
 		const blocked = isTurnRunning(chatId) || danglingQuestionOf(record.messages) !== null;
 		if (!blocked) {
 			await delay(GRACE_MS);
-			const recheck = stores.chatStore.getChat(chatId);
+			const recheck = await stores.chatStore.getChat(chatId);
 			if (
 				!isTurnRunning(chatId) &&
 				recheck &&
@@ -644,17 +652,17 @@ const SWEEP_THROTTLE_MS = 30_000;
  */
 /** Re-run a job's sub-agent loop — exposed for the sweep's tests (the
  *  /api/jobs poll is its only production caller, disabled under NODE_ENV=test). */
-export function recoverStaleJobs(): void {
+export async function recoverStaleJobs(): Promise<void> {
 	const s = state();
 	const now = Date.now();
 	if (now - s.lastSweepAt < SWEEP_THROTTLE_MS) return;
 	s.lastSweepAt = now;
 	try {
-		for (const chat of stores.chatStore.listChats()) {
+		for (const chat of await stores.chatStore.listChats()) {
 			for (const job of stores.jobStore.listJobs(chat.id)) {
 				if (job.status !== "running") continue;
 				if (isJobLive(job.id)) continue; // provably executing here — never re-run beside it
-				if (!stores.chatStore.getChat(job.chatId)) continue;
+				if (!(await stores.chatStore.getChat(job.chatId))) continue;
 				if (isTurnRunning(job.chatId)) continue; // a wake turn may be delivering it right now
 				if (job.result) {
 					// The wake never fired (or crashed mid-flight): re-deliver.

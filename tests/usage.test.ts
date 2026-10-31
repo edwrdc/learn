@@ -24,7 +24,7 @@ const call = (over: Partial<CallUsage> = {}): CallUsage => ({
 	...over,
 });
 
-test("sumSteps folds steps; absent stays absent until a value appears", () => {
+test("sumSteps folds steps; absent stays absent until a value appears", async () => {
 	const sum = sumSteps([
 		call({ inputTokens: 100, outputTokens: 20 }),
 		call({ inputTokens: 50, outputTokens: 10, cacheReadTokens: 30 }),
@@ -39,7 +39,7 @@ test("sumSteps folds steps; absent stays absent until a value appears", () => {
 	assert.equal(empty.inputTokens, undefined);
 });
 
-test("callCost: glm-5.3-flash math — fresh input, cached read, output", () => {
+test("callCost: glm-5.3-flash math — fresh input, cached read, output", async () => {
 	const cost = callCost(call({ inputTokens: 100_000, outputTokens: 20_000, cacheReadTokens: 10_000 }), "openrouter:z-ai/glm-5.3-flash");
 	assert.ok(cost !== null);
 	// fresh 90k @ $0.15/M + cached 10k @ $0.03/M + output 20k @ $0.5/M
@@ -48,7 +48,7 @@ test("callCost: glm-5.3-flash math — fresh input, cached read, output", () => 
 	assert.ok(Math.abs(cost! - (0.0135 + 0.0003 + 0.01)) < 1e-9);
 });
 
-test("callCost: cache writes bill at the cacheWrite rate", () => {
+test("callCost: cache writes bill at the cacheWrite rate", async () => {
 	const cost = callCost(
 		call({ inputTokens: 1_000_000, outputTokens: 0, cacheWriteTokens: 500_000 }),
 		"anthropic:claude-haiku-4-5",
@@ -58,12 +58,12 @@ test("callCost: cache writes bill at the cacheWrite rate", () => {
 	assert.ok(Math.abs(cost! - (1 + 0.625)) < 1e-9);
 });
 
-test("callCost: unknown model and absent fields are null, never zero", () => {
+test("callCost: unknown model and absent fields are null, never zero", async () => {
 	assert.equal(callCost(call({ inputTokens: 100, outputTokens: 5 }), "not/a-model"), null);
 	assert.equal(callCost(call({ inputTokens: 100, outputTokens: undefined }), "openrouter:z-ai/glm-5.3-flash"), null);
 });
 
-test("turnCost sums steps; sessionCost reports unpriced turns", () => {
+test("turnCost sums steps; sessionCost reports unpriced turns", async () => {
 	const turn: TurnUsage = {
 		id: "t1",
 		messageId: "m1",
@@ -79,7 +79,7 @@ test("turnCost sums steps; sessionCost reports unpriced turns", () => {
 	assert.ok(totals.cost > 0);
 });
 
-test("contextWindow: last call's footprint against the live index's limit", () => {
+test("contextWindow: last call's footprint against the live index's limit", async () => {
 	const limits = new Map([["openrouter:z-ai/glm-5.3-flash", 1_048_576]]);
 	const cw = contextWindow(
 		{
@@ -97,7 +97,7 @@ test("contextWindow: last call's footprint against the live index's limit", () =
 	assert.equal(contextWindow({ turns: [] }, limits), null);
 });
 
-test("contextWindow NUMERATOR: cache tokens count (owner audit, 2026-09-23)", () => {
+test("contextWindow NUMERATOR: cache tokens count (owner audit, 2026-09-23)", async () => {
 	// The audit's live case: a cache-heavy session read 40k on the meter
 	// while the real footprint was ~190k — provider `input` EXCLUDES the
 	// cached portion, so input+output alone is wildly low. The fold is
@@ -128,7 +128,7 @@ test("contextWindow NUMERATOR: cache tokens count (owner audit, 2026-09-23)", ()
 	assert.equal(plain.usedTokens, 10_000);
 });
 
-test("contextWindow DENOMINATOR: the live index is the ONLY source — no fallback (owner amendment, 2026-09-23)", () => {
+test("contextWindow DENOMINATOR: the live index is the ONLY source — no fallback (owner amendment, 2026-09-23)", async () => {
 	const turns = [
 		{ id: "t1", messageId: "m1", at: "x", model: "openrouter:z-ai/glm-5.3-flash", steps: [call({ inputTokens: 10_000, outputTokens: 1_000 })] },
 	];
@@ -153,7 +153,7 @@ test("contextWindow DENOMINATOR: the live index is the ONLY source — no fallba
 	assert.equal(missing.usedTokens, 11_000, "the footprint still reads honestly");
 });
 
-test("contextWindow ride-along: a zeroed/aborted last step falls back to the previous step", () => {
+test("contextWindow ride-along: a zeroed/aborted last step falls back to the previous step", async () => {
 	// An aborted last call reports zeroed usage — that is not the session
 	// footprint. The honest reading is the previous step's usage.
 	const limits = new Map([["openrouter:z-ai/glm-5.3-flash", 1_048_576]]);
@@ -186,7 +186,7 @@ test("contextWindow ride-along: a zeroed/aborted last step falls back to the pre
 	);
 });
 
-test("jobCost: null without usage, computed with it", () => {
+test("jobCost: null without usage, computed with it", async () => {
 	assert.equal(jobCost({}), null);
 	const job: Pick<JobRecord, "usage"> = {
 		usage: {
@@ -205,8 +205,8 @@ test("jobCost: null without usage, computed with it", () => {
 
 // ─── the store seam ──────────────────────────────────────────────────────────
 
-test("appendTurnUsage: appends, idempotent per turn id, continuation turns (same message) all kept, survives saveMessages", () => {
-	const record = chatStore.createChat("usage test chat");
+test("appendTurnUsage: appends, idempotent per turn id, continuation turns (same message) all kept, survives saveMessages", async () => {
+	const record = await chatStore.createChat("usage test chat");
 	const entry: TurnUsage = {
 		id: "turn_1",
 		messageId: "msg_a",
@@ -214,32 +214,32 @@ test("appendTurnUsage: appends, idempotent per turn id, continuation turns (same
 		model: "openrouter:z-ai/glm-5.3-flash",
 		steps: [call({ inputTokens: 100, outputTokens: 10 })],
 	};
-	chatStore.appendTurnUsage(record.id, entry);
-	chatStore.appendTurnUsage(record.id, entry); // replay (abort/retry) → no-op
+	await chatStore.appendTurnUsage(record.id, entry);
+	await chatStore.appendTurnUsage(record.id, entry); // replay (abort/retry) → no-op
 	// continuation turn: SAME response message (SDK coalesces), new turn id —
 	// usage must survive, not collapse into the first entry
-	chatStore.appendTurnUsage(record.id, { ...entry, id: "turn_2" });
-	let reread = chatStore.getChat(record.id);
+	await chatStore.appendTurnUsage(record.id, { ...entry, id: "turn_2" });
+	let reread = await chatStore.getChat(record.id);
 	assert.equal(reread?.turns?.length, 2);
 
 	// saveMessages must not clobber the log (read-mutate-write record) —
 	// Wave B: a NATIVE message list (the record holds agent history).
-	chatStore.saveMessages(record.id, [
+	await chatStore.saveMessages(record.id, [
 		{ id: "msg_a", role: "user", content: "native", timestamp: Date.now() } as never,
 	]);
-	reread = chatStore.getChat(record.id);
+	reread = await chatStore.getChat(record.id);
 	assert.equal(reread?.turns?.length, 2);
 
 	// and the list payload must NOT leak turns
-	const listed = chatStore.listChats().find((c) => c.id === record.id);
+	const listed = (await chatStore.listChats()).find((c) => c.id === record.id);
 	assert.ok(listed);
 	assert.equal("turns" in listed, false);
 
 	fs.unlinkSync(`${PATHS.chats}/${record.id}.json`);
 });
 
-test("appendExtractionUsage: appends, idempotent per startedAt, not in list payload", () => {
-	const record = chatStore.createChat("extraction usage test chat");
+test("appendExtractionUsage: appends, idempotent per startedAt, not in list payload", async () => {
+	const record = await chatStore.createChat("extraction usage test chat");
 	const runEntry = (startedAt: number): ExtractionRunUsage => ({
 		startedAt,
 		at: "2026-09-09T00:00:00Z",
@@ -250,26 +250,26 @@ test("appendExtractionUsage: appends, idempotent per startedAt, not in list payl
 			auditor: { model: "openrouter:z-ai/glm-5.3-flash", steps: [call({ inputTokens: 50, outputTokens: 5 })] },
 		},
 	});
-	chatStore.appendExtractionUsage(record.id, runEntry(1));
-	chatStore.appendExtractionUsage(record.id, runEntry(1)); // same run appended twice → no-op
-	chatStore.appendExtractionUsage(record.id, runEntry(2)); // a retried run is a NEW spend
-	let reread = chatStore.getChat(record.id);
+	await chatStore.appendExtractionUsage(record.id, runEntry(1));
+	await chatStore.appendExtractionUsage(record.id, runEntry(1)); // same run appended twice → no-op
+	await chatStore.appendExtractionUsage(record.id, runEntry(2)); // a retried run is a NEW spend
+	let reread = await chatStore.getChat(record.id);
 	assert.equal(reread?.extractions?.length, 2);
 	// failed runs (stats absent) persist with usage — money was spent
-	chatStore.appendExtractionUsage(record.id, { ...runEntry(3), stats: undefined });
-	reread = chatStore.getChat(record.id);
+	await chatStore.appendExtractionUsage(record.id, { ...runEntry(3), stats: undefined });
+	reread = await chatStore.getChat(record.id);
 	assert.equal(reread?.extractions?.length, 3);
 	assert.equal(reread?.extractions?.at(-1)?.stats, undefined);
 
 	// the list payload must NOT leak the extractions log
-	const listed = chatStore.listChats().find((c) => c.id === record.id);
+	const listed = (await chatStore.listChats()).find((c) => c.id === record.id);
 	assert.ok(listed);
 	assert.equal("extractions" in listed, false);
 
 	fs.unlinkSync(`${PATHS.chats}/${record.id}.json`);
 });
 
-test("appendSourceUsage: appends to the source record, idempotent per startedAt, upsert keeps history", () => {
+test("appendSourceUsage: appends to the source record, idempotent per startedAt, upsert keeps history", async () => {
 	// The real fs graphStore — sources.json backed up and restored around
 	// this test (same discipline as the chat fixture files).
 	fs.mkdirSync(PATHS.graph, { recursive: true });

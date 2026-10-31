@@ -35,15 +35,15 @@ describe("AgentBuildOptions.toolToggles (the P2 bridge)", () => {
 	const toolNames = (agent: { state: { tools: Array<{ name: string }> } }) =>
 		agent.state.tools.map((t) => t.name).sort();
 
-	it("flows into the teacher's registry: a job-tool delta is a no-op on the bare set", () => {
+	it("flows into the teacher's registry: a job-tool delta is a no-op on the bare set", async () => {
 		// No ctx → bare agent: quiz/ask only. A job-tool delta names tools
 		// that don't exist there — the bridge must not crash on it.
 		const bare = createTeacherAgent(undefined, { engine: fauxEngine(), toolToggles: { research: false } });
 		assert.deepEqual(toolNames(bare), ["ask_user_question", "quiz"]);
 	});
 
-	it("flows into the prober's registry; probe_done survives everything", () => {
-		const chatId = chatStore.createChat("Toggle bridge test").id;
+	it("flows into the prober's registry; probe_done survives everything", async () => {
+		const chatId = await chatStore.createChat("Toggle bridge test").id;
 		const ctx: ProberToolContext = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
 		const prober = createProberAgent(ctx, { engine: fauxEngine(), toolToggles: { ask_user_question: false } });
 		const names = toolNames(prober);
@@ -51,7 +51,7 @@ describe("AgentBuildOptions.toolToggles (the P2 bridge)", () => {
 		assert.ok(names.includes("probe_done"), "probe_done always-on");
 	});
 
-	it("an explicitly injected opts.tools registry is NEVER toggle-filtered", () => {
+	it("an explicitly injected opts.tools registry is NEVER toggle-filtered", async () => {
 		const teacher = createTeacherAgent(undefined, {
 			engine: fauxEngine(),
 			tools: {
@@ -75,19 +75,19 @@ describe("parseAgentSettingsBody: tool keys validate at write time", () => {
 			| { ok: true; settings: AgentSettings }
 			| { ok: false; error: string };
 
-	it("a valid job-tool delta parses", () => {
+	it("a valid job-tool delta parses", async () => {
 		const r = parse({ research: false, pdf: false });
 		assert.equal(r.ok, true);
 		assert.deepEqual(r.ok && r.settings.tools, { research: false, pdf: false });
 	});
 
-	it("the quizzing-mechanics key (explain) is writable (owner 2026-09-27)", () => {
+	it("the quizzing-mechanics key (explain) is writable (owner 2026-09-27)", async () => {
 		const r = parse({ explain: true });
 		assert.equal(r.ok, true);
 		assert.deepEqual(r.ok && r.settings.tools, { explain: true });
 	});
 
-	it("unknown keys are rejected with the supported list (the quiz wedge never persists)", () => {
+	it("unknown keys are rejected with the supported list (the quiz wedge never persists)", async () => {
 		const r = parse({ quiz: false });
 		assert.equal(r.ok, false);
 		assert.match(!r.ok && r.error, /unknown tool "quiz" \(supported: research, demo, visual, pdf, explain\)/);
@@ -96,7 +96,7 @@ describe("parseAgentSettingsBody: tool keys validate at write time", () => {
 		assert.match(!typo.ok && typo.error, /unknown tool "reasearch"/);
 	});
 
-	it("absent tools field is fine (absent = enabled everywhere)", () => {
+	it("absent tools field is fine (absent = enabled everywhere)", async () => {
 		const r = parseAgentSettingsBody({}) as { ok: boolean };
 		assert.equal(r.ok, true);
 	});

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import { LEDGER_FILES, POSITIONS_FILE } from "../../config.ts";
-import type { GraphSnapshot } from "../core/contracts.ts";
+import type { ChatRecord, GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
 import { graphSnapshot } from "../core/graph.ts";
@@ -18,7 +18,7 @@ import { stores } from "./stores.ts";
  * answers in sessions (turn-service), never from here — the home view
  * reflects whatever the pipeline has merged so far.
  */
-export function graphView(): GraphSnapshot {
+export async function graphView(): Promise<GraphSnapshot> {
 	return graphSnapshot(stores);
 }
 
@@ -28,15 +28,13 @@ export function graphView(): GraphSnapshot {
  *  (notes-front-door runs), and the naming ledger (graph-global runs);
  *  dollars are inferred by the pure core fold (core/cost-summary.ts +
  *  prices.ts) — nothing here stores or caches money. */
-export function graphCosts(): GraphCostSummary {
-	const chats = stores.chatStore
-		.listChats()
-		.flatMap((summary) => {
-			const record = stores.chatStore.getChat(summary.id);
-			return record?.extractions?.length
-				? [{ title: record.title ?? summary.id, extractions: record.extractions }]
-				: [];
-		});
+export async function graphCosts(): Promise<GraphCostSummary> {
+	const summaries = await stores.chatStore.listChats();
+	const chats: Array<{ title: string; extractions: NonNullable<ChatRecord["extractions"]> }> = [];
+	for (const summary of summaries) {
+		const record = await stores.chatStore.getChat(summary.id);
+		if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
+	}
 	const sources = stores.graphStore
 		.readSources()
 		.filter((s) => s.extractions?.length)

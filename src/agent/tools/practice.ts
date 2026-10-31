@@ -32,7 +32,7 @@ import { healEncodedArguments, healToolRecord } from "./heal.ts";
 /** The record-reading context the gates need (the plan-tools idiom). */
 export interface PracticeToolContext {
 	chatId: string;
-	chatStore: { getChat(id: string): { messages: LhMessage[]; kind?: string } | null };
+	chatStore: { getChat(id: string): Promise<{ messages: LhMessage[]; kind?: string } | null> };
 	/** The WHOLE-graph node list, read fresh per pose (owner round 9 — the
 	 *  mastery-trace contract): targets validate against every proposition,
 	 *  not just the session's picks, so pickless sessions and future
@@ -62,9 +62,25 @@ export interface PracticeGate {
 
 /** Seed the turn's gate from the record (result-aware activeProblemOf —
  *  only a cleanly-posed problem counts). */
-export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
-	const record = ctx.chatStore.getChat(ctx.chatId);
+export async function createPracticeGate(ctx: PracticeToolContext): Promise<PracticeGate> {
+	const record = await ctx.chatStore.getChat(ctx.chatId);
 	return { problemActive: record ? activeProblemOf(record.messages) !== null : false };
+}
+
+/** The registry's lazy seed: the record read happens at the first tool call,
+ *  once per turn (the toolset itself stays synchronous — the agent factory
+ *  is built synchronously per request). */
+function lazyGate(ctx: PracticeToolContext): { gate: PracticeGate; seed: () => Promise<void> } {
+	const gate: PracticeGate = { problemActive: false };
+	let seeding: Promise<void> | undefined;
+	const seed = () => {
+		seeding ??= (async () => {
+			const record = await ctx.chatStore.getChat(ctx.chatId);
+			gate.problemActive = record ? activeProblemOf(record.messages) !== null : false;
+		})();
+		return seeding;
+	};
+	return { gate, seed };
 }
 
 // ─── problem: the pose ───────────────────────────────────────────────────────
@@ -97,6 +113,7 @@ export type ProblemInput = Static<typeof problemInputObject>;
 export function problemTool(
 	gate: PracticeGate,
 	graphNodes?: PracticeToolContext["graphNodes"],
+	seed?: () => Promise<void>,
 ): AgentTool<typeof problemInputObject> {
 	return {
 		name: "problem",
@@ -134,6 +151,7 @@ export function problemTool(
 			return { ...(healed as Record<string, unknown>), target: normalized } as never;
 		},
 		execute: async (_toolCallId, input) => {
+			await seed?.();
 			if (gate.problemActive) {
 				return invalidInputResult("problem", [
 					"a problem is already active — call conclude on it before posing the next one",
@@ -196,7 +214,7 @@ export const concludeInputObject = Type.Object({
 
 export type ConcludeInput = Static<typeof concludeInputObject>;
 
-export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInputObject> {
+export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): AgentTool<typeof concludeInputObject> {
 	return {
 		name: "conclude",
 		label: "conclude",
@@ -210,6 +228,7 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 		prepareArguments: (args: unknown) => healEncodedArguments(args, concludeInputObject) as never,
 		executionMode: "sequential",
 		execute: async (_toolCallId, _input) => {
+			await seed?.();
 			if (!gate.problemActive) {
 				return invalidInputResult("conclude", ["no active problem to conclude — pose one first"]);
 			}
@@ -222,7 +241,7 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 /** The practice toolset (the practice agent's whole registry). */
 export function practiceTools(ctx: PracticeToolContext): Record<string, AgentTool<any>> {
 	// ONE gate per turn, shared by both tools — the intra-turn truth.
-	const gate = createPracticeGate(ctx);
+	const { gate, seed } = lazyGate(ctx);
 	// THE RARELY-NEEDED SET (owner round 10): read/ls/find/grep over the
 	// learner's files (always — the same read-only set the teacher and
 	// prober carry), the research + pdf jobs (available without search
@@ -236,8 +255,8 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// keep their own (target-normalizing) prepareArguments as the composed
 	// inner pass; the double heal is idempotent by construction.
 	return healToolRecord({
-		problem: problemTool(gate, ctx.graphNodes),
-		conclude: concludeTool(gate),
+		problem: problemTool(gate, ctx.graphNodes, seed),
+		conclude: concludeTool(gate, seed),
 		read: readTool,
 		ls: lsTool,
 		find: findTool,

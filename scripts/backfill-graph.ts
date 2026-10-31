@@ -13,7 +13,8 @@ import { effectiveSettings } from "../src/server/stores.ts";
 
 async function main() {
 	const only = process.argv[2]; // optional: extract just one chat id
-	const chats = only ? chatStore.listChats().filter((c) => c.id === only) : chatStore.listChats();
+	const all = await chatStore.listChats();
+	const chats = only ? all.filter((c) => c.id === only) : all;
 	console.log(`[backfill] ${chats.length} chats to extract`);
 	const pipeline = createExtractionPipeline({
 		chatStore,

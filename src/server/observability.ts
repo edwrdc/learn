@@ -65,12 +65,12 @@ export interface ActivityExtraction {
  *  graph changed underneath me" (a merge landed, a deletion purged) and
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
-export function activityFeed(): {
+export async function activityFeed(): Promise<{
 	jobs: ActivityJob[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
-} {
-	const chats = chatStore.listChats();
+}> {
+	const chats = await chatStore.listChats();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];
 	for (const chat of chats) {
@@ -84,7 +84,7 @@ export function activityFeed(): {
 			}
 		}
 	}
-	const extractions: ActivityExtraction[] = extractionStatuses().map((run) => ({
+	const extractions: ActivityExtraction[] = await Promise.all(extractionStatuses().map(async (run) => ({
 		id: run.part ? `${run.chatId}#${run.part.i}` : run.chatId,
 		chatId: run.chatId,
 		part: run.part,
@@ -92,11 +92,11 @@ export function activityFeed(): {
 		// status route) — the chat store's title, or the bare id for notes
 		// sources, plus the chunk suffix when the source fanned out.
 		title:
-			(run.label ?? chatStore.getChat(run.chatId)?.title ?? run.chatId) +
+			(run.label ?? (await chatStore.getChat(run.chatId))?.title ?? run.chatId) +
 			(run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
 		phase: run.phase,
 		startedAt: run.startedAt,
-	}));
+	})));
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {

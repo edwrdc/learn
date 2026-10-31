@@ -211,7 +211,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		// instead of waiting forever on a job it already dispatched.
 		const refuse = async (reason: string): Promise<void> => {
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			const resolved = resolveInput(job, input) as
+			const resolved = (await resolveInput(job, input)) as
 				| ResearchToolInput
 				| DemoToolInput
 				| VisualToolInput
@@ -273,12 +273,12 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	/** Resolve the job's tool input: dispatch passes it directly; only a
 	 *  crash-recovery re-spawn (no input) falls back to scanning the
 	 *  transcript (by then onFinish has long persisted the part). */
-	function resolveInput(
+	async function resolveInput(
 		job: JobRecord,
 		input: JobToolInput | undefined,
-	): JobToolInput | undefined {
+	): Promise<JobToolInput | undefined> {
 		if (input) return input;
-		const chat = chatStore.getChat(job.chatId);
+		const chat = await chatStore.getChat(job.chatId);
 		if (!chat) return undefined;
 		// Wave D: the record is native history — the scan reads the native
 		// assistant blocks directly (a toolCall's arguments are the input).
@@ -319,10 +319,10 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	}
 
 	/** Chat-record + input resolution shared by all three runners. */
-	function jobContext(jobId: string): { job: JobRecord; chatId: string } | null {
+	async function jobContext(jobId: string): Promise<{ job: JobRecord; chatId: string } | null> {
 		const job = jobStore.getJob(jobId);
 		if (!job || job.status !== "running") return null;
-		const chat = chatStore.getChat(job.chatId);
+		const chat = await chatStore.getChat(job.chatId);
 		if (!chat) {
 			jobStore.updateJob(jobId, { status: "error", error: `Chat not found: ${job.chatId}`, activity: "failed" });
 			return null;
@@ -338,11 +338,11 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		passedInput: JobToolInput | undefined,
 		loop: LoopContext,
 	): Promise<void> {
-		const ctx = jobContext(jobId);
+		const ctx = await jobContext(jobId);
 		if (!ctx) return;
 		const { job } = ctx;
 
-		const input = (passedInput ?? resolveInput(job, passedInput)) as ResearchToolInput | undefined;
+		const input = (passedInput ?? (await resolveInput(job, passedInput))) as ResearchToolInput | undefined;
 		const question = typeof input?.question === "string" && input.question.trim() ? input.question : "(no question)";
 		const context = typeof input?.context === "string" && input.context.trim() ? input.context : undefined;
 
@@ -403,11 +403,11 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		passedInput: JobToolInput | undefined,
 		loop: LoopContext,
 	): Promise<void> {
-		const ctx = jobContext(jobId);
+		const ctx = await jobContext(jobId);
 		if (!ctx) return;
 		const { job } = ctx;
 
-		const input = (passedInput ?? resolveInput(job, passedInput)) as DemoToolInput | undefined;
+		const input = (passedInput ?? (await resolveInput(job, passedInput))) as DemoToolInput | undefined;
 		const title = typeof input?.title === "string" && input.title.trim() ? input.title : "Interactive demo";
 		const brief = typeof input?.brief === "string" ? input.brief : "";
 
@@ -440,11 +440,11 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		passedInput: JobToolInput | undefined,
 		loop: LoopContext,
 	): Promise<void> {
-		const ctx = jobContext(jobId);
+		const ctx = await jobContext(jobId);
 		if (!ctx) return;
 		const { job } = ctx;
 
-		const input = (passedInput ?? resolveInput(job, passedInput)) as VisualToolInput | undefined;
+		const input = (passedInput ?? (await resolveInput(job, passedInput))) as VisualToolInput | undefined;
 		const brief = typeof input?.brief === "string" ? input.brief : "";
 
 		try {
@@ -478,11 +478,11 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		passedInput: JobToolInput | undefined,
 		loop: LoopContext,
 	): Promise<void> {
-		const ctx = jobContext(jobId);
+		const ctx = await jobContext(jobId);
 		if (!ctx) return;
 		const { job } = ctx;
 
-		const input = (passedInput ?? resolveInput(job, passedInput)) as PdfToolInput | undefined;
+		const input = (passedInput ?? (await resolveInput(job, passedInput))) as PdfToolInput | undefined;
 		const path = typeof input?.path === "string" && input.path.trim() ? input.path.trim() : "";
 		const question = typeof input?.question === "string" ? input.question : "";
 

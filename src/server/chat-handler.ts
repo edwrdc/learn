@@ -184,7 +184,7 @@ export async function handleChatInput(
 	input: TurnInput,
 	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
 ): Promise<Response> {
-	let record = stores.chatStore.getChat(chatId);
+	let record = await stores.chatStore.getChat(chatId);
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
@@ -258,7 +258,7 @@ export async function handleChatInput(
 		},
 		chatId,
 	);
-	const compactedRecord = stores.chatStore.getChat(chatId);
+	const compactedRecord = await stores.chatStore.getChat(chatId);
 	if (compactedRecord) record = compactedRecord;
 
 	// The input's native appends (pure; the honest 400 for an answer with no
@@ -293,7 +293,7 @@ export async function handleChatInput(
 	// the composer gates), so adjacency holds by construction.
 	if (input.type === "answer" && danglingQuestionOf([...record.messages, ...appends]) !== null) {
 		const merged = [...record.messages, ...appends];
-		stores.chatStore.saveMessages(chatId, merged);
+		await stores.chatStore.saveMessages(chatId, merged);
 		emit("record-changed", { chatId });
 		return settledTurnResponse(); // the cheap terminal — no beginTurn, no turn
 	}
@@ -314,7 +314,7 @@ export async function handleChatInput(
 	// is the ONLY copy ever appended.)
 	const merged = [...record.messages, ...appends];
 	try {
-		stores.chatStore.saveMessages(chatId, merged);
+		await stores.chatStore.saveMessages(chatId, merged);
 		// Dock fix (owner ruling 2026-09-26): persisted markers are visible
 		// in the record — flip their jobs now (the wake's steers ride this
 		// write-ahead; the delivering turn may run for minutes).
@@ -483,16 +483,16 @@ export async function handleChatInput(
 				console.error(`[chat ${chatId}] turn error:`, error);
 				return "An error occurred.";
 			},
-			onFinish: (turnMessages, isAborted) => {
+			onFinish: async (turnMessages, isAborted) => {
 				// Wave B: the record write is the agent's own final state —
 				// the new messages are the slice past the merged base.
-				const stamped = persistTurn(stores.chatStore, chatId, merged.length, turnMessages, isAborted);
+				const stamped = await persistTurn(stores.chatStore, chatId, merged.length, turnMessages, isAborted);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The
 				// provenance message is the turn's FIRST new assistant message.
 				const response = stamped.find((m) => (m as { role?: string }).role === "assistant");
 				if (response && steps.length > 0) {
-					stores.chatStore.appendTurnUsage(chatId, {
+					await stores.chatStore.appendTurnUsage(chatId, {
 						id: turnUsageId,
 						messageId: response.id,
 						at: new Date().toISOString(),
@@ -509,7 +509,7 @@ export async function handleChatInput(
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.
-					triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+					await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
 				}
 				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
 				// mid-turn was parked by the dismiss route (202); now that
@@ -517,7 +517,7 @@ export async function handleChatInput(
 				// real truth — BEFORE endTurn, so "turn-settled" guarantees a
 				// subsequent fetch reads the dismissal already in the record
 				// (the same ordering law as persistTurn itself).
-				applyParkedDismissal(stores.chatStore, chatId);
+				await applyParkedDismissal(stores.chatStore, chatId);
 				// LAST: a poller that sees not-in-flight must read an already-persisted
 				// record — endTurn only after persistTurn has done its job.
 				endTurn(chatId);
@@ -547,10 +547,11 @@ export async function handleChatInput(
 				// tests (the extraction precedent — scripted chats are
 				// fixtures; the service itself is pinned directly).
 				if (process.env.NODE_ENV !== "test")
-					kickCompaction(() => {
+					kickCompaction(async () => {
 						syncCustomEndpointProvider();
 						const fresh = effectiveSettings();
-						const spec = resolveConversationSpec(stores.chatStore.getChat(chatId)?.settings, fresh.models.strong);
+						const current = await stores.chatStore.getChat(chatId);
+						const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
 						if (!spec) return null;
 						let kickEngine: PiEngine;
 						try {
@@ -559,7 +560,7 @@ export async function handleChatInput(
 							return null;
 						}
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
-						const freshRecord = stores.chatStore.getChat(chatId);
+						const freshRecord = await stores.chatStore.getChat(chatId);
 						if (!freshRecord) return null;
 						return {
 							chatStore: stores.chatStore,

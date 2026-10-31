@@ -45,7 +45,7 @@ const PICKS = [
 // ── the pure marker ─────────────────────────────────────────────────────────
 
 describe("newGraphContextMessage", () => {
-	it("frames the context for the model: propositions listed, chains appended", () => {
+	it("frames the context for the model: propositions listed, chains appended", async () => {
 		const m = newGraphContextMessage(PICKS, ["Modus ponens → Soundness"]);
 		assert.equal(m.customType, "graph-context");
 		assert.match(m.content, /\[Session context\] — picked from the learner's knowledge map/);
@@ -58,13 +58,13 @@ describe("newGraphContextMessage", () => {
 		assert.deepEqual(m.details, { propositions: PICKS, chains: ["Modus ponens → Soundness"] });
 	});
 
-	it("no chains: the chains section stays out entirely", () => {
+	it("no chains: the chains section stays out entirely", async () => {
 		const m = newGraphContextMessage(PICKS, []);
 		assert.ok(!m.content.includes("Reasoning chains"));
 		assert.deepEqual(m.details, { propositions: PICKS, chains: [] });
 	});
 
-	it("toLlmMessages flattens it to a user message (the model's face)", () => {
+	it("toLlmMessages flattens it to a user message (the model's face)", async () => {
 		const m = newGraphContextMessage(PICKS, ["Modus ponens → Soundness"]);
 		const wire = toLlmMessages([m as unknown as LhMessage] as never);
 		assert.equal(wire.length, 1);
@@ -72,7 +72,7 @@ describe("newGraphContextMessage", () => {
 		assert.ok(String((wire[0]!.content as { text?: string }[])[0]!.text).includes("[Session context]"));
 	});
 
-	it("projectView: a user-side data part — never a text bubble", () => {
+	it("projectView: a user-side data part — never a text bubble", async () => {
 		const m = newGraphContextMessage(PICKS, []);
 		const view = projectView([m as unknown as LhMessage] as never);
 		assert.equal(view.length, 1);
@@ -86,19 +86,19 @@ describe("newGraphContextMessage", () => {
 // ── the first-send gate (the dead first turn, owner report 2026-10-04) ──────
 
 describe("initialPromptOwed", () => {
-	it("a marker-only record still owes the prompt — scaffolding is not conversation", () => {
+	it("a marker-only record still owes the prompt — scaffolding is not conversation", async () => {
 		const marker = newGraphContextMessage(PICKS, []);
 		assert.equal(initialPromptOwed([marker as never], "drill me on logic"), true);
 	});
 
-	it("once a user or assistant message exists, the prompt is spent", () => {
+	it("once a user or assistant message exists, the prompt is spent", async () => {
 		const marker = newGraphContextMessage(PICKS, []);
 		const user = { role: "user" } as never;
 		assert.equal(initialPromptOwed([marker as never, user], "drill me"), false);
 		assert.equal(initialPromptOwed([{ role: "assistant" } as never], "drill me"), false);
 	});
 
-	it("no prompt → nothing owed (the empty-draft case)", () => {
+	it("no prompt → nothing owed (the empty-draft case)", async () => {
 		assert.equal(initialPromptOwed([], undefined), false);
 	});
 });
@@ -130,7 +130,7 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 		assert.equal(res.status, 200);
 		const { id } = (await res.json()) as { id: string };
 
-		const record = chatStore.getChat(id)!;
+		const record = (await chatStore.getChat(id))!;
 		assert.equal(record.messages.length, 1, "the marker is message[0], alone until the first turn");
 		const m = record.messages[0] as { role: string; customType: string; content: string };
 		assert.equal(m.role, "custom");
@@ -148,7 +148,7 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 				body: JSON.stringify(body),
 			}));
 			const { id } = (await res.json()) as { id: string };
-			assert.equal(chatStore.getChat(id)!.messages.length, 0);
+			assert.equal((await chatStore.getChat(id))!.messages.length, 0);
 		}
 	});
 });
