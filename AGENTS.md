@@ -14,6 +14,14 @@ All design authority belongs to the human. **Never guess a design or implementat
 
 Concretely: first investigate and plan rigorously (asking the user design questions along the way), get the plan approved by the user, and only then implement. Implementation should be mechanical execution of an approved plan — not interpretation.
 
+## Commits and PR Titles
+
+Use conventional commit-style messages and PR titles: `type(scope): summary`.
+
+Valid types are `feat`, `fix`, `docs`, `chore`, `refactor`, and `test`. Scopes are optional; use the affected package or area when helpful, e.g. `core`, `agent`, `server`, `app`, `store`.
+
+Examples: `fix(app): simplify thinking toggle styling`, `docs: update contributing guide`, `chore(app): regenerate types`.
+
 # Pstack in Pi
 
 Pstack workflows are optional. Their `.agents` model, skill, and reference
@@ -47,3 +55,12 @@ only; do not write global settings.
   role has no clear mapping, ask before launching it.
 - Leave the parent chat's model unchanged. These rules do not grant autonomy
   beyond this repository's approval requirements.
+
+## Style Guide
+
+### General Principles
+
+- Keep things in one function unless composable or reusable
+- Validate unknown values once at the boundary that owns them. Pass typed values inward instead of repeating `typeof value === "object"` and property-existence checks. Do not defensively revalidate values already guaranteed by a schema, constructor, or internal type.
+- Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
+- Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness.
