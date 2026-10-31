@@ -2,16 +2,22 @@
 
 The files are the user's record, not an import format to rewrite. Work read-only.
 The bundled readers make common views convenient; they are not required for custom
-analysis. This reference describes native session/graph format **1**. An absent
-version stamp means v1. Older fields within that format are described below;
-pre-native `parts`/UIMessage transcripts are a different, unsupported dialect.
+analysis. This reference describes native session formats **1** and **2**, and graph
+format **1**. An absent session version stamp means v1. Format 2 moved the session
+transcript into a per-session SQLite database; the JSON file keeps metadata only.
+Older fields within both formats are described below; pre-native `parts`/UIMessage
+transcripts are a different, unsupported dialect.
 
 ## File map
 
 Paths below are relative to the selected **data** directory:
 
 ```text
-chats/<session-id>.json    Full session: messages, optional plan, usage metadata
+chats/<session-id>.json    Session metadata; format 1 also carries messages
+durable/<session-id>/harness.sqlite     Format-2 transcript entries (one database per session)
+durable/<session-id>/harness.sqlite-wal Uncheckpointed committed turns while a writer is open
+durable/<session-id>/harness.sqlite-shm SQLite shared-memory index while a writer is open
+durable/<session-id>/legacy-chat.json   Original pre-migration JSON backup, not the current transcript
 graph/nodes.jsonl          Proposition assertions; IDs can repeat
 graph/chains.jsonl         Reasoning-chain assertions; logical chains can repeat
 graph/sources.json        Imported-note source metadata, keyed by source ID
@@ -37,11 +43,22 @@ Each `chats/*.json` file is an object with:
 | `id`, `title` | Stable session identity and user-visible name |
 | `createdAt`, `updatedAt` | ISO date strings for the session, not a date for every idea |
 | `kind` | `teach` or `practice`; absent means `teach` |
-| `version` | Format stamp; absent means v1 |
-| `messages` | Complete stored chronological history, including custom app markers |
+| `version` | Format stamp; absent means v1. Format 2 keeps the transcript in `durable/<id>/harness.sqlite` |
+| `messages` | Complete stored chronological history, including custom app markers (format 1 only; format 2 projects it) |
 | `tree` | Optional session plan: nodes, prerequisite edges, revision number |
 | `turns`, `extractions` | Parallel usage/cost-observation logs, not learner answers |
 | `settings` | Per-session model/thinking overrides, not an understanding assessment |
+
+In format 2, `chats/<id>.json` holds metadata only. The reader projects the message
+list from the session's durable entries in ascending order, with the same ids the
+app uses for export, coverage, and graph provenance. Do not read `legacy-chat.json` as
+the current transcript: it is the pre-migration copy and misses every later turn.
+The projected ids keep the record's existing identity. App-written messages carry
+`data.id`; native assistant and tool-result entries derive `e<entry-id>`, with
+`#<index>` added for a second or later message in one entry. The newest ContextEdit
+per target replaces or omits that entry's contribution. Continuation input
+(`lh.continuation`) and positional system prompts (`pi.system`) are bookkeeping and
+are hidden from the projected messages.
 
 The plan is session scaffolding, not the persistent knowledge graph. Its visited
 or current positions are not proof of mastery. Context compaction changes what the
@@ -231,3 +248,10 @@ Malformed/unsupported records must be identified, not silently counted as valid.
 The app may be writing while a reader runs, so a directory-wide read is not an
 atomic snapshot. Re-read or close the app for a stable comparison. Never introduce
 locks, migrations, cleanup, or source-file edits to make a read succeed.
+
+Format 2 reads never write inside the data folder. When SQLite WAL sidecar files
+exist, the reader copies the database and WAL to a temporary folder outside the data
+folder and reads the copy, so committed turns that are not yet checkpointed are
+included without changing the originals. A checkpointed database is read in place in
+immutable mode. A database whose schema is newer than the reader supports is refused
+with an explicit error rather than guessed.

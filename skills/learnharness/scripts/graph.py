@@ -13,7 +13,7 @@ import argparse
 import json
 import re
 
-from _data import DataError, add_common_arguments, data_root, print_json, read_chat, read_json, safe_path
+from _data import DataError, add_common_arguments, data_root, print_json, read_chat_meta, read_json, safe_path
 
 
 def warn(message):
@@ -129,7 +129,7 @@ def load_metadata(root):
     if chats.exists():
         for path in sorted(chats.glob("*.json")):
             try:
-                chat = read_chat(root, path.stem)
+                chat = read_chat_meta(root, path.stem)
             except DataError as exc:
                 warn(f"chats/{path.name}: {exc}; skipped (labels may be incomplete)")
                 continue

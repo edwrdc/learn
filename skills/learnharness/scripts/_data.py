@@ -84,8 +84,13 @@ def read_json(root: Path, relative: str | Path, *, missing: Any = None) -> Any:
         raise DataError(f"Cannot read {target}: {exc}") from exc
 
 
-def read_chat(root: Path, session_id: str) -> dict[str, Any]:
-    """Read a native v1 session; refuse unsupported formats rather than migrate."""
+def read_chat_meta(root: Path, session_id: str) -> dict[str, Any]:
+    """Read a session's stored metadata; leave the transcript where it lives.
+
+    Format 2 keeps only metadata in the JSON file; the transcript is in the
+    chat's durable SQLite database. Format 1 (or an absent stamp) keeps the
+    transcript in `messages`. Newer formats are refused, never migrated.
+    """
     if not session_id or session_id in {".", ".."} or any(char in session_id for char in ("/", "\\", "\x00")):
         raise DataError("Use a session ID from sessions.py list, not a filesystem path.")
     relative = Path("chats") / f"{session_id}.json"
@@ -95,14 +100,17 @@ def read_chat(root: Path, session_id: str) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise DataError(f"Session {session_id} is not a JSON object.")
     version = record.get("version", 1)
-    if isinstance(version, bool) or not isinstance(version, (int, float)):
-        raise DataError(f"Session {session_id} has an invalid version; this reader supports native format 1.")
-    if version > 1:
-        raise DataError(f"Session {session_id} uses format {version}; this reader supports 1. Update the skill; no migration was attempted.")
+    if (isinstance(version, bool) or not isinstance(version, (int, float))
+            or (isinstance(version, float) and not version.is_integer())):
+        raise DataError(f"Session {session_id} has an invalid version; this reader supports native formats 1 and 2.")
+    if version > 2:
+        raise DataError(f"Session {session_id} uses format {version:g}; this reader supports 1 and 2. Update the skill; no migration was attempted.")
     if record.get("id") != session_id:
         raise DataError(f"Session filename/ID mismatch: {session_id}.")
     if not all(isinstance(record.get(key), str) for key in ("title", "createdAt", "updatedAt")):
         raise DataError(f"Session {session_id} is missing string title/date metadata.")
+    if version == 2:
+        return record
     messages = record.get("messages")
     if not isinstance(messages, list):
         raise DataError(f"Session {session_id} has no native message array.")
@@ -110,7 +118,17 @@ def read_chat(root: Path, session_id: str) -> dict[str, Any]:
         if not isinstance(message, dict) or not isinstance(message.get("role"), str):
             raise DataError(f"Session {session_id}, message {index}: unsupported message shape.")
         if "parts" in message and "content" not in message:
-            raise DataError(f"Session {session_id} uses the older UIMessage/parts format. This skill reads native v1 records only; inspect the source JSON read-only.")
+            raise DataError(f"Session {session_id} uses the older UIMessage/parts format. This skill reads native records only; inspect the source JSON read-only.")
+    return record
+
+
+def read_chat(root: Path, session_id: str) -> dict[str, Any]:
+    """Read a native session record; refuse unsupported formats rather than migrate."""
+    record = read_chat_meta(root, session_id)
+    if record.get("version", 1) == 2:
+        # Deferred: _durable imports DataError and safe_path from this module.
+        from _durable import read_transcript
+        return {**record, "messages": read_transcript(root, session_id)}
     return record
 
 
