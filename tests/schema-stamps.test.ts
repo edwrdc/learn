@@ -22,6 +22,7 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-stamps-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const { chatStore } = await import("../src/store/chats.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 const { readRenderSettings, writeRenderSettings } = await import("../src/store/render-settings.ts");
 const { GRAPH_FORMAT_FILE } = await import("../config.ts");
@@ -32,14 +33,17 @@ test.after(() => {
 
 // ── chats: lazy stamp at the write choke point ──────────────────────────────
 
-test("chats: createChat stamps version 1 on disk", async () => {
+test("chats: createChat stamps the current version on disk", async () => {
+	// v2 is the metadata-only shape: an old build (max v1) refuses it on read
+	// instead of mistaking a transcript-less record for its own format.
+	assert.equal(CURRENT_CHAT_VERSION, 2, "the transcript-less record is a new on-disk version");
 	const r = await chatStore.createChat("stamp test");
-	assert.equal(r.version, 1, "the in-memory twin is stamped");
+	assert.equal(r.version, CURRENT_CHAT_VERSION, "the in-memory twin is stamped");
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${r.id}.json`), "utf8"));
-	assert.equal(onDisk.version, 1, "the record carries the stamp");
+	assert.equal(onDisk.version, CURRENT_CHAT_VERSION, "the record carries the stamp");
 });
 
-test("chats: an UNSTAMPED legacy record reads fine (absence = v1) and is stamped by its next write", async () => {
+test("chats: an UNSTAMPED legacy record reads fine (absence = legacy) and is stamped by its next write", async () => {
 	const id = "chat_legacy000_stamp0";
 	fs.mkdirSync(path.join(TMP_DATA, "chats"), { recursive: true });
 	fs.writeFileSync(
@@ -48,10 +52,10 @@ test("chats: an UNSTAMPED legacy record reads fine (absence = v1) and is stamped
 		"utf-8",
 	);
 	const r = await chatStore.getChat(id);
-	assert.ok(r, "unstamped record reads (lazy v1)");
+	assert.ok(r, "unstamped record reads (absence reads as the pre-migration shape)");
 	await chatStore.saveMessages(id, []);
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${id}.json`), "utf8"));
-	assert.equal(onDisk.version, 1, "the write choke point stamped it");
+	assert.equal(onDisk.version, CURRENT_CHAT_VERSION, "the write choke point stamped it");
 });
 
 test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)", async () => {

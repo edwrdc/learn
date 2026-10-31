@@ -52,16 +52,19 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
-	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
-	 *  existing records stay unstamped (absence reads as v1); every write
-	 *  stamps the current version. A record stamped NEWER than this build
-	 *  (the downgrade scenario) is REFUSED on read: a read-modify-write
-	 *  store must never rewrite what it doesn't understand. */
+	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY —
+	 *  existing records stay unstamped; every write stamps the current
+	 *  version. v1 carries `messages`; v2 (pi-durable migration) is
+	 *  metadata-only and reads the transcript from the durable store. A
+	 *  record stamped NEWER than this build (the downgrade scenario) is
+	 *  REFUSED on read: a read-modify-write store must never rewrite what
+	 *  it doesn't understand — and an old build must not read a v2 record
+	 *  as its own chat format. */
 	version?: number;
 }
 
 /** The chat record format this build writes and understands. */
-export const CURRENT_CHAT_VERSION = 1;
+export const CURRENT_CHAT_VERSION = 2;
 
 /** The conversation agents' runtime model choice (model-control wave,
  *  2026-09-12): a per-chat override of config.ts's pinned prober/teacher

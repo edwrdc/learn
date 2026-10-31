@@ -108,10 +108,19 @@ export function durableDir(chatId: string): string {
 }
 
 interface LhGlobal {
-	__lhDurableRuntimes?: Map<string, Promise<ChatRuntime>>;
+	__lhDurableRuntimes?: Map<string, RuntimeSlot>;
 }
 
-function handles(): Map<string, Promise<ChatRuntime>> {
+/** One slot per chat id: the runtime's lifecycle. The slot is the single
+ *  owner of the database handle. It stays in the map through `closing` until
+ *  the Harness has settled, so no second Harness can open on the same
+ *  database while the first drains, and concurrent closes share one drain. */
+type RuntimeSlot =
+	| { readonly phase: "opening"; readonly opened: Promise<ChatRuntime> }
+	| { readonly phase: "open"; readonly runtime: ChatRuntime }
+	| { readonly phase: "closing"; readonly done: Promise<void> };
+
+function slots(): Map<string, RuntimeSlot> {
 	const g = globalThis as typeof globalThis & LhGlobal;
 	return (g.__lhDurableRuntimes ??= new Map());
 }
@@ -151,18 +160,29 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	return { chatId, dir, storage, harness, root, queue: Promise.resolve(), closing: false };
 }
 
-/** The chat's runtime, opening (and importing) it on first use. One owner
- *  per database: concurrent callers share the in-flight open. */
+/** The chat's runtime, opening it on first use. One owner per database:
+ *  callers share the in-flight open, and a chat that is closing refuses new
+ *  work until its close settles (a fresh open is allowed afterwards). */
 export async function openChatRuntime(chatId: string): Promise<ChatRuntime> {
-	const map = handles();
-	const existing = map.get(chatId);
-	if (existing) return existing;
-	const opening = openRuntime(chatId);
+	const map = slots();
+	const slot = map.get(chatId);
+	if (slot?.phase === "open") return slot.runtime;
+	if (slot?.phase === "closing") throw new Error(`Chat ${chatId} is closing`);
+	if (slot?.phase === "opening") {
+		const runtime = await slot.opened;
+		// The close that raced this open owns the slot now, and the runtime it
+		// is draining is not open for business.
+		if (map.get(chatId)?.phase === "closing") throw new Error(`Chat ${chatId} is closing`);
+		return runtime;
+	}
+	const opening: RuntimeSlot = { phase: "opening", opened: openRuntime(chatId) };
 	map.set(chatId, opening);
 	try {
-		return await opening;
+		const runtime = await opening.opened;
+		if (map.get(chatId) === opening) map.set(chatId, { phase: "open", runtime });
+		return runtime;
 	} catch (error) {
-		map.delete(chatId);
+		if (map.get(chatId) === opening) map.delete(chatId);
 		throw error;
 	}
 }
@@ -170,23 +190,35 @@ export async function openChatRuntime(chatId: string): Promise<ChatRuntime> {
 /** A runtime that is already open, or undefined — for callers that must not
  *  pay an open (deletion teardown, tests). */
 export function peekChatRuntime(chatId: string): Promise<ChatRuntime> | undefined {
-	return handles().get(chatId);
+	const slot = slots().get(chatId);
+	if (slot?.phase === "open") return Promise.resolve(slot.runtime);
+	if (slot?.phase === "opening") return slot.opened;
+	return undefined;
 }
 
 /** Close the chat's Harness (settles admitted commits, closes storage) and
- *  forget the handle. Idempotent. New work is refused while closing. */
+ *  release the slot. Idempotent: a concurrent close joins the first. New
+ *  work is refused while closing. */
 export async function closeChatRuntime(chatId: string): Promise<void> {
-	const map = handles();
-	const existing = map.get(chatId);
-	if (!existing) return;
-	map.delete(chatId);
-	const runtime = await existing.catch(() => undefined);
-	if (!runtime) return;
-	runtime.closing = true;
-	await runtime.queue.catch(() => undefined);
-	await runtime.harness.close(BACKGROUND_CONTEXT).catch((error) => {
-		console.error(`[chat ${chatId}] durable close failed:`, error);
-	});
+	const map = slots();
+	const slot = map.get(chatId);
+	if (!slot) return;
+	if (slot.phase === "closing") return slot.done;
+	const done = (async () => {
+		const runtime = slot.phase === "opening" ? await slot.opened.catch(() => undefined) : slot.runtime;
+		if (!runtime) return;
+		runtime.closing = true;
+		await runtime.queue.catch(() => undefined);
+		await runtime.harness.close(BACKGROUND_CONTEXT).catch((error) => {
+			console.error(`[chat ${chatId}] durable close failed:`, error);
+		});
+	})();
+	map.set(chatId, { phase: "closing", done });
+	try {
+		await done;
+	} finally {
+		map.delete(chatId);
+	}
 }
 
 /** Hard-delete the chat's durable directory (after the Harness is closed).

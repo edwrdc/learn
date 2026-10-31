@@ -36,6 +36,7 @@ fs.cpSync(GOLDEN, TMP, { recursive: true });
 process.env.LH_DATA_DIR = TMP;
 
 const { chatStore } = await import("../src/store/chats.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
@@ -238,7 +239,7 @@ test("legacy import: the metadata file keeps everything but the transcript", asy
 	for (const id of [TEACH, PRACTICE]) {
 		const meta = JSON.parse(fs.readFileSync(path.join(TMP, "chats", `${id}.json`), "utf-8")) as Record<string, unknown>;
 		assert.equal(meta.messages, undefined, `${id}: the transcript moved to the durable store`);
-		assert.equal(meta.version, 1, `${id}: stamped on write`);
+		assert.equal(meta.version, CURRENT_CHAT_VERSION, `${id}: stamped on write`);
 		const original = JSON.parse(BEFORE.get(`chats/${id}.json`)!.toString("utf-8")) as Record<string, unknown>;
 		for (const key of Object.keys(original)) {
 			if (key === "messages") continue;
