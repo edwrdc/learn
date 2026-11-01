@@ -1,12 +1,15 @@
 import { Type } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
-import { serverExecute } from "../tool-execute.ts";
-import type { PiEngine } from "../models.ts";
-import { runSubagent } from "./pi-run.ts";
+import type { AppTool, AppToolResult } from "../tool-adapter.ts";
+import {
+	backgroundRun,
+	type DemoRunState,
+	type DemoVerification,
+	type RoleRunIdentity,
+	type RoleStateIo,
+} from "./durable-run.ts";
 import type { DemoResult } from "../../core/contracts.ts";
 import { getHeadless, type DemoRunResult, type HeadlessApi } from "./headless.ts";
-import { healToolRecord } from "../tools/heal.ts";
+import type { PiEngine } from "../models.ts";
 
 /**
  * The demo-builder sub-agent (vision §2 interactive demos + §2.5 "sub-agents
@@ -14,10 +17,12 @@ import { healToolRecord } from "../tools/heal.ts";
  * single-file HTML/JS demo, TESTS IT HEADLESSLY (run_demo), and iterates
  * fix → re-run until clean — before anything reaches the lesson.
  *
- * Shape: a ToolLoopAgent with two executable tools (write_demo / run_demo) —
- * the engine is injectable (tests use a scripted faux engine) and the headless
- * API is injectable (tests use a fake; production uses the app's own
- * Chromium browser service, system Chrome as fallback).
+ * The model loop is a durable conversation (durable-run.ts): the two tools
+ * commit their progress into the run descriptor before their results, so a
+ * process death mid-build resumes with the same html/tested state. The final
+ * headless verification stays in the finish path below: the delivered html
+ * must have a clean run even when the model claims success or forgets the
+ * final run_demo.
  *
  * Failure semantics (decided in the W6 brief): `tested: true` means "the
  * verify loop ran"; on failure the result is { title, html: "", tested: true,
@@ -40,10 +45,12 @@ export interface DemoBuilderOptions {
 	onActivity?: (line: string) => void;
 	/** Kills the run mid-model-call (2026-09 real-kill abort semantics). */
 	abortSignal?: AbortSignal;
-	/** Money channel: one call per agent step, folded into JobRecord.usage. */
-	onUsage?: (usage: Usage) => void;
+	/** Money channel: folded per assistant step into JobRecord.usage. */
+	onUsage?: (usage: import("../../core/contracts.ts").JobUsage) => void;
 	/** Debug: raw provider-event recording key (LH_PROVIDER_EVENTS=1). */
 	chatId?: string;
+	/** The durable owner + stable run key (the job id in production). */
+	run: RoleRunIdentity;
 }
 
 const INSTRUCTIONS = `You are a demo builder — a specialist sub-agent inside a learning application. You
@@ -75,13 +82,6 @@ THE HOUSE RULE — never deliver untested:
 
 Never claim success you did not see: a PASSED run_demo is the only definition of done.`;
 
-interface BuilderState {
-	html: string | null;
-	/** The html that the last run_demo tested (null = never tested). */
-	testedHtml: string | null;
-	lastResult: DemoRunResult | null;
-}
-
 const writeDemoInput = Type.Object({
 	html: Type.String({ description: "The complete HTML document: <!doctype html>…</html>, all JS inline." }),
 });
@@ -96,57 +96,77 @@ const runDemoInput = Type.Object({
 	),
 });
 
-export function createDemoBuilderTools(
-	state: BuilderState,
+function textResult(text: string): AppToolResult {
+	return { content: [{ type: "text", text }] };
+}
+
+/** The probe value is not persisted (it is an arbitrary JSON value the model
+ *  asked for); the verification facts are. */
+function verification(result: DemoRunResult): DemoVerification {
+	return {
+		consoleErrors: result.consoleErrors,
+		pageErrors: result.pageErrors,
+		failedRequests: result.failedRequests,
+		ok: result.ok,
+	};
+}
+
+export function demoRoleTools(
+	io: RoleStateIo<DemoRunState>,
 	headless: HeadlessApi,
 	onActivity?: (line: string) => void,
-): Record<string, AgentTool<any>> {
-	return healToolRecord({
+): Record<string, AppTool<any>> {
+	return {
 		write_demo: {
 			name: "write_demo",
-			label: "write_demo",
 			description:
 				"Write the complete self-contained HTML document for the demo (overwrites any previous version). " +
 				"Always follow with run_demo to test it headlessly.",
 			parameters: writeDemoInput,
-			execute: serverExecute("write_demo", writeDemoInput, async ({ html }) => {
-				if (!html || html.trim().length === 0) return "ERROR: empty document — write the full HTML.";
-				state.html = html;
+			executionMode: "sequential",
+			async execute(_toolCallId, raw) {
+				const { html } = raw as { html: string };
+				if (!html || html.trim().length === 0) return textResult("ERROR: empty document — write the full HTML.");
+				await io.update((state) => {
+					state.html = html;
+				});
 				onActivity?.(`write_demo: ${(html.length / 1024).toFixed(1)} KB`);
-				return `Saved (${html.length} bytes). Now call run_demo to test it — never deliver untested.`;
-			}),
+				return textResult(`Saved (${html.length} bytes). Now call run_demo to test it — never deliver untested.`);
+			},
 		},
 		run_demo: {
 			name: "run_demo",
-			label: "run_demo",
 			description:
 				"Headlessly execute the current demo in a browser and report console errors, uncaught errors, and failed requests. " +
 				"Optionally pass a probe expression to assert on page state.",
 			parameters: runDemoInput,
-			execute: serverExecute("run_demo", runDemoInput, async ({ probe }) => {
-				if (!state.html) return "ERROR: nothing to run — call write_demo first.";
+			executionMode: "sequential",
+			async execute(_toolCallId, raw) {
+				const probe = (raw as { probe?: string }).probe;
+				const html = (await io.read()).html;
+				if (!html) return textResult("ERROR: nothing to run — call write_demo first.");
 				const reason = headless.unavailableReason();
-				if (reason) return `HEADLESS UNAVAILABLE: ${reason}`;
+				if (reason) return textResult(`HEADLESS UNAVAILABLE: ${reason}`);
 				let result: DemoRunResult;
 				try {
-					result = await headless.runDemo(state.html, probe ? { probe } : undefined);
+					result = await headless.runDemo(html, probe ? { probe } : undefined);
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
 					onActivity?.("run_demo: browser error");
-					return `HEADLESS ERROR (retrying may help): ${msg}`;
+					return textResult(`HEADLESS ERROR (retrying may help): ${msg}`);
 				}
-				state.testedHtml = state.html;
-				state.lastResult = result;
-				onActivity?.(
-					result.ok ? "run_demo: clean" : `run_demo: ${summarizeCounts(result)}`,
-				);
-				return formatRunResult(result);
-			}),
+				await io.update((state) => {
+					state.testedHtml = html;
+					state.lastResult = verification(result);
+				});
+				onActivity?.(result.ok ? "run_demo: clean" : `run_demo: ${summarizeCounts(result)}`);
+				return textResult(formatRunResult(result));
+			},
 		},
-	});
+	};
 }
 
-function summarizeCounts(result: DemoRunResult): string {
+function summarizeCounts(result: DemoRunResult | DemoVerification): string {
 	const counts = [
 		result.consoleErrors.length > 0 ? `${result.consoleErrors.length} console error${result.consoleErrors.length === 1 ? "" : "s"}` : null,
 		result.pageErrors.length > 0 ? `${result.pageErrors.length} page error${result.pageErrors.length === 1 ? "" : "s"}` : null,
@@ -175,13 +195,13 @@ function formatRunResult(result: DemoRunResult): string {
 }
 
 /** Short summary of a run for failure notes. */
-function failureSummary(result: DemoRunResult | null): string {
+function failureSummary(result: DemoVerification | null): string {
 	if (!result) return "never tested";
 	const details = [...result.consoleErrors, ...result.pageErrors, ...result.failedRequests].slice(0, 5);
 	return details.length > 0 ? `${summarizeCounts(result)} — ${details.join(" | ")}` : summarizeCounts(result);
 }
 
-export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderOptions = {}): Promise<DemoResult> {
+export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderOptions): Promise<DemoResult> {
 	const headless = opts.headless ?? getHeadless();
 	const title = input.title.trim() || "Interactive demo";
 	const brief = input.brief.trim() || "(no brief)";
@@ -191,8 +211,8 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 	if (reason) {
 		return { title, html: "", tested: true, notes: `FAILED: ${reason}` };
 	}
-
-	const state: BuilderState = { html: null, testedHtml: null, lastResult: null };
+	if (!opts.run) throw new Error("demo builder: a durable run identity is required (chatId + jobId)");
+	if (!opts.engine) throw new Error("demo builder: no model engine was resolved");
 
 	const prompt = [
 		`Demo title: ${title}`,
@@ -203,20 +223,30 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 	].join("\n");
 
 	let finalText = "";
+	let state: DemoRunState;
 	try {
-		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity)), {
+		const outcome = await backgroundRun({
+			jobId: opts.run.jobId,
+			chatId: opts.run.chatId,
+			kind: "demo",
 			role: "demoBuilder",
 			engine: opts.engine,
+			maxTurns: opts.maxSteps ?? 24,
 			systemPrompt: INSTRUCTIONS,
 			prompt,
-			maxTurns: opts.maxSteps ?? 24,
-			abortSignal: opts.abortSignal,
-			onUsage: (usage) => opts.onUsage?.(usage),
-			onToolStart: (toolName) => opts.onActivity?.(toolName),
-			chatId: opts.chatId,
+			input: { title, brief },
+			headless,
+			signal: opts.abortSignal,
+			onActivity: opts.onActivity,
+			onUsage: opts.onUsage,
 		});
-		finalText = result.text;
+		finalText = outcome.text;
+		state = outcome.state as DemoRunState;
 	} catch (err) {
+		// A caller abort keeps the old loop's failure shape (the job runner's
+		// abort path ignores the result). An AbortError WITHOUT a caller
+		// abort is a runtime close: rethrow so the job unwinds recoverable.
+		if (!opts.abortSignal?.aborted && err instanceof Error && err.name === "AbortError") throw err;
 		const msg = err instanceof Error ? err.message : String(err);
 		return { title, html: "", tested: true, notes: `FAILED: the builder crashed — ${msg}` };
 	}
@@ -242,13 +272,13 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 			const msg = err instanceof Error ? err.message : String(err);
 			return { title, html: "", tested: true, notes: `FAILED: final verification crashed — ${msg}` };
 		}
-		state.lastResult = verify;
+		state.lastResult = verification(verify);
 		if (!verify.ok) {
 			return {
 				title,
 				html: "",
 				tested: true,
-				notes: `FAILED: the demo never passed headless verification (${failureSummary(verify)}).`,
+				notes: `FAILED: the demo never passed headless verification (${failureSummary(state.lastResult)}).`,
 			};
 		}
 	}

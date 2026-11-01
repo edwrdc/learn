@@ -46,8 +46,9 @@ import {
 } from "../core/index.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
+import { createHash } from "node:crypto";
 import type { PiEngine } from "../agent/models.ts";
-import { runSubagent } from "../agent/subagents/pi-run.ts";
+import { backgroundRun } from "../agent/subagents/durable-run.ts";
 
 /** The summarizer's system prompt — server-owned operational framing,
  *  not model-facing doctrine (buildCompactionPrompt carries the shape). */
@@ -57,11 +58,35 @@ const SUMMARIZER_SYSTEM_PROMPT =
 /** The one-shot summary call: zero tools, one turn, text out. The engine
  *  is the chat's own conversation engine (owner ruling: the session's
  *  model writes its own summary). Injectable for tests. */
-export type Summarizer = (prompt: string, engine: PiEngine) => Promise<{ summary: string; usage: Usage }>;
+export type Summarizer = (
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+) => Promise<{ summary: string; usage: Usage }>;
 
-/** The production summarizer over the sub-agent seam. */
-async function subagentSummarizer(prompt: string, engine: PiEngine): Promise<{ summary: string; usage: Usage }> {
-	let usage: Usage = {
+/** The production summarizer over the durable background seam: one child
+ *  conversation in the chat's own database. The run key is the span's
+ *  digest, so a restart between the summary and the marker reattaches the
+ *  same conversation instead of paying for the summary twice. */
+export async function subagentSummarizer(
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+): Promise<{ summary: string; usage: Usage }> {
+	const outcome = await backgroundRun({
+		// The engine is always the chat's own conversation engine (owner
+		// ruling), so the role label never resolves one; "researcher" is the
+		// least-wrong existing ModelRole label for a one-shot text job.
+		jobId: `compact:${chatId}:${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`,
+		chatId,
+		kind: "compact",
+		role: "researcher" as never,
+		engine,
+		maxTurns: 1,
+		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
+		prompt,
+	});
+	const usage: Usage = outcome.steps.at(-1)?.usage ?? {
 		input: 0,
 		output: 0,
 		cacheRead: 0,
@@ -69,21 +94,7 @@ async function subagentSummarizer(prompt: string, engine: PiEngine): Promise<{ s
 		totalTokens: 0,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
-	const { text } = await runSubagent([], {
-		// The engine override is always present (the chat's own conversation
-		// engine — owner ruling), so the role label never resolves an
-		// engine; "researcher" is the least-wrong existing ModelRole label
-		// for a one-shot text job (the cast documents the dead path).
-		role: "researcher" as never,
-		prompt,
-		engine,
-		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
-		maxTurns: 1,
-		onUsage: (u) => {
-			usage = u;
-		},
-	});
-	return { summary: text, usage };
+	return { summary: outcome.text, usage };
 }
 
 /** Everything the service needs from its host (chat-handler wires the
@@ -211,7 +222,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	emit("compaction-changed", { chatId, running: true });
 	try {
 		const summarize = deps.summarize ?? subagentSummarizer;
-		const { summary, usage } = await summarize(prompt, deps.engine);
+		const { summary, usage } = await summarize(prompt, deps.engine, chatId);
 		const trimmed = summary.trim();
 		if (!trimmed) return; // an empty summary is a refusal artifact — leave the record honest
 

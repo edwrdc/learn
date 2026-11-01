@@ -21,6 +21,7 @@
  * in the after() hook; overrides reset in finally blocks).
  */
 
+import "./support-tmp-data.ts";
 import React from "react";
 (globalThis as Record<string, unknown>).React = React; // tsx classic-JSX shim (see render-cards.test.tsx)
 
@@ -191,6 +192,13 @@ function noChromeHeadless(): HeadlessApi {
 			throw new Error("should not render");
 		},
 	};
+}
+
+/** Each direct role call is its own durable run in one disposable test
+ *  runtime; the ids are stable per call so no two tests reattach. */
+let roleRunCounter = 0;
+function roleRun(): { chatId: string; jobId: string } {
+	return { chatId: "durable-role-tests", jobId: `demo-visual-${++roleRunCounter}` };
 }
 
 // ─── 1. bridge injection + reducer ───────────────────────────────────────────
@@ -612,7 +620,7 @@ describe("demo builder (fake model + fake headless)", () => {
 
 		const result = await runDemoBuilder(
 			{ title: "Damped oscillator", brief: "A mass on a spring with a damping slider." },
-			{ engine: model, headless, onActivity: (line) => activities.push(line) },
+			{ engine: model, headless, run: roleRun(), onActivity: (line) => activities.push(line) },
 		);
 
 		assert.equal(result.title, "Damped oscillator");
@@ -630,7 +638,7 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ text: "Done." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true, "tested by the final verification gate");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
@@ -642,7 +650,7 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: BROKEN_HTML } }] },
 			{ text: "It works, trust me." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, "");
 		assert.equal(result.tested, true, "the loop ran");
 		assert.match(result.notes ?? "", /^FAILED:/);
@@ -651,14 +659,14 @@ describe("demo builder (fake model + fake headless)", () => {
 
 	it("fails fast with a clear message when no Chrome is available (never skips testing)", async () => {
 		const model = scriptedModel([{ text: "should never be reached" }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: noChromeHeadless() });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
 	});
 
 	it("fails when the model never writes a demo", async () => {
 		const model = scriptedModel([{ text: "I cannot build this." }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless() });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: the builder never wrote a demo/);
 	});
@@ -677,7 +685,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "A number line from -3 to 3 with the root marked at 0." },
 		]);
 		const activities: string[] = [];
-		const result = await runVisualMaker({ brief: "Number line, root at 0." }, { engine: model, headless, onActivity: (l) => activities.push(l) });
+		const result = await runVisualMaker({ brief: "Number line, root at 0." }, { engine: model, headless, run: roleRun(), onActivity: (l) => activities.push(l) });
 
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "A number line from -3 to 3 with the root marked at 0.");
@@ -692,7 +700,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "Done." }, // premature finish — no render yet
 			{ text: "Looked at it — correct." }, // after the forced look
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1, "delivered after the forced look");
 		assert.equal(result.notes, "Looked at it — correct.");
 		assert.equal(headless.svgRenders.length, 1, "the gate rendered the svg once itself");
@@ -710,7 +718,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Moved the start of the line." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 
 		assert.equal(result.svg, SVG_1.replace('<line x1="10"', '<line x1="20"'), "the edit was applied to the delivered svg");
 		assert.equal(result.notes, "Moved the start of the line.");
@@ -724,7 +732,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "e0", toolName: "edit_svg", input: { old_text: "svg", new_text: "x" } }] },
 			{ text: "Cannot proceed." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, "", "the failed edit produced no deliverable");
 		assert.match(result.notes ?? "", /never wrote an SVG/);
 	});
@@ -738,20 +746,20 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Fixed and verified." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "Fixed and verified.");
 	});
 
 	it("fails when the model never writes an svg", async () => {
 		const model = scriptedModel([{ text: "This idea is purely relational — belongs in mermaid." }]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
 		assert.match(result.notes ?? "", /^FAILED: the maker never wrote an SVG/);
 	});
 
 	it("fails with a clear message when no Chrome is available", async () => {
-		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless() });
+		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
 		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
 	});

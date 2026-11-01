@@ -4,6 +4,8 @@
  * synthetic; fetch is CLOSED (never delegates), including Google's global
  * fetch-only adapter. The transport cases test SDK serialization, not accounts.
  */
+import "./support-tmp-data.ts";
+import "./support-durable.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -20,6 +22,7 @@ import { runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
 import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { AUTH_PROVIDER_KEYS } from "../src/core/auth-keys.ts";
 import { providerEventsDir } from "../src/agent/provider-events.ts";
+import type * as appContracts from "../src/core/contracts.ts";
 
 const OR_KEY = "dummy-openrouter-MUST-NOT-REACH-other-endpoints";
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><rect width="20" height="20" fill="white"/></svg>';
@@ -96,14 +99,16 @@ function fakeHeadless(renders: string[]): HeadlessApi {
 	};
 }
 
+let runCounter = 0;
 async function runLoop(loop: Loop, engine: PiEngine, signal = new AbortController().signal) {
 	const renders: string[] = [];
 	const activities: string[] = [];
-	const usages: Usage[] = [];
+	const usages: appContracts.JobUsage[] = [];
 	const opts = {
 		engine, headless: fakeHeadless(renders), abortSignal: signal,
+		run: { chatId: "provider-neutral-offline", jobId: `${loop}-${++runCounter}` },
 		onActivity: (line: string) => activities.push(line),
-		onUsage: (usage: Usage) => usages.push(usage),
+		onUsage: (usage: appContracts.JobUsage) => usages.push(usage),
 		// Direct recording cases enable the observer into an isolated temp dir.
 		chatId: "provider-neutral-offline",
 	};
@@ -124,7 +129,7 @@ function assertSuccess(loop: Loop, run: Awaited<ReturnType<typeof runLoop>>) {
 		assert.deepEqual(run.result.pagesConsulted, [1]);
 	}
 	assert.deepEqual(run.renders, [loop === "visual" ? "svg" : "pdf:1"]);
-	assert.equal(run.usages.length, 3, "one usage callback per successful stream round");
+	assert.equal(run.usages.at(-1)?.steps, 3, "the folded usage counts every completed stream round");
 	assert.ok(run.activities.some((line) => line.startsWith(loop === "visual" ? "write_svg:" : "pdf_info:")));
 	assert.ok(run.activities.some((line) => line.startsWith(loop === "visual" ? "render_svg:" : "pdf_render:")));
 }
@@ -142,7 +147,8 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						: [fauxText(FINAL)], { stopReason: calls.length ? "toolUse" : "stop" });
 				}));
 				const requests: { context: TranscriptContext; options: Record<string, unknown> }[] = [];
-				const signal = new AbortController().signal;
+				const controller = new AbortController();
+				const signal = controller.signal;
 				const engine: PiEngine = {
 					model: faux.getModel(), level: "medium",
 					streamFn: (model, context, options) => {
@@ -162,7 +168,10 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						assert.ok(!Object.hasOwn(options, key), `${loop} stream must not supply ${key}`);
 					}
 					assert.equal(options.reasoning, "medium");
-					assert.equal(options.signal, signal);
+					// The durable Harness owns the per-request signal; the
+					// caller's abort reaches the stream through conversation.abort
+					// (proven by the abort case below).
+					assert.ok(options.signal instanceof AbortSignal);
 					assert.equal(typeof options.onProviderStreamEvent, "function");
 				}
 				assert.match(JSON.stringify(requests[2]!.context), /image\/png/);
@@ -186,7 +195,7 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 				const failure = "svg" in run.result ? run.result.notes : run.result.brief;
 				assert.match(failure ?? "", /crashed — aborted/);
 				assert.deepEqual(run.renders, []);
-				assert.equal(run.usages.length, 0);
+				assert.equal(run.usages.at(-1)?.steps ?? 0, 0, "an aborted attempt is never billed");
 			});
 		});
 	}
@@ -230,7 +239,10 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						const failure = "svg" in run.result ? run.result.notes : run.result.brief;
 						assert.match(failure ?? "", new RegExp(`Provider is not configured: ${transport.provider}`));
 						assert.equal(fetches, 0, "SDK Models guard rejects missing selected-provider auth before transport");
-						assert.equal(run.usages.length, 0);
+						// The guard failure is an error message with no billed
+						// tokens: the folded money channel stays at zero.
+						assert.equal(run.usages.at(-1)?.inputTokens ?? 0, 0);
+						assert.equal(run.usages.at(-1)?.outputTokens ?? 0, 0);
 						assert.deepEqual(run.renders, []);
 					});
 				});

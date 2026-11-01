@@ -3,15 +3,40 @@
  * A missing search key is a recoverable tool result, not a dispatch gate.
  */
 
+import "./support-tmp-data.ts";
+import "./support-durable.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createWebTools } from "../src/agent/tools/web.ts";
 import { jobTools } from "../src/agent/tools/jobs.ts";
-import { runResearcherAgent } from "../src/agent/subagents/researcher.ts";
+import { RESEARCHER_INSTRUCTIONS } from "../src/agent/subagents/researcher.ts";
+import { runBackgroundConversation } from "../src/server/durable-background.ts";
+import type { PiEngine } from "../src/agent/models.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
 import type { JobStore } from "../src/core/ports.ts";
 import type { JobRecord } from "../src/core/contracts.ts";
 import type { SearchHit, SearchProvider } from "../src/core/search.ts";
+
+/** The researcher's real durable loop (a child conversation in a disposable
+ *  test runtime); unique run keys keep tests from reattaching. */
+let runCounter = 0;
+async function runResearcherAgent(
+	prompt: string,
+	opts: { engine: PiEngine; search?: () => SearchProvider | null },
+): Promise<string> {
+	const outcome = await runBackgroundConversation({
+		jobId: `web-search-${++runCounter}`,
+		chatId: "web-search-tests",
+		kind: "research",
+		role: "researcher",
+		engine: opts.engine,
+		maxTurns: 12,
+		systemPrompt: RESEARCHER_INSTRUCTIONS,
+		prompt,
+		search: opts.search,
+	});
+	return outcome.text;
+}
 
 function stubProvider(hits: SearchHit[] = [{ title: "t", url: "https://e.com/", snippet: "s" }]): SearchProvider {
 	return {
@@ -116,7 +141,9 @@ describe("keyless researcher loop", () => {
 			const system = context.messages.find((m) => m.role === "system");
 			assert.ok(system && system.role === "system");
 			assert.equal(typeof system.content, "string");
-			const prompt = system.content as string;
+			// The durable Harness renders instructions as a system section;
+			// the provider folds it into the system prompt.
+			const prompt = (system as { sections?: Record<string, string | null> }).sections?.instructions ?? String(system.content);
 			assert.ok(prompt.split("\n\n").includes(approved), "approved paragraph is passed verbatim");
 			assert.match(prompt, /Break the question into 2-4 searchable facets/);
 			assert.match(prompt, /## Gaps/);

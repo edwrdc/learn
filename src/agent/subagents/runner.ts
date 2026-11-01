@@ -1,20 +1,16 @@
 import type { PiEngine } from "../models.ts";
 import type { SearchProvider } from "../../core/search.ts";
 import {
-	accumulateJobUsage,
 	buildSubagentSteer,
-	piUsageToStep,
 	type DemoResult,
 	type DemoToolInput,
 	type JobKind,
 	type JobRecord,
-	type JobUsage,
 	type PdfResult,
 	type PdfToolInput,
 	type ResearchResult,
 	type ResearchToolInput,
 	type SteerMessage,
-	type UsageStepLike,
 	type VisualResult,
 	type VisualToolInput,
 } from "../../core/contracts.ts";
@@ -25,6 +21,7 @@ import * as path from "node:path";
 import type { ModelRole } from "../../../config.ts";
 import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
 import type { ChatStore, JobStore } from "../../core/ports.ts";
+import { backgroundRun } from "./durable-run.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { RESEARCHER_INSTRUCTIONS } from "./researcher.ts";
@@ -101,37 +98,9 @@ export interface JobRunner {
 	runJob(jobId: string, input?: JobToolInput): Promise<void>;
 }
 
-/** The durable background seam, wired by the server composition root (the
- *  agent layer may not import it). It runs the role's child conversation and
- *  returns the final text plus the role state a later process persisted. */
-export interface DurableBackgroundRequest {
-	jobId: string;
-	chatId: string;
-	kind: "research";
-	role: ModelRole;
-	engine: PiEngine;
-	maxTurns: number;
-	systemPrompt: string;
-	prompt: string;
-	input?: Record<string, unknown>;
-	attachments?: { pdfDir?: string };
-	search?: () => SearchProvider | null;
-	abort?: AbortController;
-	onActivity?: (line: string) => void;
-	onUsage?: (usage: JobUsage) => void;
-}
-
-export type DurableBackgroundRun = (
-	request: DurableBackgroundRequest,
-) => Promise<{ text: string; fetchedUrls: string[] }>;
-
-let backgroundRunSeam: DurableBackgroundRun | undefined;
-
-/** chat-handler wires this at module init (the durable runtime lives in the
- *  server layer; the runner keeps only the role loop's seams). */
-export function setBackgroundRun(run: DurableBackgroundRun): void {
-	backgroundRunSeam = run;
-}
+/** The durable seam itself lives in ./durable-run.ts (submit/role modules
+ *  call it too); re-exported here for the composition root. */
+export { setBackgroundRun } from "./durable-run.ts";
 
 /** One job loop's injected machinery: the kill switch (real abort, 2026-09
  * semantics) and the usage tap (money channel — every model call folds into
@@ -146,8 +115,6 @@ interface LoopContext {
 	/** The job's chat (debug: raw provider-event recording under
 	 * LH_PROVIDER_EVENTS=1 — forwarded into every subagent run). */
 	chatId?: string;
-	/** Fold one model call's usage into the job record (progress write). */
-	onUsage: (step: UsageStepLike) => void;
 }
 
 /** The kind→role table (model slots wave, 2026-09-20): which ModelRole's
@@ -162,30 +129,14 @@ const KIND_ROLE: Record<JobKind, ModelRole> = {
 export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	const { chatStore, jobStore, deliver } = deps;
 
-	/** Running usage totals per live job (the loop's onUsage folds here,
-	 * then writes through the job store so the poll sees progress). */
-	const usageTotals = new Map<string, JobUsage>();
-
-	function makeLoopContext(jobId: string, engine: PiEngine): LoopContext {
+	function makeLoopContext(jobId: string): LoopContext {
 		const chatId = jobStore.getJob(jobId)?.chatId;
-		// Provider-qualified stamp: the engine's actual model — the only
-		// thing that ran (BYOK: no config-pin fallback stamps exist).
-		const model = `${engine.model.provider}:${engine.model.id}`;
 		// Real-kill wiring (2026-09 abort semantics): the controller is what
 		// the abort endpoint fires (agent/subagents/aborts.ts registry); the
 		// signal rides into every model call of the loop.
 		const controller = new AbortController();
 		registerJobAbort(jobId, controller);
-		return {
-			abortSignal: controller.signal,
-			controller,
-			chatId,
-			onUsage: (step) => {
-				const next = accumulateJobUsage(usageTotals.get(jobId), model, step);
-				usageTotals.set(jobId, next);
-				jobStore.updateJob(jobId, { usage: next }); // merge patch — status untouched
-			},
-		};
+		return { abortSignal: controller.signal, controller, chatId };
 	}
 
 	/** True while the job may still write terminal state (result, error,
@@ -294,15 +245,9 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			return;
 		}
 		try {
-			await run(jobId, engine, input, makeLoopContext(jobId, engine));
+			await run(jobId, engine, input, makeLoopContext(jobId));
 		} finally {
 			unregisterJobAbort(jobId);
-			// The last usage write may have been mid-flight when the loop died;
-			// persist what was folded (the abort path patches only status, so
-			// this never resurrects an aborted job — merge patch).
-			const usage = usageTotals.get(jobId);
-			if (usage) jobStore.updateJob(jobId, { usage });
-			usageTotals.delete(jobId);
 		}
 	}
 
@@ -400,8 +345,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			// The researcher is a real durable conversation in this chat's
 			// database; a re-entry after a crash reattaches to it instead of
 			// spending the run again.
-			if (!backgroundRunSeam) throw new Error("background runner seam is not wired (setBackgroundRun)");
-			const { text: brief, fetchedUrls: durableUrls } = await backgroundRunSeam({
+			const outcome = await backgroundRun({
 				jobId,
 				chatId: ctx.chatId,
 				kind: "research",
@@ -417,6 +361,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
 			});
+			const brief = outcome.text;
+			const durableUrls = outcome.state.kind === "research" ? outcome.state.fetchedUrls : [];
 			if (!brief.trim()) throw new Error("the researcher produced no text");
 			const research: ResearchResult = {
 				brief: brief.trim(),
@@ -462,7 +408,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					engine: model,
 					abortSignal: loop.abortSignal,
 					chatId: loop.chatId,
-					onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+					run: { chatId: ctx.chatId, jobId },
+					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
 					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				},
 			);
@@ -470,7 +417,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				jobStore.updateJob(jobId, { error: result.notes ?? "demo build failed" });
 			await finishJob(jobId, result);
 		} catch (err) {
-			if (loop.abortSignal.aborted) return;
+			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { title, html: "", tested: true, notes: `FAILED: ${reason}` });
@@ -498,7 +445,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					engine: model,
 					abortSignal: loop.abortSignal,
 					chatId: loop.chatId,
-					onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+					run: { chatId: ctx.chatId, jobId },
+					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
 					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				},
 			);
@@ -506,7 +454,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				jobStore.updateJob(jobId, { error: result.notes ?? "visual build failed" });
 			await finishJob(jobId, result);
 		} catch (err) {
-			if (loop.abortSignal.aborted) return;
+			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { svg: "", notes: `FAILED: ${reason}` });
@@ -533,19 +481,20 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			jobStore.updateJob(jobId, { activity: "reading pdf" });
 			const result = await runPdfReaderAgent(
 				{ path, question },
-			{
-				engine: model,
-				abortSignal: loop.abortSignal,
-				chatId: loop.chatId,
-				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
-				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
-			},
+				{
+					engine: model,
+					abortSignal: loop.abortSignal,
+					chatId: loop.chatId,
+					run: { chatId: ctx.chatId, jobId },
+					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
+					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+				},
 			);
 			if (isPdfFailure(result) && stillRunning(jobId))
 				jobStore.updateJob(jobId, { error: result.brief.replace(/^PDF failed:\s*/i, "") });
 			await finishJob(jobId, result);
 		} catch (err) {
-			if (loop.abortSignal.aborted) return;
+			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { path, question, brief: `PDF failed: ${reason}`, pagesRead: [], pagesConsulted: [] });

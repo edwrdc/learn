@@ -23,6 +23,7 @@ import { ConversationBusy, LiveDoc } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { createJobRunner, setBackgroundRun } from "../agent/subagents/runner.ts";
+import { setBackgroundRetire } from "../agent/subagents/durable-run.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";
 import {
@@ -87,7 +88,7 @@ import {
 	configureBackgroundRuns,
 	resumeBackgroundRuns,
 	runBackgroundConversation,
-	type BackgroundRunRequest,
+	retireBackgroundRun,
 	type RunDescriptor,
 } from "./durable-background.ts";
 
@@ -159,13 +160,10 @@ configureBackgroundRuns({
 	searchProvider,
 });
 
-setBackgroundRun(async (request) => {
-	const result = await runBackgroundConversation(request as unknown as BackgroundRunRequest);
-	return {
-		text: result.text,
-		fetchedUrls: result.state.kind === "research" ? result.state.fetchedUrls : [],
-	};
-});
+// The agent-layer seam drives the durable role runtime directly (the same
+// entry the recovery sweep re-enters): text, role state, cap flag and steps.
+setBackgroundRun((request) => runBackgroundConversation(request));
+setBackgroundRetire((chatId, jobId) => retireBackgroundRun(chatId, jobId));
 
 function resolveStoredEngine(descriptor: RunDescriptor): PiEngine | undefined {
 	syncCustomEndpointProvider();

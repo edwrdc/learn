@@ -1,8 +1,5 @@
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type, type Static, type TSchema } from "typebox";
-import { toToolResult } from "../tool-execute.ts";
 import type { ModelRole } from "../../../config.ts";
 import {
 	FACTORY_SETTINGS,
@@ -13,7 +10,6 @@ import {
 	type ProviderKeyMissing,
 } from "../../core/settings.ts";
 import type { PiEngine } from "../models.ts";
-import { runSubagent } from "./pi-run.ts";
 import { withBgLlmSlot } from "./bg-llm-semaphore.ts";
 import type {
 	AuditVerdicts,
@@ -29,8 +25,8 @@ import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
-import { auditorGraphTools } from "../tools/graph.ts";
-import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
+import type { GraphToolContext } from "../tools/graph.ts";
+import { runSubmitAgent } from "./submit-agent.ts";
 
 /**
  * The extraction pipeline (vision §1 construction, 2026-09-02 redesign;
@@ -140,230 +136,11 @@ function proseView(messages: ReadonlyArray<LhMessage>, title?: string): string {
 
 // ─── the extractor ──────────────────────────────────────────────────────────
 
-const propositionProps = {
-	id: Type.String({ description: 'Local id: "p1", "p2", … — referenced by chains in this call.' }),
-	name: Type.String({
-		description:
-			"A very short label — established terminology, the term the discipline itself uses, a glossary " +
-			"headword a textbook would print ('Will to power', 'Divine command theory'). Not a sentence, " +
-			"needn't be unique or self-contained: this becomes the node's global label in the graph.",
-	}),
-	statement: Type.String({
-		description:
-			"One true, self-contained, world-facing core idea at full precision. Never about the " +
-			'learner, the teacher, or the reading: not "the learner understands X" but "X". A misconception ' +
-			"enters as its TRUE correction.",
-	}),
-	aliases: Type.Optional(
-		Type.Array(Type.String(), {
-			description: "Verbatim phrasings the source used for the same proposition, if any.",
-		}),
-	),
-};
-
-// The extractor redesign (owner, 2026-09-30): the extractor submits
-// REASONING CHAINS — premises + conclusion — stored AS-IS (chains-primary,
-// same evening: chains.jsonl is the truth; edges are a derived view, and
-// supports edges are retired entirely).
-const endpoint = (role: string) =>
-	Type.String({
-		description:
-			`The id this ${role} — EITHER an existing graph idea id from THE GRAPH SO FAR in the prompt, ` +
-			'verbatim ("n_…"), OR the local id of a proposition in this submission ("p1", …).',
-	});
-
-const chainSchema = Type.Object({
-	premises: Type.Array(endpoint("premise uses"), {
-		minItems: 1,
-		description:
-			"Premise ids used TOGETHER: they jointly entail the conclusion; independent reasons are separate chains.",
-	}),
-	conclusion: endpoint("conclusion is"),
-});
-
-// Weak-model tolerance (owner, 2026-09-25): the old zod `.default([])` /
-// `.default({ quiz: {} })` on required-but-empty fields becomes Type.Optional
-// here + a ??-fill at the submit seam (fillFindings/fillAudit below) — same
-// contract on the wire (omission tolerated, empty never means "invalid"),
-// no zod left in the agent band.
-const propositionsDescription =
-	"Only the NEW core ideas this stretch contributes — ideas the prompt's THE GRAPH SO FAR already " +
-	"holds are referenced by id in chains, never restated here.";
-const chainsDescription =
-	"Every argument this stretch makes — including arguments that join new ideas to established " +
-	"ones; conclusions reusable by id as premises of later chains; bare ideas (no argument) ride " +
-	"the propositions list alone; pass [] when none — never omit the field.";
-
-const findingsSchema = Type.Object({
-	propositions: Type.Array(Type.Object(propositionProps), {
-		description: propositionsDescription,
-	}),
-	chains: Type.Array(chainSchema, {
-		description: chainsDescription,
-	}),
-});
-
-// THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
-// carries a REQUIRED messageId — the anchor of the passage it came from,
-// copied from the view's "TEACHER [id]" label (validated at the submit
-// seam against the CURRENT batch). The NOTES door has no messages: its
-// schema stays the base shape above, prompt and wire unchanged.
-const sessionPropositionProps = {
-	...propositionProps,
-	messageId: Type.String({
-		description:
-			"The message id of the ONE passage in this stretch that most directly states or explains this " +
-			'proposition — copy it EXACTLY from that passage\'s "TEACHER [id]" label.',
-	}),
-};
-
-const sessionFindingsSchema = Type.Object({
-	propositions: Type.Array(Type.Object(sessionPropositionProps), {
-		description: propositionsDescription,
-	}),
-	chains: Type.Array(chainSchema, {
-		description: chainsDescription,
-	}),
-});
-
-/** What the extractor SUBMITS (the redesign's wire shape) — propositions
- *  + chains. fillFindings normalizes it; validateFindingsChains checks
- *  the chain laws; asSessionFindings lifts it straight into
- *  SessionFindings — chains are stored AS-IS (chains-primary, owner
- *  2026-09-30: no edge translation at any seam). */
-type FindingsSubmit = Static<typeof findingsSchema>;
-
-/** The SESSION wire — the notes shape plus the REQUIRED messageId anchor
- *  on every proposition (owner, 2026-10-13). */
-type SessionFindingsSubmit = Static<typeof sessionFindingsSchema>;
-
-// VERDICTS-ONLY (owner, 2026-09-28): the auditor never alters the
-// extractor's findings, so it does not restate them — links are its
-// ENTIRE deliverable (owner, 2026-09-28 evening: the edges argument is
-// GONE; the auditor never mints edges. The graph connects across sources
-// solely through identified equivalences — a link, never an inference).
-const auditSchema = Type.Object({
-	links: Type.Array(
-		Type.Object({
-			id: Type.String({ description: 'The proposition id from the findings ("p1", …).' }),
-			linkTo: Type.String({
-				description:
-					"The id of the EXISTING graph node this proposition IS — your identity verdict. EQUIVALENCE BIAS (2026-09-27): paraphrases, rewordings, and compressions of the same claim MERGE; only genuinely distinct propositions stay apart.",
-			}),
-		}),
-		{ description: "Identity verdicts — which findings propositions ARE existing graph nodes. A proposition absent from here = create a new node. Pass [] when none — never omit the field." },
-	),
-});
-
-// The notes front door's wire shape is the session shape MINUS the
-// messageId anchor (owner, 2026-10-13: only the SESSION door demands
-// passage anchors — notes have no messages, so their prompt and schema
-// stay exactly as they were): one base findings type for both doors,
-// the anchor riding as an optional field.
+// The submit wire shapes, weak-model fills and semantic validators live in
+// ./submit-role.ts: the durable role factory rebuilds the exact same submit
+// tool from the persisted run descriptor after a restart.
 type NotesFindings = SessionFindings;
 type NotesAuditResult = AuditVerdicts;
-
-// ── the submit seam (owner, 2026-09-28; redesigned 2026-09-30) ──
-//
-// Every top-level field on each submit tool is REQUIRED — a payload
-// missing `chains` (findings) or `links` (review) fails validation
-// instead of silently merging structure-less (the degraded-retry hole:
-// the model's first truncated attempt failed validation, then the retry
-// passed with propositions only — optional fields ??-filled [] — merging
-// a pile of nodes with no structure). Only the per-item aliases stay
-// optional with a ??-fill.
-
-function fillFindings<T extends { propositions: Array<{ aliases?: string[] }>; chains: unknown }>(
-	raw: T,
-): T {
-	return {
-		...raw,
-		propositions: raw.propositions.map((p) => ({ ...p, aliases: p.aliases ?? [] })),
-	};
-}
-
-/** The notes fill: the shared alias ??-fill PLUS the door's boundary — a
- *  stray messageId (the notes schema has none; extra properties pass
- *  schema validation) is stripped so notes provenance stays chat-level
- *  (the file is the anchor, owner 2026-09-13). */
-function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
-	return fillFindings({
-		...raw,
-		propositions: raw.propositions.map((p) => {
-			const stripped = { ...p } as typeof p & { messageId?: unknown };
-			delete stripped.messageId;
-			return stripped;
-		}),
-	});
-}
-
-/** The chain laws (extractor redesign, 2026-09-30; digest-aware
- *  2026-09-30 evening) — the LOUD channel: runSubmitAgent turns a
- *  problem string into an error tool result and the model re-submits
- *  within its turns. The MIXED NAMESPACE: an
- *  endpoint resolves when it is a submitted proposition id OR an
- *  existing graph node id (the extractor continues a partly-extracted
- *  source and references digest ids verbatim). Identical (premise-set,
- *  conclusion) chains are NOT errors — they dedupe silently at the
- *  merge (chainKey): restating an argument is a no-op. */
-function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<string>): string | null {
-	const ids = new Set(value.propositions.map((p) => p.id));
-	for (const chain of value.chains) {
-		if (chain.premises.length === 0) {
-			return "chains: premises must name at least one proposition — a proposition with no argument stays in the propositions list alone.";
-		}
-		const unknown = [...chain.premises, chain.conclusion].find((id) => !ids.has(id) && !existingIds.has(id));
-		if (unknown !== undefined) {
-			return `chains: "${unknown}" is neither a submitted proposition id nor an existing idea id from THE GRAPH SO FAR — every premise and conclusion must resolve.`;
-		}
-		if (chain.premises.includes(chain.conclusion)) {
-			return "chains: a conclusion cannot be its own premise.";
-		}
-	}
-	return null;
-}
-
-/** The SESSION anchor law (owner, 2026-10-13): every proposition names a
- *  passage of the CURRENT batch — nonempty, and a teacher-prose message
- *  id present in the stretch this extractor is reading (the same ids the
- *  view's TEACHER [id] labels carry). Refused anchors ride the existing
- *  error-back channel: no merge, no coverage checkpoint, until a valid
- *  submit lands. The boundary is strict on purpose — an id from a LATER
- *  or already-covered batch, another chat, or a learner/tool message is
- *  refused even when it is a real message id of this chat. */
-function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: ReadonlySet<string>): string | null {
-	for (const p of value.propositions) {
-		if (p.messageId.trim().length === 0) {
-			return `propositions: "${p.id}" is missing its messageId — copy the message id from the brackets of the passage (TEACHER [id]) that most directly states or explains it.`;
-		}
-		if (!batchIds.has(p.messageId)) {
-			return `propositions: "${p.id}" names messageId "${p.messageId}", which is not a passage of THIS stretch — copy the id from the brackets of one of this stretch's own TEACHER [id] passages.`;
-		}
-	}
-	return null;
-}
-
-/** (chains-primary, owner 2026-09-30) the wire IS the pipeline shape
- *  now: propositions + chains, no translation — the stores keep the
- *  chains and the derived edge view is recomputed on read. The fill
- *  already ran inside runSubmitAgent; this only re-asserts the
- *  aliases-filled type (and preserves the session submit's messageId
- *  anchor, 2026-10-13 — both doors lift through here). */
-const asSessionFindings = (
-	raw: {
-		propositions: Array<{ id: string; name: string; statement: string; aliases?: string[]; messageId?: string }>;
-		chains: Array<{ premises: string[]; conclusion: string }>;
-	},
-): SessionFindings => ({
-	propositions: raw.propositions.map((p) => ({ ...p, aliases: p.aliases ?? [] })),
-	chains: raw.chains,
-});
-
-function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
-	return {
-		links: raw.links,
-	};
-}
 
 // ── the extractor's system prompt (owner redesign, 2026-09-30) ──
 //
@@ -476,24 +253,22 @@ function runExtractor(
 	// since chains-primary. Validation runs at the submit seam (error-back)
 	// over the MIXED namespace: local ids + existing graph ids, plus the
 	// session anchor law (messageId ∈ the current batch, 2026-10-13).
-	return runSubmitAgent<SessionFindingsSubmit>({
+	return runSubmitAgent<SessionFindings>({
 		role: "extractor",
-		// Debug recorder key: the source id (the run's ledger key — the
-		// chat's chatId for chat runs, the src id for notes).
-		chatId: sourceId,
-		toolName: "submit_findings",
-		toolDescription: "Submit the session findings.",
-		parameters: sessionFindingsSchema,
-		fill: fillFindings,
-		validate: (value) => validateSessionAnchors(value, batchIds) ?? validateFindingsChains(value, existingIds),
+		variant: "session-findings",
+		// The durable owner is the source (the chat id / notes src id); the
+		// run key is deterministic, so a retried batch reattaches its
+		// conversation instead of billing another copy.
+		run: { chatId: sourceId, jobId: submitRunKey("extract", sourceId, prompt) },
+		existingIds: [...existingIds],
+		batchIds: [...batchIds],
 		systemPrompt: EXTRACTOR_INSTRUCTIONS,
 		prompt,
 		engine,
 		signal,
 		onStep,
 		neverSubmitted: "the extractor never submitted findings",
-		prepareArguments: healStringifiedArrays,
-	}).then(asSessionFindings);
+	});
 }
 
 /** The extractor over ONE source of raw personal notes (the format-agnostic
@@ -508,23 +283,18 @@ function runNotesExtractor(
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
 ): Promise<NotesFindings> {
-	return runSubmitAgent<FindingsSubmit>({
+	return runSubmitAgent<NotesFindings>({
 		role: "extractor",
-		// Debug recorder key: the notes' source id (the ledger key).
-		chatId: sourceId,
-		toolName: "submit_findings",
-		toolDescription: "Submit the notes findings.",
-		parameters: findingsSchema,
-		fill: fillNotesFindings,
-		validate: (value) => validateFindingsChains(value, existingIds),
+		variant: "notes-findings",
+		run: { chatId: sourceId, jobId: submitRunKey("extract", sourceId, prompt) },
+		existingIds: [...existingIds],
 		systemPrompt: NOTES_EXTRACTOR_INSTRUCTIONS,
 		prompt,
 		engine,
 		signal,
 		onStep,
 		neverSubmitted: "the extractor never submitted findings",
-		prepareArguments: healStringifiedArrays,
-	}).then(asSessionFindings);
+	});
 }
 
 // ─── the auditor ───────────────────────────────────────────────────────────
@@ -575,26 +345,30 @@ function runAuditor(
 	prompt: string,
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
-	tools: Record<string, AgentTool<any>>,
+	graph: GraphToolContext,
 ): Promise<AuditVerdicts> {
 	return runSubmitAgent({
 		role: "auditor",
-		// Debug recorder key: same source id as the extractor run.
-		chatId: sourceId,
-		toolName: "submit_review",
-		toolDescription: "Submit the identity verdicts ONLY (links) — never the propositions themselves.",
-		parameters: auditSchema,
-		fill: fillAudit,
+		variant: "audit",
+		run: { chatId: sourceId, jobId: submitRunKey("audit", sourceId, prompt) },
+		existingIds: [],
 		systemPrompt: AUDITOR_INSTRUCTIONS,
 		prompt,
 		engine,
 		signal,
 		onStep,
 		neverSubmitted: "the auditor never submitted a review",
-		extraTools: tools,
 		maxTurns: 16,
-		prepareArguments: healStringifiedArrays,
+		graph,
 	});
+}
+
+/** The durable run identity of one submit stage: the source plus a digest of
+ *  the exact prompt. The same logical stage (same source, same rendered
+ *  stretch/digest) reattaches its conversation across process deaths; a new
+ *  prompt is a new run. */
+function submitRunKey(stage: "extract" | "audit", sourceId: string, prompt: string): string {
+	return `${stage}:${sourceId}:${crypto.createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`;
 }
 
 // ─── the pipeline status registry ─────────────────────────────────────────────
@@ -991,7 +765,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				recordStep(jobKey, "auditor", callUsage(usage), model);
 				console.info(`[extraction] auditor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
-			auditorGraphTools({ chatStore, graphStore }),
+			{ chatStore, graphStore },
 		);
 		console.info(
 			`[extraction ${jobKey}] audit: ${findings.propositions.length} propositions through, ` +

@@ -840,8 +840,19 @@ describe("researcher agent", () => {
 	});
 
 	it("the pdf-reader declares exactly the four skill tools (sources v0)", async () => {
-		const { createPdfTools } = await import("../src/agent/subagents/pdf-reader.ts");
-		const tools = createPdfTools(path.join(import.meta.dirname, "fixtures", "sample-3page.pdf"));
+		const { pdfRoleTools } = await import("../src/agent/subagents/pdf-reader.ts");
+		const state = { kind: "pdf", consulted: [], read: [], pendingRender: null } as const;
+		const tools = pdfRoleTools(
+			{ read: async () => ({ ...state, consulted: [], read: [] }), update: async () => undefined },
+			path.join(import.meta.dirname, "fixtures", "sample-3page.pdf"),
+			{
+				available: () => false,
+				unavailableReason: () => "unused",
+				runDemo: async () => ({ consoleErrors: [], pageErrors: [], failedRequests: [], ok: true }),
+				renderSvg: async () => Buffer.alloc(0),
+				renderPdfPages: async () => [],
+			},
+		);
 		assert.deepEqual(Object.keys(tools).sort(), ["pdf_extract", "pdf_info", "pdf_render", "pdf_search"]);
 		// reset any accidental global override
 		pdfModelOverride.current = undefined;
