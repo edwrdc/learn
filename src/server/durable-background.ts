@@ -961,8 +961,13 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 		const descriptor = stored;
 		const engine = services?.resolveEngine(descriptor);
 		if (!engine) {
-			console.error(`[job ${jobId}] cannot restore its model — recovery will refuse it`);
-			continue;
+			// FAIL CLOSED: `harness.resume()` below would execute the pending
+			// generation without its model binding (or with a redirected
+			// endpoint). Throw before scheduling; the committed input and run
+			// stay intact and the next open retries.
+			throw new Error(
+				`the pending background run ${jobId} cannot be restored: its model ${descriptor.model.provider}:${descriptor.model.modelId} is unavailable`,
+			);
 		}
 		bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
 		const extension = roleExtension(conversation, descriptor, roleDeps(runtime, undefined, services));

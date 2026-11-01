@@ -31,6 +31,7 @@ process.env.LH_DATA_DIR = TMP;
 const { chatStore } = await import("../src/store/chats.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const {
+	ChatRuntimeInitError,
 	closeChatRuntime,
 	openChatRuntime,
 } = await import("../src/store/durable.ts");
@@ -202,6 +203,72 @@ describe("durable background restart", () => {
 			"the resumed generation ran the role tool installed from the descriptor",
 		);
 
+		researchModelOverride.current = undefined;
+	});
+
+	it("fails the reopen closed when a pending run's model cannot be restored, then resumes on repair", async () => {
+		const chat = await chatStore.createChat("Durable: background fail closed");
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-failclosed" });
+		const search = stubSearch();
+		const delivered: SteerMessage[] = [];
+		setTurnRunner(async () => 200);
+		const runner = createJobRunner({
+			chatStore,
+			jobStore,
+			deliver: async (steer) => {
+				delivered.push(steer);
+			},
+			searchProvider: () => search,
+		});
+
+		researchModelOverride.current = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("web_search", { query: "fail closed" }, { id: "ws-failclosed" })], {
+				stopReason: "toolUse",
+			}),
+			hangUntilAborted(),
+		]);
+		const first = runner.runJob(job.id, PROMPT_INPUT);
+		await waitFor(() => (jobStore.getJob(job.id)!.usage?.steps ?? 0) >= 1, 10000, "first model call billed");
+		await closeChatRuntime(chat.id);
+		await first.catch(() => undefined);
+
+		// The descriptor's model is no longer resolvable (settings changed,
+		// endpoint edited, provider removed): the open must refuse to schedule.
+		configureBackgroundRuns({ resolveEngine: () => undefined, searchProvider: () => search });
+		await assert.rejects(
+			() => openChatRuntime(chat.id),
+			(error: unknown) => error instanceof ChatRuntimeInitError,
+			"the reopen fails closed instead of running without its model",
+		);
+		assert.equal(jobStore.getJob(job.id)!.status, "running", "the pending job is neither settled nor lost");
+		assert.equal(delivered.length, 0, "nothing was delivered from the unbound run");
+
+		// Repair the selection and reopen: the same run resumes and finishes.
+		const resumed = fauxEngine([fauxAssistantMessage([fauxText(BRIEF)])]);
+		configureBackgroundRuns({ resolveEngine: () => resumed, searchProvider: () => search });
+		const reopened = await openChatRuntime(chat.id);
+		await runner.runJob(job.id);
+		assert.equal((jobStore.getJob(job.id)!.result as ResearchResult).brief, BRIEF);
+		assert.equal(delivered.length, 1, "one result steer after the repair");
+		const index = (await reopened.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
+			runs: Record<string, { conversationId: number }>;
+		};
+		const conversation = await reopened.harness.conversation(
+			index.runs[job.id]!.conversationId as never,
+			BACKGROUND_CONTEXT,
+		);
+		assert.ok(conversation);
+		let users = 0;
+		let cursor: Record<string, unknown> | undefined;
+		for (;;) {
+			const page = await conversation!.entries({ order: "ascending" }, 256, cursor as never, BACKGROUND_CONTEXT);
+			for (const entry of page.items) {
+				if ((entry.model?.[0] as { role?: string } | undefined)?.role === "user") users++;
+			}
+			if (!page.next) break;
+			cursor = page.next as Record<string, unknown>;
+		}
+		assert.equal(users, 1, "the repaired run reused its committed input");
 		researchModelOverride.current = undefined;
 	});
 });
