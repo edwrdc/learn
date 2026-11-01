@@ -26,6 +26,10 @@ import type { HeadlessApi } from "./headless.ts";
 /** The roles the durable background runner drives. */
 export type BackgroundKind = "research" | "demo" | "visual" | "pdf" | "extract" | "audit" | "compact";
 
+/** A run's role: the settings-resolved job roles, plus the compaction
+ *  summarizer, which runs the chat's own engine and resolves no role. */
+export type RunRole = ModelRole | "compact";
+
 /** A demo verification result without the unconstrained probe value: the
  *  persisted state must stay JSON. */
 export interface DemoVerification {
@@ -109,7 +113,7 @@ export interface RunDescriptor {
 	/** The runtime owner: the chat id, or a notes source id. */
 	chatId: string;
 	kind: BackgroundKind;
-	role: ModelRole;
+	role: RunRole;
 	model: RunModel;
 	/** The child conversation's provider session id; the Models router keys
 	 *  this run's engine binding on it. */
@@ -142,7 +146,7 @@ export interface BackgroundRunRequest {
 	/** The runtime owner: the chat id, or a notes source id. */
 	chatId: string;
 	kind: BackgroundKind;
-	role: ModelRole;
+	role: RunRole;
 	/** The engine resolved and key-gated by the caller for a FRESH run
 	 *  (ignored when the durable index already has this run). */
 	engine: PiEngine;

@@ -74,12 +74,11 @@ export async function subagentSummarizer(
 ): Promise<{ summary: string; usage: Usage }> {
 	const outcome = await backgroundRun({
 		// The engine is always the chat's own conversation engine (owner
-		// ruling), so the role label never resolves one; "researcher" is the
-		// least-wrong existing ModelRole label for a one-shot text job.
+		// ruling); the compact role resolves no settings.
 		jobId: `compact:${chatId}:${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`,
 		chatId,
 		kind: "compact",
-		role: "researcher" as never,
+		role: "compact",
 		engine,
 		maxTurns: 1,
 		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
