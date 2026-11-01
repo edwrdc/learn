@@ -18,18 +18,25 @@
  * (status error "Aborted by learner" + the abort steer); the runner only unwinds.
  */
 
-interface LhAbortGlobal {
-	__lhJobAborts?: Map<string, AbortController>;
+/** One live job's kill switch: the controller the old loops ride, plus the
+ *  durable run's own abort (a conversation abort marks and joins its tasks). */
+interface JobAbort {
+	controller: AbortController;
+	abort?: () => void;
 }
 
-function registry(): Map<string, AbortController> {
+interface LhAbortGlobal {
+	__lhJobAborts?: Map<string, JobAbort>;
+}
+
+function registry(): Map<string, JobAbort> {
 	const g = globalThis as typeof globalThis & LhAbortGlobal;
 	return (g.__lhJobAborts ??= new Map());
 }
 
 /** The runner registers its controller at job start (idempotent overwrite). */
-export function registerJobAbort(jobId: string, controller: AbortController): void {
-	registry().set(jobId, controller);
+export function registerJobAbort(jobId: string, controller: AbortController, abort?: () => void): void {
+	registry().set(jobId, { controller, abort });
 }
 
 /** The runner unregisters in its finally block (job settled or unwound). */
@@ -54,9 +61,10 @@ export function isJobLive(jobId: string): boolean {
  * phase where the runner has already returned); the caller then owns the
  * whole abort on the record side. */
 export function fireJobAbort(jobId: string): boolean {
-	const controller = registry().get(jobId);
-	if (!controller) return false;
+	const entry = registry().get(jobId);
+	if (!entry) return false;
 	registry().delete(jobId);
-	controller.abort();
+	entry.abort?.();
+	entry.controller.abort();
 	return true;
 }

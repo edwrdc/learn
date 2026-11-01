@@ -119,6 +119,18 @@ function slots(): Map<string, RuntimeSlot> {
 	return (g.__lhDurableRuntimes ??= new Map());
 }
 
+/** Runs once per freshly opened chat database, BEFORE the scheduler resumes:
+ *  the composition root reinstalls the extension, prompt and Models binding
+ *  of every interrupted run from durable state (the app layer owns the code
+ *  the runtime cannot import). */
+export type RuntimeBootstrap = (runtime: ChatRuntime) => Promise<void>;
+
+let runtimeBootstrap: RuntimeBootstrap | undefined;
+
+export function setRuntimeBootstrap(run: RuntimeBootstrap | undefined): void {
+	runtimeBootstrap = run;
+}
+
 async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	const dir = durableDir(chatId);
 	fs.mkdirSync(dir, { recursive: true });
@@ -154,7 +166,7 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 			(await tx.doc(ProviderDoc, id)).sessionId = chatId;
 		},
 	});
-	return {
+	const runtime: ChatRuntime = {
 		chatId,
 		dir,
 		storage,
@@ -164,6 +176,15 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 		queue: Promise.resolve(),
 		closing: false,
 	};
+	try {
+		await runtimeBootstrap?.(runtime);
+	} catch (error) {
+		console.error(`[chat ${chatId}] runtime bootstrap failed:`, error);
+	}
+	// Resume AFTER the bootstrap: a generation interrupted by process death
+	// must find its tools, prompt and engine already installed.
+	harness.resume();
+	return runtime;
 }
 
 /** The chat's runtime, opening it on first use. One owner per database:

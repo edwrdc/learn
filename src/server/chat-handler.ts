@@ -19,10 +19,10 @@
  * server-side steers (src/server/jobs.ts).
  */
 
-import { ConversationBusy } from "@earendil-works/pi-durable";
+import { ConversationBusy, LiveDoc } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
-import { createJobRunner } from "../agent/subagents/runner.ts";
+import { createJobRunner, setBackgroundRun } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";
 import {
@@ -59,7 +59,7 @@ import { danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
-import { syncCustomEndpointProvider, customEndpointKeyPresent } from "./custom-endpoint.ts";
+import { syncCustomEndpointProvider, customEndpointKeyPresent, customEndpointState } from "./custom-endpoint.ts";
 import { emit } from "../core/events.ts";
 import {
 	ChatInputError,
@@ -78,10 +78,18 @@ import {
 	openChatRuntime,
 	projectEntries,
 	readEntries,
+	setRuntimeBootstrap,
 	type ChatRuntime,
 } from "../store/durable.ts";
 import { chatPhase, prepareConversation, type ConversationDeps } from "./durable-registry.ts";
 import { runDurableTurn } from "./pi/durable-turn.ts";
+import {
+	configureBackgroundRuns,
+	resumeBackgroundRuns,
+	runBackgroundConversation,
+	type BackgroundRunRequest,
+	type RunDescriptor,
+} from "./durable-background.ts";
 
 const jobRunner = createJobRunner({
 	chatStore: stores.chatStore,
@@ -142,6 +150,69 @@ function resolveEngine(role: ModelRole): PiEngine | undefined {
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
+
+/** Background-run host services: the server composition owns settings, keys
+ *  and the search seam; the durable background module only stores safe
+ *  descriptors. */
+configureBackgroundRuns({
+	resolveEngine: (descriptor) => resolveStoredEngine(descriptor),
+	searchProvider,
+});
+
+setBackgroundRun(async (request) => {
+	const result = await runBackgroundConversation(request as unknown as BackgroundRunRequest);
+	return {
+		text: result.text,
+		fetchedUrls: result.state.kind === "research" ? result.state.fetchedUrls : [],
+	};
+});
+
+function resolveStoredEngine(descriptor: RunDescriptor): PiEngine | undefined {
+	syncCustomEndpointProvider();
+	if (descriptor.model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
+		const endpoint = customEndpointState().endpoint;
+		// A custom endpoint edited to another base URL must not silently take
+		// over a run that captured the old one.
+		if (!endpoint || (descriptor.model.baseUrl && endpoint.baseUrl !== descriptor.model.baseUrl)) return undefined;
+	}
+	try {
+		return piEngineForSpec({
+			provider: descriptor.model.provider,
+			id: descriptor.model.modelId,
+			thinkingLevel: descriptor.model.thinking as never,
+		});
+	} catch (error) {
+		console.info(`[models] cannot restore ${descriptor.model.provider}:${descriptor.model.modelId}:`, error);
+		return undefined;
+	}
+}
+
+/** Reinstall a foreground run interrupted by process death: the phase's tool
+ *  registry, prompt and engine binding must exist before the scheduler
+ *  resumes its generation. */
+async function resumeForegroundRun(runtime: ChatRuntime): Promise<void> {
+	const live = await runtime.harness.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT);
+	if (!live?.run) return;
+	const record = await stores.chatStore.getChat(runtime.chatId);
+	if (!record) return;
+	const effective = effectiveSettings();
+	const spec = resolveConversationSpec(record.settings, effective.models.strong);
+	if (!spec) return;
+	syncCustomEndpointProvider();
+	let engine: PiEngine;
+	try {
+		engine = piEngineForSpec(spec);
+	} catch {
+		return; // the next request refuses honestly (the conversation has no model)
+	}
+	const messages = projectEntries(await readEntries(runtime));
+	await prepareConversation(runtime, runtime.chatId, messages, record.kind, engine, effective, conversationDeps());
+}
+
+setRuntimeBootstrap(async (runtime) => {
+	await resumeBackgroundRuns(runtime);
+	await resumeForegroundRun(runtime);
+});
 
 /** Test injection for the durable turn: a scripted engine, the tools'
  *  composition seams (a job runner whose spawn/deliver a test owns), or a

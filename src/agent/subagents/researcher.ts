@@ -16,7 +16,7 @@ import { runSubagent } from "./pi-run.ts";
  * The engine is injectable so tests run the loop with a scripted faux engine.
  */
 
-const INSTRUCTIONS = `You are a research specialist. You work for a teacher agent inside a learning
+export const RESEARCHER_INSTRUCTIONS = `You are a research specialist. You work for a teacher agent inside a learning
 application: given a research question, conduct thorough web research and produce a focused,
 well-sourced brief that the teacher can teach from.
 
@@ -98,7 +98,7 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 		role: "researcher",
 		prompt,
 		engine: opts.engine,
-		systemPrompt: INSTRUCTIONS,
+		systemPrompt: RESEARCHER_INSTRUCTIONS,
 		maxTurns: 12,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,

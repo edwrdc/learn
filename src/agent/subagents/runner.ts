@@ -27,7 +27,7 @@ import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMis
 import type { ChatStore, JobStore } from "../../core/ports.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
-import { runResearcherAgent } from "./researcher.ts";
+import { RESEARCHER_INSTRUCTIONS } from "./researcher.ts";
 import { runVisualMaker } from "./visual-maker.ts";
 
 /**
@@ -101,6 +101,38 @@ export interface JobRunner {
 	runJob(jobId: string, input?: JobToolInput): Promise<void>;
 }
 
+/** The durable background seam, wired by the server composition root (the
+ *  agent layer may not import it). It runs the role's child conversation and
+ *  returns the final text plus the role state a later process persisted. */
+export interface DurableBackgroundRequest {
+	jobId: string;
+	chatId: string;
+	kind: "research";
+	role: ModelRole;
+	engine: PiEngine;
+	maxTurns: number;
+	systemPrompt: string;
+	prompt: string;
+	input?: Record<string, unknown>;
+	attachments?: { pdfDir?: string };
+	search?: () => SearchProvider | null;
+	abort?: AbortController;
+	onActivity?: (line: string) => void;
+	onUsage?: (usage: JobUsage) => void;
+}
+
+export type DurableBackgroundRun = (
+	request: DurableBackgroundRequest,
+) => Promise<{ text: string; fetchedUrls: string[] }>;
+
+let backgroundRunSeam: DurableBackgroundRun | undefined;
+
+/** chat-handler wires this at module init (the durable runtime lives in the
+ *  server layer; the runner keeps only the role loop's seams). */
+export function setBackgroundRun(run: DurableBackgroundRun): void {
+	backgroundRunSeam = run;
+}
+
 /** One job loop's injected machinery: the kill switch (real abort, 2026-09
  * semantics) and the usage tap (money channel — every model call folds into
  * JobRecord.usage as it completes). */
@@ -108,6 +140,9 @@ interface LoopContext {
 	/** Fires when abortJob kills the run; abortSignal is passed into every
 	 * model call so the spend stops mid-call, not at the next loop check. */
 	abortSignal: AbortSignal;
+	/** The controller itself — a durable run registers it as its kill switch
+	 * so `abortSignal.aborted` also guards the runner's unwind. */
+	controller: AbortController;
 	/** The job's chat (debug: raw provider-event recording under
 	 * LH_PROVIDER_EVENTS=1 — forwarded into every subagent run). */
 	chatId?: string;
@@ -143,6 +178,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		registerJobAbort(jobId, controller);
 		return {
 			abortSignal: controller.signal,
+			controller,
 			chatId,
 			onUsage: (step) => {
 				const next = accumulateJobUsage(usageTotals.get(jobId), model, step);
@@ -354,7 +390,6 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			.filter(Boolean)
 			.join("\n\n");
 
-		const fetchedUrls: string[] = [];
 		// Per-job PDF dir (researcher PDF wave, 2026-10-07): web_fetch_pdf
 		// downloads land here; every pdf tool is scoped to it; it dies with
 		// the job (never enters the record).
@@ -362,31 +397,39 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 
 		try {
 			jobStore.updateJob(jobId, { activity: "researching" });
-			const brief = await runResearcherAgent(prompt, {
-				engine: model,
+			// The researcher is a real durable conversation in this chat's
+			// database; a re-entry after a crash reattaches to it instead of
+			// spending the run again.
+			if (!backgroundRunSeam) throw new Error("background runner seam is not wired (setBackgroundRun)");
+			const { text: brief, fetchedUrls: durableUrls } = await backgroundRunSeam({
+				jobId,
+				chatId: ctx.chatId,
+				kind: "research",
+				role: "researcher",
+				engine: model!,
+				maxTurns: 12,
+				systemPrompt: RESEARCHER_INSTRUCTIONS,
+				prompt,
+				input: { question, ...(context ? { context } : {}) },
+				attachments: { pdfDir },
 				search: deps.searchProvider,
-				pdfDir,
-				abortSignal: loop.abortSignal,
-				chatId: loop.chatId,
-				// Money channel: each agent step is one model call — fold its
-				// usage into the record as it completes (progress write).
-				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
-					onToolStart: (toolName, args) => {
-					const input = args as { query?: string; url?: string } | undefined;
-					if (typeof input?.url === "string" && (toolName === "web_fetch" || toolName === "web_fetch_pdf")) {
-						fetchedUrls.push(input.url);
-					}
-					jobStore.updateJob(jobId, { activity: activityLine(toolName, input) });
-				},
+				abort: loop.controller,
+				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+				onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
 			});
 			if (!brief.trim()) throw new Error("the researcher produced no text");
-			const research: ResearchResult = { brief: brief.trim(), sources: parseSources(brief.trim(), fetchedUrls) };
+			const research: ResearchResult = {
+				brief: brief.trim(),
+				sources: parseSources(brief.trim(), durableUrls),
+			};
 			await finishJob(jobId, research);
 		} catch (err) {
 			// Real-kill abort (2026-09): the abort path flipped the record and
 			// queued the abort steer — unwind silently, keep the usage
-			// folded so far (flushed by runJob's finally).
-			if (loop.abortSignal.aborted) return;
+			// folded so far (flushed by runJob's finally). A runtime close is
+			// the same: the durable run stays recoverable, so no failure
+			// result may be delivered for it.
+			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { brief: `Research failed: ${reason}`, sources: [] });
@@ -526,13 +569,6 @@ function isVisualFailure(result: VisualResult): boolean {
 /** The pdf-reader's failure brief (mirrors the research failure shape). */
 function isPdfFailure(result: PdfResult): boolean {
 	return /^PDF failed:/i.test(result.brief);
-}
-
-/** The activity line shown in the UI: `web_search: "query"` / `web_fetch: host`. */
-function activityLine(toolName: string, input: { query?: string; url?: string } | undefined): string {
-	if (toolName === "web_search") return `web_search: "${input?.query ?? ""}"`;
-	if (toolName === "web_fetch") return `web_fetch: ${hostOf(input?.url)}`;
-	return toolName;
 }
 
 function hostOf(url: string | undefined): string {
