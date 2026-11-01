@@ -5,22 +5,38 @@
  *
  *   npx tsx --env-file=.env.local scripts/backfill-graph.ts
  */
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { chatStore } from "../src/store/chats.ts";
 import { graphStore } from "../src/store/graph.ts";
 import { createExtractionPipeline } from "../src/agent/subagents/extraction.ts";
 import { getGraph } from "../src/core/graph.ts";
 import { effectiveSettings } from "../src/server/stores.ts";
+import { providerKeyMissing } from "../src/core/settings.ts";
+// The composition root's side effects: the durable runtime bootstrap and the
+// background-run seam the extraction stages ride.
+import { providerHasKey, resolveEngine } from "../src/server/chat-handler.ts";
 
-async function main() {
-	const only = process.argv[2]; // optional: extract just one chat id
-	const chats = only ? chatStore.listChats().filter((c) => c.id === only) : chatStore.listChats();
-	console.log(`[backfill] ${chats.length} chats to extract`);
-	const pipeline = createExtractionPipeline({
+/** The script's extraction pipeline: the same role chain and key gate the
+ *  server's own pipeline uses (the one composition, read fresh). */
+export function createBackfillPipeline(): ReturnType<typeof createExtractionPipeline> {
+	return createExtractionPipeline({
 		chatStore,
 		graphStore,
+		engineFor: (role) => resolveEngine(role),
+		providerKeyMissing: (provider, tier) =>
+			providerHasKey(provider) ? null : providerKeyMissing(provider, [tier]),
 		// Live budget: the graph section's setting, same as the app's trigger
 		getChunkTokens: () => effectiveSettings().graph.extractionChunkTokens,
 	});
+}
+
+async function main() {
+	const only = process.argv[2]; // optional: extract just one chat id
+	const all = await chatStore.listChats();
+	const chats = only ? all.filter((c) => c.id === only) : all;
+	console.log(`[backfill] ${chats.length} chats to extract`);
+	const pipeline = createBackfillPipeline();
 	for (const chat of chats) {
 		const t0 = Date.now();
 		try {
@@ -39,4 +55,6 @@ async function main() {
 	);
 }
 
-main();
+const invokedAsCli =
+	process.argv[1] != null && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (invokedAsCli) await main();

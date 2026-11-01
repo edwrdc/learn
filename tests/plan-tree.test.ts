@@ -44,7 +44,7 @@ function assertReject(fn: () => unknown, needle: RegExp): void {
 // ─── 1. pure ops ─────────────────────────────────────────────────────────────
 
 describe("plan-tree pure ops", () => {
-	it("createTree builds version 1 with no mutation of its inputs", () => {
+	it("createTree builds version 1 with no mutation of its inputs", async () => {
 		const nodes = [N("a", "A"), N("b", "B")];
 		const edges = [E("a", "b")];
 		const t = createTree(nodes, edges);
@@ -58,16 +58,16 @@ describe("plan-tree pure ops", () => {
 		assert.deepEqual(edges, [E("a", "b")]);
 	});
 
-	it("createTree rejects duplicate node ids", () => {
+	it("createTree rejects duplicate node ids", async () => {
 		assertReject(() => createTree([N("a"), N("a")], []), /Duplicate node id "a"/);
 	});
 
-	it("createTree rejects edges with missing endpoints", () => {
+	it("createTree rejects edges with missing endpoints", async () => {
 		assertReject(() => createTree([N("a")], [E("a", "ghost")]), /unknown node id "ghost"/);
 		assertReject(() => createTree([N("a")], [E("ghost", "a")]), /unknown node id "ghost"/);
 	});
 
-	it("createTree rejects self-loops, duplicates, and cycles", () => {
+	it("createTree rejects self-loops, duplicates, and cycles", async () => {
 		assertReject(() => createTree([N("a")], [E("a", "a")]), /self-loop/);
 		assertReject(() => createTree([N("a"), N("b")], [E("a", "b"), E("a", "b")]), /already exists/);
 		// a→b→c→a is a cycle.
@@ -77,7 +77,7 @@ describe("plan-tree pure ops", () => {
 		);
 	});
 
-	it("createTree rejects invalid node shapes", () => {
+	it("createTree rejects invalid node shapes", async () => {
 		assertReject(() => createTree([N("")], []), /non-empty `id`/);
 		assertReject(() => createTree([{ id: "a", title: "" }], []), /non-empty `title`/);
 	});
@@ -104,15 +104,15 @@ async function exec(tools: ReturnType<typeof planTools>, name: string, input: un
 	return t.execute("test", input).then((r) => r.details as PlanToolResult);
 }
 
-function newChat(title: string): string {
-	const chat = chatStore.createChat(title);
+async function newChat(title: string): Promise<string> {
+	const chat = await chatStore.createChat(title);
 	createdChats.push(chat.id);
 	return chat.id;
 }
 
 describe("plan_init — the author-once mermaid tool (execute against the real store)", () => {
 	it("parses a mermaid block, builds the tree, persists, returns the full tree", async () => {
-		const chatId = newChat("Plan: init");
+		const chatId = await newChat("Plan: init");
 		const tools = planTools({ chatId, chatStore });
 
 		const res = await exec(tools, "plan_init", {
@@ -131,13 +131,13 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 			{ from: "operators", to: "expressions" },
 		]);
 
-		const saved = chatStore.getChat(chatId)!.tree;
+		const saved = (await chatStore.getChat(chatId))!.tree;
 		assert.ok(saved, "tree persisted to the chat record");
 		assert.deepEqual(saved, tree);
 	});
 
 	it("RE-CALLABLE: a rewrite replaces the tree wholesale (the mutation tools are gone)", async () => {
-		const chatId = newChat("Plan: rewrite");
+		const chatId = await newChat("Plan: rewrite");
 		const tools = planTools({ chatId, chatStore });
 		await exec(tools, "plan_init", {
 			mermaid: "graph TD\n  a[First attempt] --> b[Early shape]\n",
@@ -152,14 +152,14 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 			["truth", "goal"],
 		);
 		assert.deepEqual(
-			chatStore.getChat(chatId)!.tree!.nodes.map((n) => n.id),
+			(await chatStore.getChat(chatId))!.tree!.nodes.map((n) => n.id),
 			["truth", "goal"],
 			"rewrite persisted",
 		);
 	});
 
 	it("parse failures collect EVERY problem with line numbers and persist nothing", async () => {
-		const chatId = newChat("Plan: bad parse");
+		const chatId = await newChat("Plan: bad parse");
 		const tools = planTools({ chatId, chatStore });
 
 		const res = await exec(tools, "plan_init", {
@@ -172,11 +172,11 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 		assert.match(err, /line 4/);
 		// Context diet (2026-10-09): failures carry just the error — no tree echo.
 		assert.equal(res.tree, undefined);
-		assert.equal(chatStore.getChat(chatId)!.tree, undefined, "nothing persisted on failure");
+		assert.equal((await chatStore.getChat(chatId))!.tree, undefined, "nothing persisted on failure");
 	});
 
 	it("structural failures (cycle) become ok:false without persisting", async () => {
-		const chatId = newChat("Plan: cycle");
+		const chatId = await newChat("Plan: cycle");
 		const tools = planTools({ chatId, chatStore });
 		const res = await exec(tools, "plan_init", {
 			mermaid: "graph TD\n  a[A] --> b[B]\n  b --> a\n",
@@ -186,7 +186,7 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 		assert.equal(res.tree, undefined, "no tree echo on failure (context diet, 2026-10-09)");
 	});
 
-	it("only plan_init exists — the seven mutation/tracking tools are gone by design", () => {
+	it("only plan_init exists — the seven mutation/tracking tools are gone by design", async () => {
 		const tools = planTools({ chatId: "chat_x", chatStore });
 		assert.deepEqual(Object.keys(tools), ["plan_init"]);
 	});
@@ -205,7 +205,7 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 	const parse = (m: string) => parseMermaidPlan(m);
 
-	it("accepts graph TD and flowchart TB headers (case-insensitive), comments, and blank lines", () => {
+	it("accepts graph TD and flowchart TB headers (case-insensitive), comments, and blank lines", async () => {
 		for (const header of ["graph TD", "graph td", "flowchart TB", "Flowchart td"]) {
 			const res = parse(`${header}\n%% a comment\n\n  a[Alpha]\n`);
 			assert.equal(res.ok, true, header);
@@ -213,7 +213,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		}
 	});
 
-	it("bare ids fall back to id-as-title; bracket and paren labels both work", () => {
+	it("bare ids fall back to id-as-title; bracket and paren labels both work", async () => {
 		const res = parse("graph TD\n  bare\n  bracket[Bracket title]\n  paren(\"Paren title\")\n");
 		assert.deepEqual(res.plan!.nodes, [
 			{ id: "bare", title: "bare" },
@@ -222,7 +222,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		]);
 	});
 
-	it("edges register bare endpoints as nodes and dedupe duplicate edges", () => {
+	it("edges register bare endpoints as nodes and dedupe duplicate edges", async () => {
 		const res = parse("graph TD\n  a --> b[Bee]\n  a --> b[Bee]\n");
 		assert.deepEqual(res.plan!.nodes, [
 			{ id: "a", title: "a" },
@@ -231,7 +231,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		assert.deepEqual(res.plan!.edges, [{ from: "a", to: "b" }]);
 	});
 
-	it("labels on both edge endpoints survive; forward references are fine", () => {
+	it("labels on both edge endpoints survive; forward references are fine", async () => {
 		const res = parse("graph TD\n  downstream[Later thing] --> upstream[Earlier thing]\n");
 		assert.deepEqual(res.plan!.edges, [{ from: "downstream", to: "upstream" }]);
 		assert.deepEqual(res.plan!.nodes, [
@@ -240,7 +240,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		]);
 	});
 
-	it("rejects: non-slug ids (with the SPECIFIC message), self-loops, subgraphs, missing header, empty", () => {
+	it("rejects: non-slug ids (with the SPECIFIC message), self-loops, subgraphs, missing header, empty", async () => {
 		// The muscle-protein post-mortem (2026-09-11): underscore ids died at
 		// the regex layer with a generic message, and the teacher spent four
 		// plan_init calls hunting punctuation the parser didn't care about.
@@ -260,7 +260,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		assert.ok(!parse("%% only a comment\n").ok, "empty plan");
 	});
 
-	it("free-form pass (2026-09-11): underscores, chains, arrow synonyms, any direction, quoted titles", () => {
+	it("free-form pass (2026-09-11): underscores, chains, arrow synonyms, any direction, quoted titles", async () => {
 		// Underscores are first-class slug chars — kept verbatim, referenced
 		// verbatim by quiz nodeId.
 		const us = parse("graph TD\n  mps_translation[Ribosomes build protein] --> net_balance[Net balance]\n");
@@ -298,7 +298,7 @@ describe("parseMermaidPlan (the constrained mermaid subset)", () => {
 		}
 	});
 
-	it("the first label wins when a node line repeats (relabeling mid-block is ignored)", () => {
+	it("the first label wins when a node line repeats (relabeling mid-block is ignored)", async () => {
 		const res = parse("graph TD\n  a[First label]\n  a[Second label]\n");
 		assert.deepEqual(res.plan!.nodes, [{ id: "a", title: "First label" }]);
 	});
@@ -328,13 +328,13 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 	type QuizPart = { type: string; state: string; input: unknown; output?: unknown };
 	const msg = (...parts: QuizPart[]) => ({ parts });
 
-	it("empty transcript → no current, nothing visited (no fallback current)", () => {
+	it("empty transcript → no current, nothing visited (no fallback current)", async () => {
 		const st = derivePlanStatuses(tree, []);
 		assert.equal(st.current, null);
 		assert.equal(st.visited.size, 0);
 	});
 
-	it("current = the node of the most recent tagged CALL — regardless of state or outcome", () => {
+	it("current = the node of the most recent tagged CALL — regardless of state or outcome", async () => {
 		const st = derivePlanStatuses(tree, [msg(quizPart("output-available", "b", false))]);
 		assert.equal(st.current, "b", "even a FAILED check positions the map: the tag is about, not completion");
 		assert.equal(st.visited.size, 0);
@@ -342,7 +342,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.equal(open.current, "c", "a merely ASKED question is already the position");
 	});
 
-	it("visited = earlier tagged nodes, sticky; results feed nothing", () => {
+	it("visited = earlier tagged nodes, sticky; results feed nothing", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg(quizPart("output-available", "a", true)),
 			msg(quizPart("output-available", "b", true)),
@@ -355,7 +355,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.equal(again.visited.size, 0, "one correct answer on a does not finish it");
 	});
 
-	it("revisits keep both: A→B→A gives current A, visited {A,B}", () => {
+	it("revisits keep both: A→B→A gives current A, visited {A,B}", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg(quizPart("output-available", "a", true)),
 			msg(quizPart("output-available", "b", true)),
@@ -365,7 +365,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.deepEqual([...st.visited].sort(), ["a", "b"]);
 	});
 
-	it("several checks on one node hold the map still", () => {
+	it("several checks on one node hold the map still", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg(quizPart("output-available", "a", true)),
 			msg(quizPart("output-available", "a", false)),
@@ -375,7 +375,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.equal(st.visited.size, 0);
 	});
 
-	it("untagged checks and unknown nodeIds are ad-hoc — they move nothing", () => {
+	it("untagged checks and unknown nodeIds are ad-hoc — they move nothing", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg(quizPart("output-available", undefined, true)),
 			msg(quizPart("output-available", "ghost", true)),
@@ -384,7 +384,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.equal(st.visited.size, 0);
 	});
 
-	it("a rewritten map derives against the CURRENT tree — dropped slugs stop counting", () => {
+	it("a rewritten map derives against the CURRENT tree — dropped slugs stop counting", async () => {
 		const rewritten: PlanTree = { ...tree, nodes: [tree.nodes[0]!, tree.nodes[1]!] };
 		const st = derivePlanStatuses(rewritten, [
 			msg(quizPart("output-available", "a", true)),
@@ -394,7 +394,7 @@ describe("derivePlanStatuses (the map tracks position, not completion)", () => {
 		assert.equal(st.visited.size, 0);
 	});
 
-	it("derivedNodeStatus: current wins over visited; upcoming otherwise", () => {
+	it("derivedNodeStatus: current wins over visited; upcoming otherwise", async () => {
 		const st = derivePlanStatuses(tree, [msg(quizPart("output-available", "a", true))]);
 		assert.equal(derivedNodeStatus(st, "a"), "current");
 		assert.equal(derivedNodeStatus(st, "b"), "upcoming");
@@ -427,7 +427,7 @@ describe("derivePlanStatuses: tagged explain calls move the map like quiz calls"
 	type Part = { type: string; state: string; input: unknown; output?: unknown };
 	const msg = (...parts: Part[]) => ({ parts });
 
-	it("a tagged explain call is the current position; earlier ones are visited", () => {
+	it("a tagged explain call is the current position; earlier ones are visited", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg(explainPart("a")),
 			msg(explainPart("b")),
@@ -436,13 +436,13 @@ describe("derivePlanStatuses: tagged explain calls move the map like quiz calls"
 		assert.deepEqual([...st.visited], ["a"]);
 	});
 
-	it("untagged explain calls move nothing", () => {
+	it("untagged explain calls move nothing", async () => {
 		const st = derivePlanStatuses(tree, [msg(explainPart(undefined))]);
 		assert.equal(st.current, null);
 		assert.equal(st.visited.size, 0);
 	});
 
-	it("mixed mechanics (an old quiz record, then an explain) still derive one run", () => {
+	it("mixed mechanics (an old quiz record, then an explain) still derive one run", async () => {
 		const st = derivePlanStatuses(tree, [
 			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a" } }),
 			msg(explainPart("b")),

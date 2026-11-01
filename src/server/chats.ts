@@ -66,10 +66,10 @@ export type ChatDeleteOutcome =
  *      nothing merged.
  */
 export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): Promise<ChatDeleteOutcome> {
-	if (!stores.chatStore.getChat(chatId)) {
+	if (!(await stores.chatStore.getChat(chatId))) {
 		return { ok: false, status: 404, code: "not_found", error: "No such session" };
 	}
-	if (isTurnRunning(chatId)) {
+	if (await isTurnRunning(chatId)) {
 		return {
 			ok: false,
 			status: 409,
@@ -108,7 +108,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	// ledgers → jobs → the chat record.
 	const stats = deleteChatTraces(stores.graphStore, chatId, mode);
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
-	stores.chatStore.deleteChat(chatId);
+	await stores.chatStore.deleteChat(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }
 
@@ -136,8 +136,8 @@ export interface SessionCoverage {
 
 /** The per-session coverage block (see SessionCoverage). Null when the
  *  chat doesn't exist — callers own the 404. */
-export function sessionCoverage(chatId: string): SessionCoverage | null {
-	const record = stores.chatStore.getChat(chatId);
+export async function sessionCoverage(chatId: string): Promise<SessionCoverage | null> {
+	const record = await stores.chatStore.getChat(chatId);
 	if (!record) return null;
 	const entries = stores.graphStore.readCoverage();
 	// Wave B: the record is native history — coverage reads through the

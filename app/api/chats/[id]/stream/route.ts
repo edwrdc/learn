@@ -10,13 +10,13 @@
  *
  * 404 mirrors the POST handler's unknown-chat. Framework route is a thin
  * wrapper over the server barrel (the import law); tests drive the seams
- * (turn-runs + ui-stream) directly.
+ * (turn-runs + the durable turn view) directly.
  */
 import { getChat, runningTurn, piTurnResponse, settledTurnResponse } from "@/src/server";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
-	if (!getChat(id)) return Response.json({ error: "Unknown chat" }, { status: 404 });
+	if (!(await getChat(id))) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	const handle = runningTurn(id);
 	if (!handle) return settledTurnResponse();
 	return piTurnResponse(handle);

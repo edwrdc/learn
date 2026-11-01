@@ -27,7 +27,7 @@
  * (fully concrete) view lives in settings-resolution.ts.
  */
 
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { sanitizeCustomEndpoint, CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
 import type { ModelRole } from "../../config.ts";

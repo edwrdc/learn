@@ -94,10 +94,9 @@ export function providerEventsEnabled(): boolean {
 }
 
 /**
- * The observer for one agent run, or undefined when disabled. Pass the
- * result as the Agent's onProviderStreamEvent (both construction sites —
- * teacher-agent's baseAgentOptions and pi-run's runSubagent — build it
- * from a chatId in hand).
+ * The observer for one run, or undefined when disabled. Pass the result as
+ * the engine stream's onProviderStreamEvent (the turn registry and the
+ * background role runtime build it from a chatId in hand).
  */
 export function providerEventObserver(chatId: string, context: string): ProviderEventObserver | undefined {
 	if (!providerEventsEnabled()) return undefined;

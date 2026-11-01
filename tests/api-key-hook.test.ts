@@ -1,55 +1,79 @@
 /**
- * The getApiKey-hook fix (owner, 2026-09-26): both Agent constructions
- * (baseAgentOptions in teacher-agent.ts, runSubagent's loop in
- * subagents/pi-run.ts) used to pass `getApiKey: () => openRouterApiKey()` —
- * and pi-agent-core resolves
- * `(config.getApiKey ? await config.getApiKey(provider) : undefined) || config.apiKey`
- * (agent-loop.js:191), so a provided hook OVERRIDES pi-ai's native
- * per-provider env resolution. The hook ignored its provider arg, so every
- * non-OpenRouter provider was sent the OpenRouter key and 401'd (owner repro:
- * openai:gpt-5.6-luna, anthropic:claude-haiku-4-5 direct).
+ * Native per-provider key resolution (owner, 2026-09-26).
  *
- * The fix is DELETION: with no hook, pi-ai resolves keys natively from the
- * environment per request — the architecture's stated intent (models.ts:
- * "the keys seam reflects file-saved keys into env"). This file pins that
- * the deletion holds: the built agents must expose NO getApiKey hook, so
- * native resolution runs for every provider.
- *
- * runSubagent's Agent is internal to its promise (no exposed seam); its
- * hook was deleted in the same commit and its behavior is covered by the
- * sub-agent suite's faux engines.
+ * The old Agent constructions passed `getApiKey: () => openRouterApiKey()`,
+ * which overrode pi-ai's native per-provider env resolution and sent the
+ * OpenRouter key to every provider. The fix was deletion. The durable
+ * Harness now owns provider calls: the app binds an engine per conversation
+ * and supplies no key hook, so pi-ai resolves each provider's key natively.
+ * This file pins that no hook or key rides the request options.
  */
 
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { createProberAgent, createTeacherAgent, type TeachingAgent } from "../src/agent/teacher-agent.ts";
-import type { ProberToolContext } from "../src/agent/tools.ts";
-import { jobStore } from "../src/store/jobs.ts";
+import { after, describe, it } from "node:test";
+import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { handleChatRequest } from "../src/server/chat-handler.ts";
+import { isTurnRunning } from "../src/server/turn-liveness.ts";
 import { chatStore } from "../src/store/chats.ts";
-import { createFauxCore } from "@earendil-works/pi-ai";
+import { closeChatRuntime } from "../src/store/durable.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 
-/** A scripted pi engine — the agent builds need an injected engine since
- * BYOK removed the factory pins (owner, 2026-09-22). */
-function fauxEngine(): PiEngine {
-	const faux = createFauxCore({});
-	return { model: faux.getModel(), streamFn: faux.streamSimple };
+process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
+
+const createdChats: string[] = [];
+after(async () => {
+	for (const id of createdChats) {
+		await closeChatRuntime(id).catch(() => undefined);
+		await chatStore.deleteChat(id).catch(() => undefined);
+	}
+});
+
+function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 8000, what = "condition"): Promise<void> {
+	const started = Date.now();
+	return new Promise((resolve, reject) => {
+		const tick = async () => {
+			if (await cond()) return resolve();
+			if (Date.now() - started > timeoutMs) return reject(new Error(`timeout waiting for ${what}`));
+			setTimeout(() => void tick(), 25);
+		};
+		void tick();
+	});
 }
 
 describe("the getApiKey-hook fix (native per-provider key resolution)", () => {
-	it("teacher and prober builds expose NO getApiKey hook — pi-ai resolves keys natively", () => {
-		const chatId = chatStore.createChat("getApiKey pin").id;
-		const ctx: ProberToolContext = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
-		const builds: TeachingAgent[] = [
-			createTeacherAgent(undefined, { engine: fauxEngine() }),
-			createProberAgent(ctx, { engine: fauxEngine() }),
-		];
-		for (const agent of builds) {
-			assert.equal(
-				(agent as unknown as { getApiKey?: unknown }).getApiKey,
-				undefined,
-				"the OpenRouter-pinning hook must stay deleted — a set hook overrides pi-ai's native per-provider env resolution for EVERY provider",
-			);
-		}
+	it("the durable turn sends no getApiKey hook and no apiKey", async () => {
+		const faux = createFauxCore({});
+		faux.setResponses([fauxAssistantMessage("ok")]);
+		const seen: Array<{ getApiKey?: unknown; apiKey?: unknown }> = [];
+		const engine: PiEngine = {
+			model: faux.getModel(),
+			streamFn: (model, context, options) => {
+				seen.push({
+					getApiKey: (options as Record<string, unknown> | undefined)?.getApiKey,
+					apiKey: options?.apiKey,
+				});
+				return faux.streamSimple(model, context, options);
+			},
+		};
+		const chat = await chatStore.createChat("getApiKey pin");
+		createdChats.push(chat.id);
+		await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		const res = await handleChatRequest(
+			new Request("http://test/api/chat", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ chatId: chat.id, input: { type: "text", text: "hello" } }),
+			}),
+			{ engine },
+		);
+		assert.equal(res.status, 200, await res.text());
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the turn settles");
+		assert.equal(seen.length, 1, "one provider request");
+		assert.equal(
+			seen[0]!.getApiKey,
+			undefined,
+			"a set hook would override pi-ai's native per-provider env resolution for EVERY provider",
+		);
+		assert.equal(seen[0]!.apiKey, undefined, "no key is pinned on the request");
 	});
 });

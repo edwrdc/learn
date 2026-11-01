@@ -20,7 +20,7 @@ import {
 } from "../src/core/native-messages.ts";
 import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
 import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/agent/tools/practice.ts";
-import { composeInstructions, createPracticeAgent } from "../src/agent/teacher-agent.ts";
+import { composeInstructions } from "../src/agent/teacher-agent.ts";
 import { allSegmentPaths } from "../src/agent/prompt-segments.ts";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ function activeProblemRecord(): LhMessage[] {
 function recordStore(messages: LhMessage[]) {
 	return {
 		store: {
-			getChat: (_id: string) => ({ messages, kind: "practice" }),
+			getChat: async (_id: string) => ({ messages, kind: "practice" }),
 		},
 	};
 }
@@ -92,14 +92,14 @@ const CONCLUDE_INPUT = {
 
 describe("the practice tool gating law", () => {
 	it("problem acks on a quiet record and ends the turn (terminate)", async () => {
-		const result = await problemTool(createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(await createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, undefined);
 		assert.equal(result.terminate, true);
 		assert.match((result.content[0] as { text: string }).text, /Problem posed/);
 	});
 
 	it("problem is REJECTED while a problem is active (conclude first)", async () => {
-		const result = await problemTool(createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(await createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, true);
 		assert.deepEqual((result.details as { problems: string[] }).problems, [
 			"a problem is already active — call conclude on it before posing the next one",
@@ -107,7 +107,7 @@ describe("the practice tool gating law", () => {
 	});
 
 	it("conclude is REJECTED with nothing active", async () => {
-		const result = await concludeTool(createPracticeGate(ctxOf([]))).execute("call_x", CONCLUDE_INPUT as never);
+		const result = await concludeTool(await createPracticeGate(ctxOf([]))).execute("call_x", CONCLUDE_INPUT as never);
 		assert.equal(result.isError, true);
 		assert.deepEqual((result.details as { problems: string[] }).problems, [
 			"no active problem to conclude — pose one first",
@@ -115,7 +115,7 @@ describe("the practice tool gating law", () => {
 	});
 
 	it("conclude acks on the active problem and the turn CONTINUES (no terminate)", async () => {
-		const result = await concludeTool(createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", CONCLUDE_INPUT as never);
+		const result = await concludeTool(await createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", CONCLUDE_INPUT as never);
 		assert.equal(result.isError, undefined);
 		assert.equal(result.terminate, undefined);
 	});
@@ -126,7 +126,7 @@ describe("the practice tool gating law", () => {
 		// record per execute, so the pose after a successful conclude
 		// always died on "a problem is already active" until the model
 		// gave up ("the problem slot is stuck").
-		const gate = createPracticeGate(ctxOf(activeProblemRecord()));
+		const gate = await createPracticeGate(ctxOf(activeProblemRecord()));
 		const tools = { problem: problemTool(gate), conclude: concludeTool(gate) };
 		const conclude = await tools.conclude.execute("call_c1", CONCLUDE_INPUT as never);
 		assert.equal(conclude.isError, undefined, "the conclude acks against the seeded record");
@@ -147,7 +147,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	const graphNodes = () => NODES;
 
 	it("a NAME target silently normalizes to the canonical id (the record carries ids)", async () => {
-		const healed = problemTool(createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
+		const healed = problemTool(await createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
 			...PROBLEM_INPUT,
 			target: ["Parity of a sum", "pairing"],
 		}) as { target: string[] };
@@ -155,7 +155,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("an id target passes through untouched (already canonical)", async () => {
-		const healed = problemTool(createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
+		const healed = problemTool(await createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
 			...PROBLEM_INPUT,
 			target: ["n_parity"],
 		}) as { target: string[] };
@@ -163,7 +163,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("an UNKNOWN target rejects with a one-line error and does NOT arm the gate", async () => {
-		const gate = createPracticeGate(ctxOf([]));
+		const gate = await createPracticeGate(ctxOf([]));
 		const tool = problemTool(gate, graphNodes);
 		const rejected = await tool.execute("call_x", { ...PROBLEM_INPUT, target: ["ghost-prop"] } as never);
 		assert.equal(rejected.isError, true);
@@ -178,7 +178,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("UNTAGGED PROBLEMS (owner round 12): absent target poses freely; [] heals away to absent", async () => {
-		const tool = problemTool(createPracticeGate(ctxOf([])), graphNodes);
+		const tool = problemTool(await createPracticeGate(ctxOf([])), graphNodes);
 		const absent = await tool.execute("call_a", { statement: "S", mode: "recall", modelSolution: "M" } as never);
 		assert.equal(absent.isError, undefined, "no targets = an untagged problem, never a rejection");
 		const healed = tool.prepareArguments!({ statement: "S", mode: "recall", target: [], modelSolution: "M" }) as {
@@ -188,7 +188,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("NO node source (the legacy/test wiring) = no validation, free strings ack", async () => {
-		const result = await problemTool(createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(await createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, undefined);
 	});
 });
@@ -196,18 +196,18 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 // ── the registry + the agent ────────────────────────────────────────────────
 
 describe("the practice agent", () => {
-	it("bare registry: the session pair + the learner-filesystem set — no question, plan, or lesson tools", () => {
-		const tools = practiceTools(ctxOf([]));
+	it("bare registry: the session pair + the learner-filesystem set — no question, plan, or lesson tools", async () => {
+		const tools = await practiceTools(ctxOf([]));
 		assert.deepEqual(
 			Object.keys(tools).sort(),
 			["conclude", "find", "grep", "ls", "problem", "read"],
 		);
 	});
 
-	it("THE RARELY-NEEDED SET (owner round 10): jobs + map readers compose in when their roots are passed", () => {
+	it("THE RARELY-NEEDED SET (owner round 10): jobs + map readers compose in when their roots are passed", async () => {
 		const jobs = { chatId: "c1", jobStore: null as never, spawn: (() => {}) as never, searchAvailable: () => false };
 		const graph = { chatStore: null as never, graphStore: null as never };
-		const tools = practiceTools({ ...ctxOf([]), jobs, graph });
+		const tools = await practiceTools({ ...ctxOf([]), jobs, graph });
 		// Both jobs remain available keylessly; the prober's two map
 		// readers stay behind their existing settings gate. Practice does
 		// not apply the teacher/prober user tool-toggle filter.
@@ -215,27 +215,10 @@ describe("the practice agent", () => {
 			Object.keys(tools).sort(),
 			["conclude", "find", "grep", "list_propositions", "list_sessions", "ls", "pdf", "problem", "read", "research"],
 		);
-		const withSearch = practiceTools({ ...ctxOf([]), jobs: { ...jobs, searchAvailable: () => true }, graph });
+		const withSearch = await practiceTools({ ...ctxOf([]), jobs: { ...jobs, searchAvailable: () => true }, graph });
 		assert.ok(withSearch.research, "a live engine also keeps research");
 	});
 
-	it("constructs with exactly the two practice tools", () => {
-		// baseAgentOptions needs an engine (the BYOK thrower is the only
-		// fallback) — inject a never-streamed faux engine for the smoke.
-		const agent = createPracticeAgent(ctxOf([]), {
-			engine: {
-				model: { api: "faux", provider: "faux", id: "faux-model", contextWindow: 8192 } as never,
-				streamFn: (async () => {
-					throw new Error("not streamed in this test");
-				}) as never,
-			},
-		});
-		// The agent built with the live turn API (the registry itself is
-		// pinned above; pi's Agent exposes no state getter).
-		assert.equal(typeof agent.prompt, "function");
-		assert.equal(typeof agent.steer, "function");
-		assert.equal(typeof agent.waitForIdle, "function");
-	});
 });
 
 // ── persistent nudges (shipped defaults, no model calls) ──────────────────────
@@ -249,7 +232,7 @@ describe("persistent practice nudges", () => {
 		"Conclude when the learner has solved the problem correctly or explicitly asks to end it. Do not infer permission to end it from mistakes, elapsed time, the number of attempts, frustration, or an apparent inability to proceed.",
 	];
 
-	it("preserves the approved paragraphs in source and the effective default prompt", () => {
+	it("preserves the approved paragraphs in source and the effective default prompt", async () => {
 		// Pin approved wording and Markdown, but allow incidental line wrapping.
 		for (const text of [doctrine, composeInstructions("practice")]) {
 			const paragraphs = text.split(/\n\s*\n|\n(?=- )/).map(normalizeWhitespace);
@@ -259,7 +242,7 @@ describe("persistent practice nudges", () => {
 		}
 	});
 
-	it("does not compose the retired attempt cutoff, failed-repair reveal, or automatic-abort instructions", () => {
+	it("does not compose the retired attempt cutoff, failed-repair reveal, or automatic-abort instructions", async () => {
 		for (const text of [doctrine, composeInstructions("practice")]) {
 			const normalized = normalizeWhitespace(text);
 			assert.doesNotMatch(normalized, /\b(?:one|single|1) bounded attempt\b/i);
@@ -272,7 +255,7 @@ describe("persistent practice nudges", () => {
 		}
 	});
 
-	it("preserves the approved concluded-problem switch and unbounded structural repair in source and the effective default prompt", () => {
+	it("preserves the approved concluded-problem switch and unbounded structural repair in source and the effective default prompt", async () => {
 		const approvedDifficulty = "3. **Difficulty** — from the last outcomes on this target: clean success, one notch up; success that needed hints, hold; a miss, one notch down and consider dropping a mode. Two missed concluded problems in a row on this target: switch targets for the next demand. Never switch away from an active problem because of the number of attempts.";
 		const approvedClassification = "Classify every miss: cue miss (nothing came), discrimination error (wrong candidate won), execution slip (right proposition, wrong run), careless, or structural (the retrieved proposition is itself wrong — a misconception). The first four are practice information. Structural misses call for minimal nudges toward repairing the misconception, not an immediate correction or re-teaching. Keep each nudge surgical; do not impose a one-line or one-attempt limit on the repair as a whole.";
 		for (const text of [doctrine, composeInstructions("practice")]) {
@@ -286,7 +269,7 @@ describe("persistent practice nudges", () => {
 		}
 	});
 
-	it("preserves the approved misconception introduction without an affirmative one-line repair cap", () => {
+	it("preserves the approved misconception introduction without an affirmative one-line repair cap", async () => {
 		const approvedIntroduction = "- **Not a teaching session.** You will find misconceptions. Address them with minimal, surgical nudges, over as many exchanges as needed. A practice session that drifts into re-teaching has stopped practicing.";
 		for (const text of [doctrine, composeInstructions("practice")]) {
 			const normalized = normalizeWhitespace(text);
@@ -295,7 +278,7 @@ describe("persistent practice nudges", () => {
 		}
 	});
 
-	it("keeps the many-claims default, hint ladder, dismissal, and explicit-go-ahead pause", () => {
+	it("keeps the many-claims default, hint ladder, dismissal, and explicit-go-ahead pause", async () => {
 		const prompt = normalizeWhitespace(composeInstructions("practice"));
 		assert.match(prompt, /A problem may take many claims; staying is the default/);
 		for (const rung of ["R0", "R1", "R2", "R3", "R4", "R5"]) {
@@ -308,7 +291,7 @@ describe("persistent practice nudges", () => {
 	});
 
 	it("aligns the conclude description with the canonical ack without changing outcomes or the runtime pause mechanism", async () => {
-		const tool = concludeTool(createPracticeGate(ctxOf(activeProblemRecord())));
+		const tool = concludeTool(await createPracticeGate(ctxOf(activeProblemRecord())));
 		const description = normalizeWhitespace(tool.description);
 		assert.match(description, /records the outcome \+ verdict, reveals the committed solution, and frees the learner's composer/);
 		assert.match(description, /After the result, say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls/);
@@ -327,7 +310,7 @@ describe("persistent practice nudges", () => {
 // ── the prompt composition ──────────────────────────────────────────────────
 
 describe("practice prompt composition (own directory + the formatting appendix)", () => {
-	it("composes base + doctrine — never the teaching base or question/confidence mechanics", () => {
+	it("composes base + doctrine — never the teaching base or question/confidence mechanics", async () => {
 		const prompt = composeInstructions("practice");
 		// The base's voice section and the doctrine's spine are present…
 		assert.match(prompt, /Everything in this section deletes a default/);
@@ -340,7 +323,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.doesNotMatch(prompt, /predict/i);
 	});
 
-	it("the SHARED voice + accuracy compose (owner round 13): ONE law across every agent, and the stale line is dead", () => {
+	it("the SHARED voice + accuracy compose (owner round 13): ONE law across every agent, and the stale line is dead", async () => {
 		const prompt = composeInstructions("practice");
 		// accuracy (prompt-refinement round, 2026-10-07): the felt-doubt bar —
 		// one law across every agent; the old round-10 pointer lived in the
@@ -373,7 +356,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(teacher, /nothing to rush/, "the goal reiteration composes");
 	});
 
-	it("the prober doctrine steers difficulty by evidence (owner round, 2026-10-07)", () => {
+	it("the prober doctrine steers difficulty by evidence (owner round, 2026-10-07)", async () => {
 		const prober = composeInstructions("prober");
 		assert.match(prober, /Enter near the top, not the bottom/);
 		assert.match(prober, /Strands inform each other/);
@@ -382,7 +365,7 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.match(prober, /the verdict, his confidence, and his thinking field together set where the next question should sit/);
 	});
 
-	it("the SHARED formatting guide composes (owner, 2026-10-04 late): LaTeX delimiters in every setting", () => {
+	it("the SHARED formatting guide composes (owner, 2026-10-04 late): LaTeX delimiters in every setting", async () => {
 		const prompt = composeInstructions("practice");
 		// The standard delimiter law is shared by all three authoring agents.
 		for (const agent of ["practice", "prober", "teacher"] as const) {
@@ -393,12 +376,12 @@ describe("practice prompt composition (own directory + the formatting appendix)"
 		assert.ok(prompt.indexOf("# The practice session") < prompt.indexOf("## Formatting"), "formatting rides as the appendix");
 	});
 
-	it("base precedes doctrine (00- sorts before 10-)", () => {
+	it("base precedes doctrine (00- sorts before 10-)", async () => {
 		const prompt = composeInstructions("practice");
 		assert.ok(prompt.indexOf("The agent") < prompt.indexOf("# The practice session"));
 	});
 
-	it("the segment registry knows practice (override paths resolve)", () => {
+	it("the segment registry knows practice (override paths resolve)", async () => {
 		assert.ok(allSegmentPaths().includes("practice/00-base.md"));
 		assert.ok(allSegmentPaths().includes("practice/10-doctrine.md"));
 	});

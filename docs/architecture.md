@@ -25,7 +25,7 @@ Hold the architecture along two orthogonal axes:
 
 | System | Owns (sole writer) | Role |
 |---|---|---|
-| **Classroom** — session engine | `data/chats/*.json` | the turn pipeline, prober→teacher, plan tree, questions, phases |
+| **Classroom** — session engine | `data/chats/*.json` (metadata) · `data/durable/<chatId>/harness.sqlite` (transcript, runs) | the turn pipeline, prober→teacher, plan tree, questions, phases |
 | **Workbench** — background labor | `data/jobs/*.json` | job runner, researcher/demo-builder/visual-maker, steer delivery |
 | **Library** — world model | `data/graph/*` ledgers | extraction pipeline (sole graph writer), derivation, birth-session clusters |
 | **Practice** — problem sets | `data/practice/*.json` | partitioner→generator→grader pipeline, self-contained sets (§7) |
@@ -87,7 +87,7 @@ flowchart TB
         SBAR["barrel index.ts — THE server surface"]
         ROOTS["composition roots: stores.ts (storage) · chat-handler.ts (turn)"]
         SEAMS["service seams: turn-service · jobs (wake) · turn-liveness · commit-positions · observability · model-catalog · settings-body"]
-        PIB["pi/ — engine bridge: record-adapter (record → pi messages) · ui-stream (pi events → SSE)"]
+        PIB["pi/ — durable turn view (durable-turn) · tool-call id hygiene (call-ids)"]
     end
 
     subgraph AGENT["AGENT — src/agent — LLM loops, deps injected"]
@@ -166,12 +166,12 @@ Storage is **per-entity semantic ports**, never one generic interface: `ChatStor
 - **`src/server/chat-handler.ts` is THE composition root for a turn**: it wires the stores, the job runner, the extraction pipeline, the practice pipeline, and the pi engine into the stream response (`setTurnRunner`/`setJobRespawn` register its seams for the wake pipeline). All logic lives behind the seams it calls.
 - The agent layer is dependency-inverted throughout: `createJobRunner({ chatStore, jobStore, deliver })`, `createExtractionPipeline({ chatStore, graphStore, extractor?, auditor?, embedder })`, `createTeacherTools({ chatId, chatStore, jobStore, spawn })`, `createProberAgent`/`createTeacherAgent(engine?, tools?, …)`. Tests inject the same ports production wires — or swap an in-memory port.
 
-The engine side is adapted too: `src/agent/models.ts` (`piEngineFor`) resolves each role's engine from the user's **model slots** (BYOK: `settings.json` `models` section — strong/cheap/vision; a chain that ends empty refuses honestly with 503 `models_not_configured`) — and the teacher/prober conversation runs the **SESSION'S OWN record**: `POST /api/chats` stamps every newborn verbatim from the strong slot (the new-session default, chosen in setup), in-session picks write the session's record (`PUT /api/chats/:id/settings`), and the strong slot never reaches an existing session again (legacy unstamped records fall back to it at resolve time) — per-session models, owner 2026-09-28. Beyond the conversation, `src/server/pi/` bridges the two SDK worlds: `record-adapter.ts` (persisted UIMessage record → stateless pi `Message[]`, dangling tool calls get synthesized INTERRUPTED results) and `ui-stream.ts` (pi agent events → AI-SDK UIMessage SSE).
+The engine side is adapted too: `src/agent/models.ts` (`piEngineFor`) resolves each role's engine from the user's **model slots** (BYOK: `settings.json` `models` section — strong/cheap/vision; a chain that ends empty refuses honestly with 503 `models_not_configured`) — and the teacher/prober conversation runs the **SESSION'S OWN record**: `POST /api/chats` stamps every newborn verbatim from the strong slot (the new-session default, chosen in setup), in-session picks write the session's record (`PUT /api/chats/:id/settings`), and the strong slot never reaches an existing session again (legacy unstamped records fall back to it at resolve time) — per-session models, owner 2026-09-28. The durable Harness owns the provider call: `bindRunEngine(chatId, engine)` pins one conversation to its captured engine, and `routedModels()` dispatches each request by the conversation's provider session id. `src/server/pi/durable-turn.ts` is the view onto the run; `call-ids.ts` keeps tool-call ids unique at the response boundary.
 
 ```mermaid
 flowchart LR
     subgraph DRIVING["DRIVING ADAPTERS — inbound"]
-        BROWSER["Browser UI — components/: question dock (addToolOutput) · graph canvas · docks"]
+        BROWSER["Browser UI — components/: question dock (answer input event) · graph canvas · docks"]
         HTTP["HTTP transport — app/api/*: 28 route handlers"]
         NOTES["Notes front door — POST /api/graph/import"]
         ELEC["Electron main — thin launcher, spawns server, LH_DATA_DIR + BYOK env"]
@@ -221,10 +221,10 @@ flowchart TB
         UI["session UI · question dock · plan panel · graph canvas · activity dock · sidebar"]
     end
 
-    subgraph CLASSROOM["CLASSROOM — session engine (owns data/chats)"]
+    subgraph CLASSROOM["CLASSROOM — session engine (owns data/chats metadata + data/durable)"]
         TURN["turn pipeline — handleChatRequest"]
-        AGENTS["prober → teacher (stateless per-turn, from the record)"]
-        CHATDATA["chat records — data/chats/*.json"]
+        AGENTS["prober → teacher (durable Harness, one owner per chat)"]
+        CHATDATA["metadata — data/chats/*.json<br/>transcript — data/durable/&lt;chatId&gt;/harness.sqlite"]
     end
 
     subgraph WORKBENCH["WORKBENCH — background labor (owns data/jobs)"]
@@ -249,9 +249,9 @@ flowchart TB
     end
 
     LEARNER -->|"text · answers [transport adapter]"| UI
-    UI -->|"POST /api/chat [question answers ride addToolOutput]"| TURN
-    TURN -->|"quiz / ask_user_question stream to browser [client-question tools, no execute]"| UI
-    TURN -->|"saveMessages · persistTurn [ChatStore port]"| CHATDATA
+    UI -->|"POST /api/chat [one explicit input event]"| TURN
+    TURN -->|"quiz / ask pose a placeholder result; the run parks for the answer"| UI
+    TURN -->|"entry commits [ChatStore projection + durable entries]"| CHATDATA
     TURN -->|"spawn(job) — fire-and-forget ack [job tools + JobStore port]"| JOBRUN
     JOBRUN --> SUBAGENTS
     SUBAGENTS -->|"result → steer message [steer builders in core/jobs.ts]"| WAKE
@@ -273,62 +273,71 @@ Four server-side systems, each the sole writer of its own store, connected by na
 
 ## 5. The session (one chat turn)
 
-`handleChatRequest` is framework-free (plain `Request`/`Response`) with a `buildAgent` test seam so tests drive it with scripted engines. The turn, in exact order:
+`handleChatRequest` is framework-free (plain `Request`/`Response`). A public chat is one SQLite database at `data/durable/<chatId>/harness.sqlite`, opened by ONE Harness owner per process (`src/store/durable.ts`, a globalThis handle map). The root conversation is the chat transcript; background job and sub-agent conversations share the same file. Durable entries are the transcript. `data/chats/<id>.json` holds metadata only: title, timestamps, plan tree, usage logs, settings, and the schema stamp. `chatStore.getChat` is the awaited read projection over every entry in ascending order, with ContextEdits applied. It never reads the compacted model window, so export, extraction, and history keep the full transcript.
+
+The turn, in exact order:
 
 ```mermaid
 sequenceDiagram
-    participant B as Browser (useChat)
+    participant B as Browser
     participant R as POST /api/chat
-    participant H as handleChatRequest
+    participant H as handleChatInput
     participant L as turn-liveness (globalThis)
-    participant CS as chatStore adapter
-    participant A as prober/teacher agent (pi engine)
-    participant F as onFinish seams
+    participant CS as ChatStore projection
+    participant RT as chat runtime (one Harness owner)
+    participant D as durable run + turn view
 
-    B->>R: messages (+ graded question output via addToolOutput)
-    R->>H: handleChatRequest(req)
-    H->>L: beginTurn(chatId)
-    Note over H,L: already running → 409; retryingFetch waits, re-fetches<br/>the record, merges unsent client messages by id, re-POSTs
-    H->>H: claimSteers — coalesce queued steers into outgoing
-    H->>CS: saveMessages (write-ahead: persist even before the stream)
-    H->>A: build agent from record (probe_done part in transcript ⇒ teacher)
-    Note over H,A: recordToPiMessages: stateless rebuild; dangling<br/>tool calls get synthesized INTERRUPTED results
-    A-->>B: SSE stream (ui-stream bridge)
-    Note over B: quiz / ask_user_question have NO server execute:<br/>rendered in the dock; graded client-side via question-core
-    B->>B: QuestionDock: parse → shuffle (seeded) → buildAnswer (grade)
-    B->>R: continuation (sendAutomaticallyWhen fires)
-    A-->>F: onFinish
-    F->>CS: persistTurn (canonical, idempotent) + appendTurnUsage
-    F->>F: triggerExtraction — if uncovered tokens ≥ chunkTokens, fire async
-    F->>L: endTurn (ALWAYS last — the registry never locks)
+    B->>R: { chatId, input } (one explicit event)
+    R->>H: handleChatInput
+    H->>L: beginTurn(chatId) — already running → 409
+    H->>CS: getChat (awaited entry projection)
+    H->>RT: openChatRuntime — bootstrap (recover pending runs) before resume
+    H->>RT: prepareConversation (tools, prompt, model/engine binding)
+    H->>RT: writeTurn descriptor (lh.turn), then submit the input
+    D-->>B: SSE turn events (POST acks; GET /api/chats/:id/stream attaches)
+    B->>R: answer event (graded in the dock)
+    H->>RT: ContextEdit replaces the pose placeholder + hidden continuation input
+    D-->>H: the run settles
+    H->>CS: usage, plan blocks, extraction trigger, parked dismissal
+    H->>L: endTurn (always last)
 ```
 
-- **Client-side question tools** (`quiz`, `ask_user_question`) have no server execute: the call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput`, which fires the continuation. A pending quiz persisted in the record is exactly what makes **resume mid-question free**. Deterministic seeded shuffling (keyed by toolCallId) keeps server and client renders identical.
-- **The prober→teacher handoff**: the first turn(s) run the prober (floor/ceiling via quiz, goal via ask); `probe_done` (server-executed) files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the handler builds the teacher agent for every later turn. Phases (`core/phases.ts`) fold strictly: probe → plan → teach.
-- **The formal plan tree is author-once**: the teacher authors the session's dependency map with a single schema-validated `plan_init` tool (a mermaid-subset graph, parsed deterministically with line-numbered errors, validated as a DAG). Progress is never mutated — statuses (`current`/`visited`/upcoming) are **derived** from tagged quiz calls in the transcript; the tree panel and the plan blocks render that derivation.
-- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn with a fire-and-forget ack (the teacher keeps teaching); `spawn(job, input)` fires the background runner.
-- Each turn service is a named, error-contained seam taking explicit deps; failures log one `[chat <id>]` line and never touch the response. Swapping any of them touches nothing else.
+- **Question tools** pose a placeholder result (`details: null`) and the run stops. The patched afterTools hook returns `{ terminate: true, parkInputs: true }`, so a steer or job result queued behind the question stays in the durable inbox instead of starting another model call. The learner's answer replaces the placeholder through a ContextEdit. The hidden continuation input (`lh.continuation`, dropped from every provider request) then starts the reaction run and places the parked inputs in that same run. Native handoff and a queued reset keep their own placement.
+- **The prober→teacher handoff** works as before: `probe_done` files the assessment and queues a handoff steer; from the first `tool-probe_done` part in the transcript, the turn installs the teacher tool set and prompt.
+- **The formal plan tree is author-once**: `plan_init` parses a mermaid-subset DAG deterministically. Progress is derived from tagged quiz calls; the tree panel and plan blocks render that derivation.
+- **Job tools are server-executed, ack-and-steer**: `research`/`demo`/`visual` resolve immediately mid-turn; the job runs as a durable child conversation.
+- **One compaction owner**: the app's threshold, summary, and cut (`src/server/compaction.ts`, backed by a durable compact child). pi-durable's automatic compaction is disabled in `harnessSettings`; a second owner would double the bill.
+- **Recovery**: the turn writes its descriptor before submit. A reopened process rebuilds the engine from the descriptor's safe model selection (never later settings; a custom-endpoint base URL mismatch refuses), reinstalls the extension before `harness.resume()`, and applies the idempotent settle services once. A run whose model cannot be restored fails the open closed (`503 runtime_unavailable`) and the committed input stays for the next open.
 
 ### 5.1 The wake pipeline (Workbench → Classroom)
 
-On sub-agent completion the runner builds a **steer message** — a user-role `UIMessage` whose text part is the model-facing result and whose `data-subagent-artifact` part carries the full result for the client (provider conversion drops data parts) — and hands it to the wake pipeline:
+On sub-agent completion the runner builds a **steer marker** (an `lh.marker` entry whose model-facing text is the result and whose details carry the artifact) and hands it to the wake pipeline:
 
 ```mermaid
 flowchart TB
     R["job runner finishes sub-agent"] -->|"deliver(steer) — injectable seam"| ENQ["enqueue steer in per-chat queue (globalThis)"]
-    ENQ --> PUMP["pump(chatId) — one loop per chat (pumping set serializes)"]
-    PUMP --> GATE{"turn-free AND no pending question? (400ms poll)"}
+    ENQ --> PUMP["pump(chatId) — one loop per chat"]
+    PUMP --> LIVE{"live turn?"}
+    LIVE -->|yes| INBOX["submit whenBusy:steer into the durable inbox<br/>the run places it at its next boundary"]
+    LIVE -->|no| GATE{"idle AND no pending question? (poll + grace)"}
     GATE -->|no| PUMP
-    GATE -->|yes| REFRESH["re-fetch fresh record, re-check steerDelivered (claim race)"]
-    REFRESH --> RUN["turnRunner(chatId, record + steer) — the SAME handleChatRequest path"]
-    RUN -->|"200"| FIN["finalizeSteer → finalizeJob (done/error)<br/>— status flips only after the wake turn persists"]
-    RUN -->|"409"| BACKOFF["backoff 500→1000→2000→5000ms → retry"]
-    CRASH["crash recovery: listJobs → recoverStaleJobs (stale >15min)<br/>re-deliver results / respawn via setJobRespawn"] --> PUMP
+    GATE -->|yes| RUN["turnRunner(chatId, {type:'steers', steers}) — the same handleChatInput path"]
+    RUN -->|200| FIN["finalizeSteer → finalizeJob"]
+    RUN -->|409| BACKOFF["backoff 500→1000→2000→5000ms → retry"]
+    CRASH["crash recovery: /api/jobs poll → recoverStaleJobs<br/>re-deliver results / respawn via setJobRespawn"] --> PUMP
 ```
 
-Job status flips done/error only after the wake turn persists. Delivery is **exactly-once**: deterministic steer ids (`steer_<jobId>`, `steer_probe_<chatId>`), `steerDelivered` checks at every claim point, and `claimSteers` finalizing in-transcript steers instead of re-appending. The client adopts the wake turn through the same `turnInFlight` machinery as returning mid-stream (busy shimmer, composer gate, append-only `mergeAdopted` adoption) and renders steers as artifacts — never a bubble.
+Job status flips done/error only after the marker's entry commits or the wake turn persists. Delivery is exactly-once: deterministic steer ids (`steer_<jobId>`, `steer_probe_<chatId>`), `steerDelivered` checks at every claim point, and settlement reconciliation that returns undelivered markers to the pump. A question pause holds the pump until the learner answers.
 
 Sub-agents **verify, never one-shot**: the demo-builder headlessly executes its HTML in system Chrome before delivery; the visual-maker renders each SVG and looks at it (needs a vision-capable model — the `vision` slot in settings).
+
+### 5.2 Data, versions, and backups
+
+- **Metadata schema 2.** `data/chats/<id>.json` carries `version: 2` at the store's single write choke point. A file stamped newer than the running build is refused on read and never rewritten (the honest downgrade refusal).
+- **Legacy import.** A schema-1 record still carries `messages`. On first access the store copies the original file byte-for-byte to `data/durable/<chatId>/legacy-chat.json`, appends the messages as durable entries, and only then rewrites the metadata without `messages`. The import is idempotent and the backup is never deleted automatically; session deletion removes it with the runtime directory. The per-chat import queue is process-global, so two module instances cannot import the same transcript twice.
+- **Per-chat runtime files.** `data/durable/<chatId>/` holds `harness.sqlite` plus SQLite's journals/WAL while a run is active. The database has one Harness owner in a process; close it before deleting a session, and never open the same chat from two processes.
+- **Backups.** Back up the whole `data/` folder while the app is closed, or at least `data/chats/`, `data/durable/`, `data/graph/`, `data/jobs/`, and `data/settings.json`. Copying only the metadata JSON loses the transcript.
+- **The compatibility patch.** `scripts/patch-pi-durable.mjs` patches the exact `@earendil-works/pi-durable@1.4.0` install for the question stop, the input park, and the hook's entry read. It refuses another version or unknown source, and it is idempotent. `npm ci` runs it through `postinstall`; a test fails when the patch is absent. The patch is maintenance debt on an experimental dependency.
 
 ---
 
@@ -475,7 +484,7 @@ Before 2026-10-02 the client discovered server-side change by polling: a lattice
 | Event | Payload | Emitted at |
 |---|---|---|
 | `turn-started` | `{chatId}` | `beginTurn` success (after the registry write; the double-begin 409 path is silent) — every turn, client-initiated included |
-| `turn-settled` | `{chatId}` | `endTurn` on a live entry — fires after `persistTurn`, so fetches read durable truth |
+| `turn-settled` | `{chatId}` | `endTurn` after the settle services landed, so fetches read durable truth |
 | `jobs-changed` | `{chatId}` | every job-store write (create/update/delete-that-removed) |
 | `activity-changed` | `{}` | extraction `setPhase`/`finishExtraction`; practice `registerRow`/phase-writes/`finishPractice` |
 | `chats-changed` | `{}` | list-shape writes only: chat create/rename/delete-that-removed |
@@ -533,7 +542,7 @@ Every place the architecture is designed to be cut — the "one file" a future c
 | Graph access for teacher | `src/agent/tools/graph.ts` (`list_sessions` / `list_propositions`) | what the teacher can probe, one gate |
 | Steer delivery (wake) | `src/server/jobs.ts` + injected `deliver` | how background results re-enter lessons |
 | Push events | `src/core/events.ts` (bus) + `src/server/events-stream.ts` (SSE seam) + `components/server-events.tsx` (the window's EventSource) | change notification, end to end |
-| Agent construction (tests) | `handleChatRequest(req, buildAgent?)` | scripted engines, no refactor |
+| Turn composition (tests) | `handleChatRequest(req, { engine, tools?, deps? })` | scripted engines and tool registries, no refactor |
 | Sub-agent verification | `sub-agents/headless.ts` (`headlessOverride`) | demo/SVG verification, no Chrome |
 | Data location (Electron) | `LH_DATA_DIR` env (`config.ts` PATHS) | where data/ lives, nothing else |
 | Desktop host | `electron/main.cjs` | launcher/security shell only |
@@ -552,8 +561,9 @@ Each of these was implemented, lived in real data, and was replaced; the replace
 | Hotspot + 1-hop graph context | Semantic top-K under token budget, delivered as a steer | 2026-09-14 (vision-context-injection) |
 | every-N-quiz-answers extraction trigger | Token-coverage batches (fingerprint ledger) | 2026-09-15 (vision-extraction-coverage) |
 | sigma.js + graphology + forceAtlas2 + Louvain clustering | Hand-rolled Canvas 2D renderer, d3-force layout, embedding-based agglomerative clusters | 2026-09-13 era |
-| Vercel AI SDK LLM loop (`MockLanguageModelV4` tests) | pi-ai engine (faux-provider tests), AI SDK kept as the UIMessage protocol | pi-engine-swap |
+| Vercel AI SDK LLM loop (`MockLanguageModelV4` tests) | pi-ai engine (faux-provider tests) | pi-engine-swap |
+| Vercel AI SDK `UIMessage` + `useChat` protocol; pi-agent-core Agent loops | app-owned input-event and turn-event SSE; pi-durable Harness with per-chat SQLite | pi-durable migration |
 
 ## 14. Deliberately deferred
 
-Structured logging (§10); SQLite/remote storage (drop-in behind the ports, §3); multi-scale cluster hierarchy (Louvain's dendrogram idea, parked); the anchored calibration rubric; alternative extraction triggers beyond the coverage seam (session end, idle); retroactive bootstrap of the POC sessions (vision §1 consolidation). When any of these land, this doc changes with the commit that lands them — it describes the system, not an intention.
+Structured logging (§10); remote storage (drop-in behind the ports, §3); multi-scale cluster hierarchy (Louvain's dendrogram idea, parked); the anchored calibration rubric; alternative extraction triggers beyond the coverage seam (session end, idle); retroactive bootstrap of the POC sessions (vision §1 consolidation). When any of these land, this doc changes with the commit that lands them — it describes the system, not an intention.

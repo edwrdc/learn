@@ -161,16 +161,34 @@ function saveLocal(extra: { displayName?: string; baseUrl?: string; models?: unk
 	});
 }
 
-async function waitFor(cond: () => boolean, what: string, timeoutMs = 8_000): Promise<void> {
+async function waitFor(cond: () => boolean | Promise<boolean>, what: string, timeoutMs = 8_000): Promise<void> {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
-		if (cond()) return;
+		if (await cond()) return;
 		await new Promise((r) => setTimeout(r, 25));
 	}
 	assert.fail(`timed out waiting for ${what}`);
 }
 
 describe("custom endpoint E2E", () => {
+	it("a restored run refuses an edited endpoint base URL and its snapshot carries no credential", async () => {
+		const saved = saveLocal({ apiKey: KEY });
+		assert.ok(saved.ok, saved.ok ? "" : saved.error);
+		const { engineForModel } = await import("../src/server/chat-handler.ts");
+		const snapshot = { provider: "custom-endpoint", modelId: MODEL_ID, baseUrl: `${base}/v1` };
+		const engine = engineForModel(snapshot);
+		assert.ok(engine, "the captured endpoint restores");
+		assert.equal(engine!.model.baseUrl, `${base}/v1`);
+		assert.ok(!JSON.stringify(engine!.model).includes(KEY), "the model snapshot carries no credential");
+
+		const moved = saveLocal({ baseUrl: `${base}/v2`, apiKey: KEY });
+		assert.ok(moved.ok, moved.ok ? "" : moved.error);
+		assert.equal(engineForModel(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
+		assert.ok(engineForModel({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
+		setCustomEndpointProvider(null);
+	});
+
+
 	it("setup → discovery → model selection → Responses stream → persisted catalog", async () => {
 		const first = saveLocal({ models: [], apiKey: KEY });
 		assert.ok(first.ok, first.ok ? "" : first.error);
@@ -255,8 +273,8 @@ describe("custom endpoint E2E", () => {
 			graph: { enabled: false },
 			...(customEndpointState().endpoint ? { customEndpoint: customEndpointState().endpoint! } : {}),
 		});
-		const chat = chatStore.createChat("Custom endpoint E2E");
-		chatStore.saveSettings(chat.id, { model: { provider: "custom-endpoint", id: MODEL_ID } });
+		const chat = await chatStore.createChat("Custom endpoint E2E");
+		await chatStore.saveSettings(chat.id, { model: { provider: "custom-endpoint", id: MODEL_ID } });
 
 		seen.length = 0;
 		const res = await handleChatInput(chat.id, { type: "text", text: "Hello endpoint" });
@@ -264,8 +282,8 @@ describe("custom endpoint E2E", () => {
 		const handle = runningTurn(chat.id);
 		if (handle) await new Response(handle.subscribe()).text();
 
-		await waitFor(() => {
-			const record = chatStore.getChat(chat.id);
+		await waitFor(async () => {
+			const record = await chatStore.getChat(chat.id);
 			return Boolean(
 				record?.messages.some(
 					(m) =>
@@ -472,9 +490,9 @@ describe("custom endpoint E2E", () => {
 	it("removal deletes config + key, leaves chats intact, and saved pins fail clearly", async () => {
 		const saved = saveLocal({ models: [model], apiKey: KEY });
 		assert.ok(saved.ok, saved.ok ? "" : saved.error);
-		const chat = chatStore.createChat("Removed endpoint session");
-		chatStore.saveSettings(chat.id, { model: { provider: "custom-endpoint", id: MODEL_ID } });
-		const before = chatStore.getChat(chat.id)!.messages;
+		const chat = await chatStore.createChat("Removed endpoint session");
+		await chatStore.saveSettings(chat.id, { model: { provider: "custom-endpoint", id: MODEL_ID } });
+		const before = (await chatStore.getChat(chat.id))!.messages;
 
 		const removed = removeCustomEndpoint();
 		assert.equal(removed.endpoint, null);
@@ -483,14 +501,14 @@ describe("custom endpoint E2E", () => {
 		assert.ok(!modelCatalog().models.some((m) => m.provider === "custom-endpoint"), "removed models leave the picker");
 		assert.equal(customEndpointKeyPresent(), false);
 
-		const record = chatStore.getChat(chat.id)!;
+		const record = (await chatStore.getChat(chat.id))!;
 		assert.deepEqual(record.messages, before, "chats are not rewritten by endpoint removal");
 		const res = await handleChatInput(chat.id, { type: "text", text: "still here?" });
 		assert.equal(res.status, 503);
 		const envelope = (await res.json()) as { code?: string; error?: string };
 		assert.equal(envelope.code, "provider_key_missing");
 		assert.match(envelope.error ?? "", /custom endpoint/);
-		assert.deepEqual(chatStore.getChat(chat.id)!.messages, before, "the refused turn wrote nothing");
+		assert.deepEqual((await chatStore.getChat(chat.id))!.messages, before, "the refused turn wrote nothing");
 	});
 
 });

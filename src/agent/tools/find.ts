@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../tool-adapter.ts";
 import { serverExecute } from "../tool-execute.ts";
 import {
 	capOutput,
@@ -33,7 +33,7 @@ const findInput = Type.Object({
 	limit: Type.Optional(Type.Integer({ description: "Maximum number of results (default: 1000)" })),
 });
 
-export const findTool: AgentTool<typeof findInput> = {
+export const findTool: AppTool<typeof findInput> = {
 	name: "find",
 	label: "find",
 	description: `Search for files by glob pattern. Returns matching file paths relative to the search directory. Ignores node_modules, .git, and Library directories. Output is truncated to ${DEFAULT_LIMIT} results or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first).`,

@@ -18,11 +18,13 @@
  * free port, NODE_ENV=production, a THROWAWAY LH_DATA_DIR and an EMPTY
  * LH_AUTH_FILE under os.tmpdir() (no real keys or data ever touch it) —
  * polls GET / until 200, then probes the GET-only API surface (graph /
- * models / settings — no side effects). Any non-200, an early server
- * exit, or a 30s boot timeout fails the gate and prints the server's own
- * log tail for diagnosis. The child is ALWAYS killed before exit — a
- * leaked server holds its port against the next run (learned the hard
- * way, same day).
+ * models / settings), creates ONE throwaway chat, and reads it back so the
+ * packaged durable store actually opens its SQLite file (a GET on an empty
+ * folder never does). No model call is made. Any non-200, a missing
+ * database, an early server exit, or a 30s boot timeout fails the gate and
+ * prints the server's own log tail for diagnosis. The child is ALWAYS
+ * killed before exit — a leaked server holds its port against the next run
+ * (learned the hard way, same day).
  */
 import { spawn } from "node:child_process";
 import { probeEnv, verifyDemoRuntime } from "./smoke-demo-runtime.mjs";
@@ -59,6 +61,41 @@ function freePort() {
 			srv.close(() => resolve(port));
 		});
 		srv.on("error", reject);
+	});
+}
+
+/** One JSON request; resolves { status, body } (0 = connection refused/failed). */
+function request(url, method = "GET", payload) {
+	return new Promise((resolve) => {
+		const body = payload === undefined ? undefined : JSON.stringify(payload);
+		const req = http.request(
+			url,
+			{
+				method,
+				headers: body ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) } : {},
+			},
+			(res) => {
+				let text = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk) => (text += chunk));
+				res.on("end", () => {
+					let parsed;
+					try {
+						parsed = JSON.parse(text);
+					} catch {
+						parsed = text;
+					}
+					resolve({ status: res.statusCode ?? 0, body: parsed });
+				});
+			},
+		);
+		req.on("error", () => resolve({ status: 0, body: null }));
+		req.setTimeout(5000, () => {
+			req.destroy();
+			resolve({ status: 0, body: null });
+		});
+		if (body) req.write(body);
+		req.end();
 	});
 }
 
@@ -166,6 +203,28 @@ async function main() {
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
 			console.log(`[smoke-server] GET ${route} → 200`);
 		}
+
+		// The durable store: create one throwaway chat and read it back.
+		// The read opens the packaged runtime and its SQLite file; no model call.
+		const created = await request(url + "/api/chats", "POST", { title: "smoke: packaged durable store" });
+		if (created.status !== 200 || typeof created.body?.id !== "string") {
+			throw new Error(`POST /api/chats → ${created.status} (expected 200 with an id)`);
+		}
+		const chatId = created.body.id;
+		const read = await request(`${url}/api/chats/${encodeURIComponent(chatId)}`);
+		if (read.status !== 200 || read.body?.id !== chatId || !Array.isArray(read.body?.messages)) {
+			throw new Error(`GET /api/chats/${chatId} → ${read.status} (the durable record did not round-trip)`);
+		}
+		const database = path.join(dataDir, "durable", chatId, "harness.sqlite");
+		if (!fs.existsSync(database)) throw new Error("the packaged durable store did not open a SQLite file");
+		if (!fs.readFileSync(database).subarray(0, 16).toString("latin1").startsWith("SQLite format 3")) {
+			throw new Error("the packaged durable store file is not SQLite");
+		}
+		const list = await request(url + "/api/chats");
+		if (list.status !== 200 || !Array.isArray(list.body?.chats) || !list.body.chats.some((chat) => chat.id === chatId)) {
+			throw new Error(`GET /api/chats → ${list.status} (the created chat is not listed)`);
+		}
+		console.log(`[smoke-server] durable store: chat ${chatId} created, read back, SQLite opened`);
 	} catch (err) {
 		failed = err;
 	} finally {

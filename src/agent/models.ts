@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import {
@@ -19,9 +19,10 @@ import {
 	type CustomEndpointConfig,
 } from "../core/custom-endpoint.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
+import type { ProviderEventObserver } from "./provider-events.ts";
 
-/** App identity is immutable and shared by Models and every native Agent.
- * Agent's default Pi attribution otherwise overrides the Models identity. */
+/** App identity is immutable and shared by Models and the durable Harness.
+ * The Harness's default attribution is pi's, so the app identity overrides it. */
 export const APP_IDENTITY = Object.freeze({
 	userAgent: Object.freeze({ custom: `learnharness/${packageMetadata.version}` }),
 	attribution: Object.freeze({ name: packageMetadata.name, url: packageMetadata.homepage }),
@@ -34,8 +35,8 @@ export const APP_IDENTITY = Object.freeze({
  * (the settings chain's output) and the one builder here wires it to
  * pi-ai's federated catalogs.
  *
- * An "engine" is the model + the stream function the agent loop runs on —
- * the two things a test fake replaces. Production engines resolve the model
+ * An "engine" is the model + the stream function the durable Harness runs on
+ * — the two things a test fake replaces. Production engines resolve the model
  * from pi-ai's static catalogs and stream through the same Models
  * collection.
  */
@@ -66,6 +67,109 @@ export function piModels() {
 		for (const provider of builtinProviders()) collection.setProvider(provider);
 	}
 	return collection;
+}
+
+/** Per-conversation engine bindings for the durable Harness. The Harness's
+ *  `models` reader is process-wide, but foreground turns and every background
+ *  child share one Harness: a single mutable "current engine" would let the
+ *  last turn's settings redirect another conversation's provider request
+ *  (including two runs of the same catalog model with different thinking
+ *  levels, or two custom-endpoint snapshots). The router keys by the
+ *  conversation's provider session id — the public, per-conversation value
+ *  the Harness already forwards as `sessionId` on every request. */
+interface RunBinding {
+	engine: PiEngine;
+	observer?: ProviderEventObserver;
+}
+
+interface LhModelsGlobal {
+	__lhRunBindings?: Map<string, RunBinding>;
+	__lhRoutedModels?: Models;
+}
+
+/** Bindings and the router are process-global: Next dev gives each route its
+ *  own copy of this module, and the Harness captures the router from the
+ *  copy that opened it while a POST in another copy binds the turn's engine.
+ *  A module-local map would lose that binding and fall back to the base
+ *  collection (the cold-page custom-endpoint `no_model`). */
+function modelsGlobal(): LhModelsGlobal {
+	return globalThis as typeof globalThis & LhModelsGlobal;
+}
+
+function runBindings(): Map<string, RunBinding> {
+	return (modelsGlobal().__lhRunBindings ??= new Map());
+}
+
+/** Bind one conversation's provider session id to its captured engine. The
+ *  engine's stream function still owns the provider/credential/thinking pin. */
+export function bindRunEngine(sessionId: string, engine: PiEngine, observer?: ProviderEventObserver): void {
+	runBindings().set(sessionId, { engine, observer });
+}
+
+export function unbindRunEngine(sessionId: string): void {
+	runBindings().delete(sessionId);
+}
+
+/** The Models collection the durable Harness reads: the process catalog with
+ *  per-session engine dispatch. `getModel` prefers a bound engine's captured
+ *  model object (endpoint limits and base URL snapshots stay pinned); the
+ *  request itself always streams through the bound engine, so which model
+ *  object getModel happened to return cannot redirect a provider request.
+ *
+ *  The raw-wire recorder rides `options.onProviderStreamEvent` (pi-ai's
+ *  pre-normalization observer). It is forwarded into the engine's streamFn
+ *  options — never reconstructed from the normalized event stream. */
+export function routedModels(): Models {
+	if (modelsGlobal().__lhRoutedModels) return modelsGlobal().__lhRoutedModels!;
+	const bindings = runBindings();
+	const base = piModels();
+	const stream = (
+		model: Model<Api>,
+		context: Parameters<StreamFunction>[1],
+		options?: Parameters<StreamFunction>[2],
+	) => {
+		const binding = options?.sessionId ? bindings.get(options.sessionId) : undefined;
+		if (!binding) return base.streamSimple(model, context, options);
+		const observer = binding.observer;
+		const upstream = options?.onProviderStreamEvent;
+		const forwarded =
+			observer === undefined
+				? options
+				: {
+						...options,
+						onProviderStreamEvent: async (data: unknown, observed: Model<Api>) => {
+							if (upstream) await upstream(data, observed);
+							observer(data, observed);
+						},
+					};
+		return binding.engine.streamFn(binding.engine.model, context, forwarded);
+	};
+	const routed = new Proxy(base, {
+		get(target, property) {
+			if (property === "getModel") {
+				return (provider: string, id: string) => {
+					for (const { engine } of bindings.values()) {
+						if (engine.model.provider === provider && engine.model.id === id) return engine.model;
+					}
+					return target.getModel(provider, id);
+				};
+			}
+			if (property === "getModels") {
+				return (provider?: string) => target.getModels(provider);
+			}
+			if (property === "streamSimple") return stream;
+			// completeSimple/dispatch resolve through this object's streamSimple;
+			// binding the base method would bypass the per-session engine.
+			if (property === "completeSimple") {
+				return (model: Model<Api>, context: Parameters<StreamFunction>[1], options?: Parameters<StreamFunction>[2]) =>
+					stream(model, context, options).result();
+			}
+			const value = Reflect.get(target, property, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+	modelsGlobal().__lhRoutedModels = routed;
+	return routed;
 }
 
 /** OpenRouter API key (BYOK); tests never read this — they inject engines. */
@@ -185,9 +289,11 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 		return {
 			model,
 			level,
-			streamFn: (requestModel, context, options) => {
+			streamFn: (_requestModel, context, options) => {
 				const upstream = options?.fetch ?? fetch;
-				return provider.streamSimple(requestModel, context, {
+				// The captured model carries the endpoint snapshot's baseUrl;
+				// a later catalog edit must never redirect an in-flight turn.
+				return provider.streamSimple(model, context, {
 					...options,
 					apiKey,
 					identity: options?.identity ?? APP_IDENTITY,
@@ -211,11 +317,11 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 	return {
 		model,
 		level,
-		// bound streamSimple: the agent loop forwards state.thinkingLevel as
-		// `reasoning` (undefined = off on pi-ai's scale); the clamp above keeps
+		// bound streamSimple: the Harness forwards the configured thinking
+		// level as `reasoning` (undefined = off on pi-ai's scale); the clamp keeps
 		// the pin honest even when config or settings drift off the map.
-		streamFn: (requestModel, context, options) =>
-			models.streamSimple(requestModel, context, {
+		streamFn: (_requestModel, context, options) =>
+			models.streamSimple(model, context, {
 				...options,
 				reasoning: level === "off" ? undefined : level,
 			}),

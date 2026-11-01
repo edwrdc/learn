@@ -26,10 +26,10 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
-import { createPracticeAgent } from "../src/agent/teacher-agent.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
 import { chatStore } from "../src/store/chats.ts";
+import { graphStore } from "../src/store/graph.ts";
 import { activeProblemOf, needsContinuation } from "../src/core/index.ts";
 import { PATHS } from "../config.ts";
 import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
@@ -68,9 +68,21 @@ after(() => {
 	}
 });
 
-function createPracticeChat(title: string) {
-	const chat = chatStore.createChat(title, "practice");
-	chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+async function createPracticeChat(title: string) {
+	const chat = await chatStore.createChat(title, "practice");
+	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+	// The pose's target validates against the WHOLE graph (owner round 9), so
+	// the scripted lessons need the proposition they target to exist — the
+	// real composition always passes the graph; the old test factory skipped
+	// validation by omitting it.
+	graphStore.appendNode({
+		id: "group-order",
+		name: "Group order",
+		statement: "Every finite group of prime order is cyclic.",
+		aliases: [],
+		createdAt: new Date().toISOString(),
+		provenance: [],
+	});
 	createdChats.push(chat.id);
 	return chat;
 }
@@ -106,9 +118,9 @@ async function drainTurn(req: Request, factory: Parameters<typeof handleChatRequ
 	return new Response(handle.subscribe()).text();
 }
 
-/** The practice agent factory (the handler's kind branch, test-shaped). */
-function practiceFactory(chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] {
-	return (opts) => createPracticeAgent({ chatId, chatStore }, { engine, messages: opts.messages });
+/** The scripted engine the handler runs the practice turn on. */
+function practiceFactory(_chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] {
+	return { engine };
 }
 
 /** Each step records the prompt it received — the transcript the model
@@ -133,7 +145,7 @@ const lastSaw = (calls: string[], needle: string) => calls[calls.length - 1]!.in
 
 describe("practice flow (scripted model)", () => {
 	it("pose → thinking commit → conclude + reveal; the pose ack persists and owes nothing", async () => {
-		const chat = createPracticeChat("Test: practice groups");
+		const chat = await createPracticeChat("Test: practice groups");
 		const { engine, calls } = scripted([
 			// Turn 1: the agent poses immediately (terminate:true ends the run).
 			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-p1" })], { stopReason: "toolUse" }),
@@ -146,7 +158,7 @@ describe("practice flow (scripted model)", () => {
 
 		// ── Turn 1: the opening text; the agent poses ──
 		await drainTurn(post(chat.id, { type: "text", text: "practice group theory" }), factory);
-		const afterPose = chatStore.getChat(chat.id)!.messages;
+		const afterPose = (await chatStore.getChat(chat.id))!.messages;
 		const ack = afterPose[afterPose.length - 1] as LhMessage & ToolResultMessage;
 		assert.equal(ack.role, "toolResult");
 		assert.equal(ack.toolName, "problem");
@@ -159,7 +171,7 @@ describe("practice flow (scripted model)", () => {
 		// The model saw the one label (owner round 2, 2026-10-05): the
 		// register is read from the text, not declared by a button.
 		assert.ok(lastSaw(calls, "Your thinking:"), "the conclude turn's prompt carries the thinking");
-		const afterConclude = chatStore.getChat(chat.id)!.messages;
+		const afterConclude = (await chatStore.getChat(chat.id))!.messages;
 		const concludeAck = afterConclude.find(
 			(m) => (m as ToolResultMessage).role === "toolResult" && (m as ToolResultMessage).toolName === "conclude",
 		) as LhMessage & ToolResultMessage;
@@ -173,7 +185,7 @@ describe("practice flow (scripted model)", () => {
 	});
 
 	it("a working-trace submission keeps the problem active", async () => {
-		const chat = createPracticeChat("Test: practice nudge");
+		const chat = await createPracticeChat("Test: practice nudge");
 		const { engine, calls } = scripted([
 			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-p2" })], { stopReason: "toolUse" }),
 			() => fauxAssistantMessage([fauxText("R0: reread the subgroup constraint.")]),
@@ -183,11 +195,11 @@ describe("practice flow (scripted model)", () => {
 		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-p2", text: "stuck at the second step" }), factory);
 		assert.ok(lastSaw(calls, "Your thinking:"), "the turn's prompt carries the thinking");
 		// The problem is still active — a trace never concludes.
-		assert.equal(activeProblemOf(chatStore.getChat(chat.id)!.messages)?.toolCallId, "call-p2");
+		assert.equal(activeProblemOf((await chatStore.getChat(chat.id))!.messages)?.toolCallId, "call-p2");
 	});
 
 	it("Esc dismissal marks silently; the next input rides the synthesized conclude pair", async () => {
-		const chat = createPracticeChat("Test: practice dismiss");
+		const chat = await createPracticeChat("Test: practice dismiss");
 		const { engine, calls } = scripted([
 			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-p3" })], { stopReason: "toolUse" }),
 			() => fauxAssistantMessage([fauxText("Dropped. Something else, then.")]),
@@ -206,12 +218,12 @@ describe("practice flow (scripted model)", () => {
 			{ params: Promise.resolve({ id: chat.id }) },
 		);
 		assert.equal(dismissRes.status, 200);
-		const marked = chatStore.getChat(chat.id)!.messages;
+		const marked = (await chatStore.getChat(chat.id))!.messages;
 		assert.equal(activeProblemOf(marked), null, "the marker deactivates at Esc time");
 
 		// The next plain input synthesizes the conclude pair ahead of itself.
 		await drainTurn(post(chat.id, { type: "text", text: "something easier" }), factory);
-		const msgs = chatStore.getChat(chat.id)!.messages;
+		const msgs = (await chatStore.getChat(chat.id))!.messages;
 		const synth = msgs.find(
 			(m) => (m as ToolResultMessage).role === "toolResult" && (m as ToolResultMessage).toolName === "conclude",
 		) as (LhMessage & ToolResultMessage) | undefined;

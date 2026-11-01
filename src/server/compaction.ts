@@ -27,7 +27,6 @@
  * marker's id.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	activeCompactionOf,
@@ -46,8 +45,9 @@ import {
 } from "../core/index.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
+import { createHash } from "node:crypto";
 import type { PiEngine } from "../agent/models.ts";
-import { runSubagent } from "../agent/subagents/pi-run.ts";
+import { backgroundRun } from "../agent/subagents/durable-run.ts";
 
 /** The summarizer's system prompt — server-owned operational framing,
  *  not model-facing doctrine (buildCompactionPrompt carries the shape). */
@@ -57,11 +57,34 @@ const SUMMARIZER_SYSTEM_PROMPT =
 /** The one-shot summary call: zero tools, one turn, text out. The engine
  *  is the chat's own conversation engine (owner ruling: the session's
  *  model writes its own summary). Injectable for tests. */
-export type Summarizer = (prompt: string, engine: PiEngine) => Promise<{ summary: string; usage: Usage }>;
+export type Summarizer = (
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+) => Promise<{ summary: string; usage: Usage }>;
 
-/** The production summarizer over the sub-agent seam. */
-async function subagentSummarizer(prompt: string, engine: PiEngine): Promise<{ summary: string; usage: Usage }> {
-	let usage: Usage = {
+/** The production summarizer over the durable background seam: one child
+ *  conversation in the chat's own database. The run key is the span's
+ *  digest, so a restart between the summary and the marker reattaches the
+ *  same conversation instead of paying for the summary twice. */
+export async function subagentSummarizer(
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+): Promise<{ summary: string; usage: Usage }> {
+	const outcome = await backgroundRun({
+		// The engine is always the chat's own conversation engine (owner
+		// ruling); the compact role resolves no settings.
+		jobId: `compact:${chatId}:${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`,
+		chatId,
+		kind: "compact",
+		role: "compact",
+		engine,
+		maxTurns: 1,
+		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
+		prompt,
+	});
+	const usage: Usage = outcome.steps.at(-1)?.usage ?? {
 		input: 0,
 		output: 0,
 		cacheRead: 0,
@@ -69,21 +92,7 @@ async function subagentSummarizer(prompt: string, engine: PiEngine): Promise<{ s
 		totalTokens: 0,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
-	const { text } = await runSubagent([], {
-		// The engine override is always present (the chat's own conversation
-		// engine — owner ruling), so the role label never resolves an
-		// engine; "researcher" is the least-wrong existing ModelRole label
-		// for a one-shot text job (the cast documents the dead path).
-		role: "researcher" as never,
-		prompt,
-		engine,
-		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
-		maxTurns: 1,
-		onUsage: (u) => {
-			usage = u;
-		},
-	});
-	return { summary: text, usage };
+	return { summary: outcome.text, usage };
 }
 
 /** Everything the service needs from its host (chat-handler wires the
@@ -156,7 +165,7 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
 export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number): number {
 	const est = estimateContextTokens(messages);
 	if (est.lastUsageIndex !== null) return est.tokens;
-	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[]) as unknown as readonly LhMessage[]) + systemPromptTokens;
+	return estimateTokens(toLlmMessages(messages)) + systemPromptTokens;
 }
 
 // ─── the compaction run ─────────────────────────────────────────────────────
@@ -166,7 +175,7 @@ export function projectedContextTokens(messages: readonly LhMessage[], systemPro
  *  appends the marker, records usage, notifies. Never throws upward
  *  past the registry cleanup. */
 async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
-	const record = deps.chatStore.getChat(chatId);
+	const record = await deps.chatStore.getChat(chatId);
 	if (!record) return;
 	const messages = record.messages;
 	const tokensBefore = projectedContextTokens(messages, deps.systemPromptTokens);
@@ -211,7 +220,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	emit("compaction-changed", { chatId, running: true });
 	try {
 		const summarize = deps.summarize ?? subagentSummarizer;
-		const { summary, usage } = await summarize(prompt, deps.engine);
+		const { summary, usage } = await summarize(prompt, deps.engine, chatId);
 		const trimmed = summary.trim();
 		if (!trimmed) return; // an empty summary is a refusal artifact — leave the record honest
 
@@ -223,11 +232,11 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 			at: new Date().toISOString(),
 		};
 		const marker = newCompactionMarker(trimmed, details);
-		deps.chatStore.saveMessages(chatId, [...messages, marker]);
+		await deps.chatStore.saveMessages(chatId, [...messages, marker]);
 		// The money channel: the summary is a real model call on the
 		// session's own engine — its usage keys to the marker (provenance:
 		// the transcript shows the compaction divider at the marker).
-		deps.chatStore.appendTurnUsage(chatId, {
+		await deps.chatStore.appendTurnUsage(chatId, {
 			id: crypto.randomUUID(),
 			messageId: marker.id,
 			at: details.at,
@@ -267,7 +276,7 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	// injected summarizer.
 	if (process.env.NODE_ENV === "test" && !deps.summarize) return;
 	await awaitCompaction(chatId);
-	const record = deps.chatStore.getChat(chatId);
+	const record = await deps.chatStore.getChat(chatId);
 	if (!record) return;
 	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
 	if (state().inFlight.has(chatId)) return; // a concurrent caller started it while we awaited
@@ -288,14 +297,16 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
  * are silent no-ops. The next turn's ensureCompacted gate picks up
  * whatever this leaves running.
  */
-export function kickCompaction(buildDeps: () => CompactionDeps | null, chatId: string): void {
+export function kickCompaction(buildDeps: () => Promise<CompactionDeps | null> | CompactionDeps | null, chatId: string): void {
 	if (state().inFlight.has(chatId)) return;
-	const deps = buildDeps();
-	if (!deps) return;
-	const record = deps.chatStore.getChat(chatId);
-	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-	const run = compact(deps, chatId);
+	const run = (async () => {
+		const deps = await buildDeps();
+		if (!deps) return;
+		const record = await deps.chatStore.getChat(chatId);
+		if (!record) return;
+		if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
+		await compact(deps, chatId);
+	})();
 	state().inFlight.set(chatId, run);
-	void run.finally(() => state().inFlight.delete(chatId));
+	void run.catch(() => undefined).finally(() => state().inFlight.delete(chatId));
 }

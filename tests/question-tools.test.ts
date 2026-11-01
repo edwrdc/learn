@@ -46,8 +46,8 @@ after(() => {
 	}
 });
 
-function newChat(title: string): string {
-	const chat = chatStore.createChat(title);
+async function newChat(title: string): Promise<string> {
+	const chat = await chatStore.createChat(title);
 	createdChats.push(chat.id);
 	return chat.id;
 }
@@ -64,8 +64,7 @@ const validQuiz = {
 	nodeId: "arith",
 };
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AppTool, AppToolResult } from "../src/agent/tool-adapter.ts";
 
 /** The Wave A boundary predicate (2026-09-26): pi's loop structurally
  *  validates against the TypeBox parameters, then execute re-runs the
@@ -74,25 +73,25 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
  *  sees both as retryable input errors). This helper replicates the old
  *  safeParse seam end to end. */
 async function boundaryParse(
-	// `input: never` param: contravariance lets any AgentTool's execute slot in.
+	// `input: never` param: contravariance lets any AppTool's execute slot in.
 	tool: { parameters: any; execute: (id: string, input: never) => Promise<unknown> },
 	input: unknown,
-): Promise<{ success: boolean; error?: AgentToolResult<{ tool: string; problems: string[] }> }> {
+): Promise<{ success: boolean; error?: AppToolResult<{ tool: string; problems: string[] }> }> {
 	if (!Value.Check(tool.parameters, input)) return { success: false };
-	const result = (await tool.execute("tc", input as never)) as AgentToolResult<{
+	const result = (await tool.execute("tc", input as never)) as AppToolResult<{
 		tool: string;
 		problems: string[];
 	}>;
 	if (result.isError) return { success: false, error: result };
 	return { success: true };
 }
-const problemLines = (r?: AgentToolResult<{ tool: string; problems: string[] }>): string[] =>
-	r?.details.problems ?? [];
+const problemLines = (r?: AppToolResult<{ tool: string; problems: string[] }>): string[] =>
+	r?.details?.problems ?? [];
 
 describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)", () => {
 	it("accepts a nodeId that matches a node of the session's tree", async () => {
-		const chatId = newChat("NodeId: valid");
-		chatStore.saveTree(chatId, {
+		const chatId = await newChat("NodeId: valid");
+		await chatStore.saveTree(chatId, {
 			nodes: [
 				{ id: "arith", title: "Arithmetic" },
 				{ id: "expressions", title: "Expressions" },
@@ -108,8 +107,8 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 	});
 
 	it("rejects a nodeId that matches no node — with a message listing the slugs", async () => {
-		const chatId = newChat("NodeId: typo");
-		chatStore.saveTree(chatId, {
+		const chatId = await newChat("NodeId: typo");
+		await chatStore.saveTree(chatId, {
 			nodes: [{ id: "arith", title: "Arithmetic" }],
 			edges: [],
 			version: 1,
@@ -125,7 +124,7 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 	});
 
 	it("no tree yet: ANY nodeId is rejected — quizzes wait for plan_init", async () => {
-		const chatId = newChat("NodeId: no tree");
+		const chatId = await newChat("NodeId: no tree");
 		const tool = teachQuizToolFor({ chatId, chatStore });
 		const res = await boundaryParse(tool, { ...validQuiz, nodeId: "anything" });
 		assert.equal(res.success, false);
@@ -133,8 +132,8 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 	});
 
 	it("missing nodeId is rejected at the boundary (owner ruling 2026-09-26: no untagged quizzes)", async () => {
-		const chatId = newChat("NodeId: required");
-		chatStore.saveTree(chatId, {
+		const chatId = await newChat("NodeId: required");
+		await chatStore.saveTree(chatId, {
 			nodes: [{ id: "arith", title: "Arithmetic" }],
 			edges: [],
 			version: 1,
@@ -154,13 +153,13 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 	});
 
 	it("reads the LIVE record — a plan_init mutation mid-turn is honored immediately", async () => {
-		const chatId = newChat("NodeId: live record");
+		const chatId = await newChat("NodeId: live record");
 		const tool = teachQuizToolFor({ chatId, chatStore });
 
 		const before = await boundaryParse(tool, { ...validQuiz, nodeId: "fresh-node" });
 		assert.equal(before.success, false, "no tree yet → rejected");
 
-		chatStore.saveTree(chatId, {
+		await chatStore.saveTree(chatId, {
 			nodes: [{ id: "fresh-node", title: "Just initialized" }],
 			edges: [],
 			version: 1,
@@ -170,7 +169,7 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 	});
 
 	it("the shared grading rules still chain FIRST (schema-valid ⇔ gradeable)", async () => {
-		const chatId = newChat("NodeId: grading rules intact");
+		const chatId = await newChat("NodeId: grading rules intact");
 		const res = await boundaryParse(teachQuizToolFor({ chatId, chatStore }), {
 			...validQuiz,
 			correctAnswer: "42", // matches no option — question-core's rule
@@ -184,7 +183,7 @@ describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)
 });
 
 describe("the prober's quiz: no nodeId field at all", () => {
-	it("the probe schema accepts a plain quiz; a smuggled nodeId is NOT in the wire schema", () => {
+	it("the probe schema accepts a plain quiz; a smuggled nodeId is NOT in the wire schema", async () => {
 		assert.ok(Value.Check(probeQuizInputSchema, validQuiz));
 		// Wave A delta (2026-09-26): pi's TypeBox validation tolerates unknown
 		// keys rather than stripping them — but the probe schema's wire
@@ -197,29 +196,29 @@ describe("the prober's quiz: no nodeId field at all", () => {
 		assert.equal("nodeId" in (Value.Clean(probeQuizInputSchema, smuggled) as object), false, "the dock parse strips it");
 	});
 
-	it("the prober's tool registry carries the nodeId-less quiz, probe_done, and the learner-filesystem set", () => {
-		const chatId = newChat("Prober: registry");
+	it("the prober's tool registry carries the nodeId-less quiz, probe_done, and the learner-filesystem set", async () => {
+		const chatId = await newChat("Prober: registry");
 		const tools = createProberTools({ chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} });
 		// Fix wave (2026-09-20): the owner ruling adds research + pdf dispatch
 		// to the probe phase's registry (demo/visual stay teach-only).
 		assert.deepEqual(Object.keys(tools).sort(), [
 			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
 		]);
-		const probe = tools.probe as AgentTool<any>;
+		const probe = tools.probe as AppTool<any>;
 		assert.equal(Value.Check(probe.parameters, { ...validQuiz, nodeId: "anything" }), true, "no session check to fail");
 	});
 });
 // ─── the description example (owner, 2026-10-12) ─────────────────────────
 
 describe("quiz tool descriptions carry the complete, phase-correct example", () => {
-	it("the canonical body is schema-valid and authoring-clean (never ship a broken exemplar)", () => {
+	it("the canonical body is schema-valid and authoring-clean (never ship a broken exemplar)", async () => {
 		assert.deepEqual(quizInputProblems(quizExampleBody), []);
 		assert.equal(Value.Check(probeQuizInputSchema, quizExampleBody), true);
 		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
 		assert.equal(Value.Check(quizInputObject, teachExample), true);
 	});
 
-	it("probe: the serialized body rides the description with correct JSON escaping, no phase metadata", () => {
+	it("probe: the serialized body rides the description with correct JSON escaping, no phase metadata", async () => {
 		const desc = probeQuizTool.description;
 		assert.ok(
 			desc.includes("```json\n" + JSON.stringify(quizExampleBody, null, 2) + "\n```"),
@@ -233,8 +232,8 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 		assert.ok(!desc.includes("nodeId"), "probe example carries no phase metadata");
 	});
 
-	it("quiz: the required pair leads the example, with the plan-id caveat", () => {
-		const chatId = newChat("Teacher: description example");
+	it("quiz: the required pair leads the example, with the plan-id caveat", async () => {
+		const chatId = await newChat("Teacher: description example");
 		const desc = teachQuizToolFor({ chatId, chatStore }).description;
 		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
 		assert.ok(desc.includes("```json\n" + JSON.stringify(teachExample, null, 2) + "\n```"));
@@ -253,7 +252,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 // ─── tool availability (2026-09 settings seam) ───────────────────────────────
 
 describe("tool toggles (core/pending.ts + factories)", () => {
-	it("TOGGLEABLE_TOOLS: the sub-agent dispatch tools; quiz/ask/read stay off the list", () => {
+	it("TOGGLEABLE_TOOLS: the sub-agent dispatch tools; quiz/ask/read stay off the list", async () => {
 		// THE DEFINITIVE vocabulary (adjudicated with the user 2026-09-19, P2
 		// reconciliation): the job tools only. quiz/ask_user_question are
 		// permanently always-on (the prober's assessment + teaching doctrine
@@ -263,8 +262,8 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		assert.deepEqual(TOGGLEABLE_TOOLS, ["research", "demo", "visual", "pdf"]);
 	});
 
-	it("createProberTools: absent record = full set; explicit false drops exactly that tool; probe_done survives everything", () => {
-		const chatId = newChat("Prober: toggles");
+	it("createProberTools: absent record = full set; explicit false drops exactly that tool; probe_done survives everything", async () => {
+		const chatId = await newChat("Prober: toggles");
 		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
 		assert.deepEqual(Object.keys(createProberTools(ctx)).sort(), [
 			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
@@ -286,8 +285,8 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		assert.ok(createProberTools(ctx, { probe_done: false }).probe_done, "probe_done always-on");
 	});
 
-	it("createTeacherTools: {research: false} removes exactly research; unknown keys are no-ops", () => {
-		const chatId = newChat("Teacher: toggles");
+	it("createTeacherTools: {research: false} removes exactly research; unknown keys are no-ops", async () => {
+		const chatId = await newChat("Teacher: toggles");
 		const ctx: TeacherToolContext = {
 			chatId,
 			chatStore,
@@ -333,7 +332,7 @@ describe("prepareQuestionArguments (the string-encoded options wobble)", () => {
 	];
 	const asString = JSON.stringify(goodOptions);
 
-	it("coerces string-encoded options on ALL THREE question tools", () => {
+	it("coerces string-encoded options on ALL THREE question tools", async () => {
 		for (const tool of [askUserQuestionTool, probeQuizTool, teachQuizToolFor({ chatId: "chat_x", chatStore: undefined as never })]) {
 			const prepare = (tool as unknown as { prepareArguments?: (a: unknown) => unknown }).prepareArguments;
 			assert.ok(prepare, `${tool.name} has the hook`);
@@ -346,7 +345,7 @@ describe("prepareQuestionArguments (the string-encoded options wobble)", () => {
 		}
 	});
 
-	it("passes everything else through UNTOUCHED (identity — pi's fast path)", () => {
+	it("passes everything else through UNTOUCHED (identity — pi's fast path)", async () => {
 		const prepare = (probeQuizTool as unknown as { prepareArguments: (a: unknown) => unknown }).prepareArguments;
 		const arrayArgs = { question: "q", options: goodOptions, correctAnswer: "slope", explanation: "e" };
 		assert.equal(prepare(arrayArgs), arrayArgs, "array args return the SAME object (no defensive copies)");
@@ -366,8 +365,8 @@ describe("teachExplainToolFor: the explain variant validates nodeId like the qui
 	};
 
 	it("accepts a nodeId matching a tree node", async () => {
-		const chatId = newChat("Explain nodeId: valid");
-		chatStore.saveTree(chatId, {
+		const chatId = await newChat("Explain nodeId: valid");
+		await chatStore.saveTree(chatId, {
 			nodes: [
 				{ id: "arith", title: "Arithmetic" },
 				{ id: "expressions", title: "Expressions" },
@@ -383,8 +382,8 @@ describe("teachExplainToolFor: the explain variant validates nodeId like the qui
 	});
 
 	it("rejects an off-map nodeId with the slugs listed", async () => {
-		const chatId = newChat("Explain nodeId: typo");
-		chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "A" }], edges: [], version: 1 });
+		const chatId = await newChat("Explain nodeId: typo");
+		await chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "A" }], edges: [], version: 1 });
 		const res = await boundaryParse(teachExplainToolFor({ chatId, chatStore }), {
 			...validExplain,
 			nodeId: "arithmetic",
@@ -394,15 +393,15 @@ describe("teachExplainToolFor: the explain variant validates nodeId like the qui
 	});
 
 	it("no tree yet: rejected — checks wait for plan_init", async () => {
-		const chatId = newChat("Explain nodeId: no tree");
+		const chatId = await newChat("Explain nodeId: no tree");
 		const res = await boundaryParse(teachExplainToolFor({ chatId, chatStore }), validExplain);
 		assert.equal(res.success, false);
 		assert.match(problemLines(res.error).at(-1)!, /No plan map exists yet — call plan_init/);
 	});
 
 	it("an empty commitment is rejected at the boundary", async () => {
-		const chatId = newChat("Explain: empty commitment");
-		chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "A" }], edges: [], version: 1 });
+		const chatId = await newChat("Explain: empty commitment");
+		await chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "A" }], edges: [], version: 1 });
 		const res = await boundaryParse(teachExplainToolFor({ chatId, chatStore }), {
 			...validExplain,
 			correctAnswer: "   ",
@@ -439,7 +438,7 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 		["teach quiz", teachQuiz],
 		["probe quiz", probeQuizTool],
 	] as const) {
-		it(`${name}: no craft doctrine, mechanics intact`, () => {
+		it(`${name}: no craft doctrine, mechanics intact`, async () => {
 			const d = tool.description;
 			for (const banned of ["asymmetry", "distractor", "believable", "misconception"]) {
 				assert.ok(!d.toLowerCase().includes(banned), `${name} description leaks craft: "${banned}"`);
@@ -449,13 +448,13 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 			}
 		});
 	}
-	it("the teach quiz declares the `type` field and `nodeId`; the probe quiz declares neither", () => {
+	it("the teach quiz declares the `type` field and `nodeId`; the probe quiz declares neither", async () => {
 		assert.ok(teachQuiz.description.includes("`type`"), "teach quiz points at the role field");
 		assert.ok(teachQuiz.description.includes("`nodeId`"), "teach quiz points at the plan-map validation");
 		assert.ok(!probeQuizTool.description.includes("`type`"), "the probe quiz has no roles");
 		assert.ok(!probeQuizTool.description.includes("`nodeId`"), "the probe quiz has no plan map");
 	});
-	it("the explain tools keep the COMMITMENT rule (the grading contract) and drop the softer doctrine", () => {
+	it("the explain tools keep the COMMITMENT rule (the grading contract) and drop the softer doctrine", async () => {
 		for (const [name, tool] of [
 			["teach explain", teachExplainToolFor({ chatId: "chat_x", chatStore: undefined as never })],
 			["probe explain", probeExplainTool],

@@ -21,6 +21,7 @@
  * in the after() hook; overrides reset in finally blocks).
  */
 
+import "./support-tmp-data.ts";
 import React from "react";
 (globalThis as Record<string, unknown>).React = React; // tsx classic-JSX shim (see render-cards.test.tsx)
 
@@ -60,7 +61,6 @@ import { chatStore } from "../src/store/chats.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
-import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import type { PiEngine } from "../src/agent/models.ts";
 
@@ -193,10 +193,17 @@ function noChromeHeadless(): HeadlessApi {
 	};
 }
 
+/** Each direct role call is its own durable run in one disposable test
+ *  runtime; the ids are stable per call so no two tests reattach. */
+let roleRunCounter = 0;
+function roleRun(): { chatId: string; jobId: string } {
+	return { chatId: "durable-role-tests", jobId: `demo-visual-${++roleRunCounter}` };
+}
+
 // ─── 1. bridge injection + reducer ───────────────────────────────────────────
 
 describe("demo bridge", () => {
-	it("injects the resize + error hooks before </body>", () => {
+	it("injects the resize + error hooks before </body>", async () => {
 		const srcDoc = buildDemoSrcDoc("<!doctype html><html><body><canvas id=\"c\"></canvas></body></html>");
 		assert.match(srcDoc, /demo-resize/);
 		assert.match(srcDoc, /demo-error/);
@@ -207,14 +214,14 @@ describe("demo bridge", () => {
 		assert.match(srcDoc, /<canvas id="c">/);
 	});
 
-	it("appends the bridge when the document has no </body>", () => {
+	it("appends the bridge when the document has no </body>", async () => {
 		const srcDoc = buildDemoSrcDoc("<div>fragment demo</div>");
 		assert.match(srcDoc, /demo-resize/);
 		assert.ok(srcDoc.endsWith("</script>"));
 		assert.match(srcDoc, /fragment demo/);
 	});
 
-	it("reduceDemoBridgeState handles resize, error, and garbage", () => {
+	it("reduceDemoBridgeState handles resize, error, and garbage", async () => {
 		let state = INITIAL_DEMO_BRIDGE_STATE;
 		state = reduceDemoBridgeState(state, { type: "demo-resize", height: 421.7 });
 		assert.equal(state.height, 422);
@@ -253,7 +260,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	const mkJob = (status: string, activity = "web_search: \"plato\""): JobRecord =>
 		({ id: "j1", kind: "research", chatId: "c", toolCallId: "call-1", status, activity, createdAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString() }) as JobRecord;
 
-	it("renders a live activity card while the job runs", () => {
+	it("renders a live activity card while the job runs", async () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("running")]}>
 				<JobCard part={ackPart as never} />
@@ -264,7 +271,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		assert.ok(!html.includes("Dispatched (job j1.)") || true, "ack text is not the display");
 	});
 
-	it("renders the dispatched pulse when the poll has not seen the job yet", () => {
+	it("renders the dispatched pulse when the poll has not seen the job yet", async () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[]}>
 				<JobCard part={ackPart as never} />
@@ -274,7 +281,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		assert.match(html, /Dispatched…/);
 	});
 
-	it("settles to a quiet delivered one-liner when done (artifact lives in the steer)", () => {
+	it("settles to a quiet delivered one-liner when done (artifact lives in the steer)", async () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("done", "delivered")]}>
 				<JobCard part={ackPart as never} />
@@ -285,7 +292,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		assert.ok(!html.includes("web_search"), "no stale activity line once settled");
 	});
 
-	it("marks a failed job as failed", () => {
+	it("marks a failed job as failed", async () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[mkJob("error")]}>
 				<JobCard part={ackPart as never} />
@@ -294,7 +301,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		assert.match(html, /failed/);
 	});
 
-	it("renders nothing for a still-streaming tool input", () => {
+	it("renders nothing for a still-streaming tool input", async () => {
 		const html = renderToStaticMarkup(
 			<JobsContext.Provider value={[]}>
 				<JobCard part={{ ...ackPart, state: "input-streaming" } as never} />
@@ -305,7 +312,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 
 	// sources v0 — the live browser smoke (2026-09-19) caught the pdf dispatch
 	// part rendering nothing: PdfJobCard is the fix.
-	it("pdf dispatch renders the live PDF-reader card while the job runs", () => {
+	it("pdf dispatch renders the live PDF-reader card while the job runs", async () => {
 		const pdfJob: JobRecord = ({
 			id: "jp1",
 			kind: "pdf",
@@ -325,7 +332,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 		assert.match(html, /pdf_render/);
 	});
 
-	it("pdf dispatch settles to the delivered one-liner", () => {
+	it("pdf dispatch settles to the delivered one-liner", async () => {
 		const pdfJob: JobRecord = ({
 			id: "jp1",
 			kind: "pdf",
@@ -347,7 +354,7 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 });
 
 describe("steer card rendering (the delivered artifact)", () => {
-	it("renders a sandboxed demo iframe (allow-scripts, NO allow-same-origin) with the bridge injected", () => {
+	it("renders a sandboxed demo iframe (allow-scripts, NO allow-same-origin) with the bridge injected", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "Damped oscillator", html: DEMO_HTML, tested: true },
@@ -363,7 +370,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("do NOT wait"), "no protocol glue in the bubble");
 	});
 
-	it("renders the demo failure note with no iframe when the build FAILED", () => {
+	it("renders the demo failure note with no iframe when the build FAILED", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "T", html: "", tested: true, notes: "FAILED: never passed verification" },
@@ -373,7 +380,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("<iframe"), "no iframe for a failed build");
 	});
 
-	it("renders the verified svg as an image; the maker's notes are glue and stay hidden", () => {
+	it("renders the verified svg as an image; the maker's notes are glue and stay hidden", async () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
 		const steer = buildSubagentSteer(
 			{ id: "jv", kind: "visual", toolCallId: "cv" },
@@ -389,7 +396,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("Looking at the render"), "model-facing notes never render");
 	});
 
-	it("renders the abort chip for an aborted job's steer (2026-09 dock semantics; the message type is the marker PART)", () => {
+	it("renders the abort chip for an aborted job's steer (2026-09 dock semantics; the message type is the marker PART)", async () => {
 		const steer = buildAbortSteer({ id: "jc", kind: "research", toolCallId: "cc" });
 		// Wave B: the steer is a native marker — the card renders its
 		// PROJECTION (the same view the transcript renderer hands it).
@@ -408,7 +415,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.match(htmlNoMeta, /job-aborted-badge/, "metadata is pump mechanics, never the render seam");
 	});
 
-	it("renders a quiet Research-complete one-liner whose collapsed <details> carries the full brief", () => {
+	it("renders a quiet Research-complete one-liner whose collapsed <details> carries the full brief", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jr", kind: "research", toolCallId: "cr" },
 			{
@@ -433,7 +440,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(html.includes("britannica.com/plato"), "source links ride inside the details");
 	});
 
-	it("renders a quiet PDF-reading-complete one-liner (sources v0) whose collapsed details carries the brief + pages", () => {
+	it("renders a quiet PDF-reading-complete one-liner (sources v0) whose collapsed details carries the brief + pages", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jpf", kind: "pdf", toolCallId: "cpf" },
 			{
@@ -455,7 +462,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("/Users/x/course/chapter-3.pdf"), "the file path never renders");
 	});
 
-	it("renders the PDF failure brief with the failed badge when the reader FAILED", () => {
+	it("renders the PDF failure brief with the failed badge when the reader FAILED", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jpf2", kind: "pdf", toolCallId: "cpf2" },
 			{ path: "/tmp/doc.pdf", question: "q", brief: "PDF failed: the file could not be opened", pagesRead: [], pagesConsulted: [] },
@@ -467,14 +474,14 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("pdf-complete-badge"), "no complete badge for a failure");
 	});
 
-	it("renders the visual failure note with no svg when the build FAILED", () => {
+	it("renders the visual failure note with no svg when the build FAILED", async () => {
 		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: "", notes: "FAILED: iteration limit" });
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.match(html, /FAILED: iteration limit/);
 		assert.ok(!html.includes("circle") && !html.includes("<svg"), "no svg for a failed build");
 	});
 
-	it("renders a fallback note when the artifact part is missing", () => {
+	it("renders a fallback note when the artifact part is missing", async () => {
 		const msg = { id: "s", role: "user", parts: [{ type: "text", text: "x" }], metadata: { subagentResult: { jobId: "j", kind: "research", toolCallId: "c" } } };
 		const html = renderToStaticMarkup(<SubagentSteerCard message={msg as never} />);
 		assert.match(html, /could not be displayed/);
@@ -483,7 +490,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 
 
 describe("artifact chrome — scrollbar, invert toggles, downloads (release polish 2026-10-07)", () => {
-	it("demo iframe: scrolling OFF (the bridge auto-sizes; a scrollable iframe traps the wheel) and the invert + download buttons render", () => {
+	it("demo iframe: scrolling OFF (the bridge auto-sizes; a scrollable iframe traps the wheel) and the invert + download buttons render", async () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd3", kind: "demo", toolCallId: "cd3" },
 			{ title: "Wave interference", html: DEMO_HTML, tested: true },
@@ -497,7 +504,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		assert.match(html, /Wave interference/, "the title rides beside the kind label");
 	});
 
-	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", () => {
+	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", async () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
 		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
 		assert.match(html, /toggle-invert-figure-brightness/, "the invert switch (house Toggle)");
@@ -506,7 +513,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		assert.ok(!html.includes("hue-rotate"), "inversion OFF by default");
 	});
 
-	it("figure card: NO card chrome, image first, caption row BELOW (owner round, 2026-10-07)", () => {
+	it("figure card: NO card chrome, image first, caption row BELOW (owner round, 2026-10-07)", async () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
 		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
 		// Document material: the outer box carries no card styling.
@@ -529,7 +536,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		);
 	});
 
-	it("svgNaturalWidth: declared px sizes parse; %, auto, and absent fall back to null", () => {
+	it("svgNaturalWidth: declared px sizes parse; %, auto, and absent fall back to null", async () => {
 		assert.equal(svgNaturalWidth('<svg width="200" height="100"></svg>'), 200);
 		assert.equal(svgNaturalWidth("<svg width='320'></svg>"), 320);
 		assert.equal(svgNaturalWidth('<svg width="100%"></svg>'), null, "% is no natural size");
@@ -538,13 +545,13 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 		assert.equal(svgNaturalWidth('<svg width="0"></svg>'), null, "degenerate zero is no size");
 	});
 
-	it("slugFilename: titles slug to filename stems; symbol-only falls back", () => {
+	it("slugFilename: titles slug to filename stems; symbol-only falls back", async () => {
 		assert.equal(slugFilename("Damped oscillator"), "damped-oscillator");
 		assert.equal(slugFilename("Ünïcode — Tïtle!"), "unicode-title");
 		assert.equal(slugFilename("???"), "demo");
 	});
 
-	it("chartSize: width/height attrs are the fallback when no viewBox (figure fullscreen fit math)", () => {
+	it("chartSize: width/height attrs are the fallback when no viewBox (figure fullscreen fit math)", async () => {
 		assert.deepEqual(chartSize('<svg width="320" height="240"></svg>'), { w: 320, h: 240 });
 		assert.deepEqual(chartSize('<svg xmlns="x" width="50px" height="25px" viewBox="0 0 100 50"></svg>'), {
 			w: 100,
@@ -554,7 +561,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 });
 
 describe("bridge height: the body-based measure (ratchet fix, 2026-10-07)", () => {
-	it("DEMO_BRIDGE_SCRIPT measures the BODY (scrollHeight + rect + margins), not the viewport-clamped documentElement", () => {
+	it("DEMO_BRIDGE_SCRIPT measures the BODY (scrollHeight + rect + margins), not the viewport-clamped documentElement", async () => {
 		// documentElement.scrollHeight = max(content, viewport) latches at
 		// the parent's own height — a demo could grow but never shrink on
 		// window resize (owner-reported). The body metrics are pure content.
@@ -571,7 +578,7 @@ describe("setSteerUiInverted (the persisted invert switch, 2026-10-07)", () => {
 	);
 	const other = { id: "other", role: "user" as const, content: "hi", timestamp: 1 };
 
-	it("writes ui.inverted on the target steer and leaves everything else untouched", () => {
+	it("writes ui.inverted on the target steer and leaves everything else untouched", async () => {
 		const out = setSteerUiInverted([other, demoSteer], demoSteer.id, true);
 		assert.equal(out.length, 2);
 		assert.deepEqual(
@@ -581,7 +588,7 @@ describe("setSteerUiInverted (the persisted invert switch, 2026-10-07)", () => {
 		assert.equal(out[0], other, "untouched messages pass through by identity");
 	});
 
-	it("toggles back to false; missing or non-artifact messages are no-ops (same array members)", () => {
+	it("toggles back to false; missing or non-artifact messages are no-ops (same array members)", async () => {
 		const on = setSteerUiInverted([demoSteer], demoSteer.id, true);
 		const off = setSteerUiInverted(on, demoSteer.id, false);
 		assert.equal((off[0] as { details: { ui?: { inverted?: boolean } } }).details.ui?.inverted, false);
@@ -612,7 +619,7 @@ describe("demo builder (fake model + fake headless)", () => {
 
 		const result = await runDemoBuilder(
 			{ title: "Damped oscillator", brief: "A mass on a spring with a damping slider." },
-			{ engine: model, headless, onActivity: (line) => activities.push(line) },
+			{ engine: model, headless, run: roleRun(), onActivity: (line) => activities.push(line) },
 		);
 
 		assert.equal(result.title, "Damped oscillator");
@@ -630,7 +637,7 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ text: "Done." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true, "tested by the final verification gate");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
@@ -642,7 +649,7 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: BROKEN_HTML } }] },
 			{ text: "It works, trust me." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, "");
 		assert.equal(result.tested, true, "the loop ran");
 		assert.match(result.notes ?? "", /^FAILED:/);
@@ -651,14 +658,14 @@ describe("demo builder (fake model + fake headless)", () => {
 
 	it("fails fast with a clear message when no Chrome is available (never skips testing)", async () => {
 		const model = scriptedModel([{ text: "should never be reached" }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: noChromeHeadless() });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
 	});
 
 	it("fails when the model never writes a demo", async () => {
 		const model = scriptedModel([{ text: "I cannot build this." }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless() });
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: the builder never wrote a demo/);
 	});
@@ -677,7 +684,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "A number line from -3 to 3 with the root marked at 0." },
 		]);
 		const activities: string[] = [];
-		const result = await runVisualMaker({ brief: "Number line, root at 0." }, { engine: model, headless, onActivity: (l) => activities.push(l) });
+		const result = await runVisualMaker({ brief: "Number line, root at 0." }, { engine: model, headless, run: roleRun(), onActivity: (l) => activities.push(l) });
 
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "A number line from -3 to 3 with the root marked at 0.");
@@ -692,7 +699,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "Done." }, // premature finish — no render yet
 			{ text: "Looked at it — correct." }, // after the forced look
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1, "delivered after the forced look");
 		assert.equal(result.notes, "Looked at it — correct.");
 		assert.equal(headless.svgRenders.length, 1, "the gate rendered the svg once itself");
@@ -710,7 +717,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Moved the start of the line." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 
 		assert.equal(result.svg, SVG_1.replace('<line x1="10"', '<line x1="20"'), "the edit was applied to the delivered svg");
 		assert.equal(result.notes, "Moved the start of the line.");
@@ -724,7 +731,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "e0", toolName: "edit_svg", input: { old_text: "svg", new_text: "x" } }] },
 			{ text: "Cannot proceed." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, "", "the failed edit produced no deliverable");
 		assert.match(result.notes ?? "", /never wrote an SVG/);
 	});
@@ -738,20 +745,20 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Fixed and verified." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "Fixed and verified.");
 	});
 
 	it("fails when the model never writes an svg", async () => {
 		const model = scriptedModel([{ text: "This idea is purely relational — belongs in mermaid." }]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
+		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
 		assert.match(result.notes ?? "", /^FAILED: the maker never wrote an SVG/);
 	});
 
 	it("fails with a clear message when no Chrome is available", async () => {
-		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless() });
+		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
 		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
 	});
@@ -790,11 +797,11 @@ async function drainRunning(chatId: string): Promise<string> {
 
 describe("demo/visual job runners", () => {
 	it("runJob completes a demo: result on the job, steer via deliver, ack stays on the part", async () => {
-		const chat = chatStore.createChat("Test: demo runner");
+		const chat = await chatStore.createChat("Test: demo runner");
 		createdChats.push(chat.id);
 		// Wave B: a NATIVE fixture (the record holds agent history) — the
 		// runner's transcript scan reads it through the projection.
-		chatStore.saveMessages(chat.id, [
+		await chatStore.saveMessages(chat.id, [
 			{ id: "u1", role: "user", content: "show me compounding", timestamp: 1 } as never,
 			{
 				id: "a1",
@@ -853,16 +860,16 @@ describe("demo/visual job runners", () => {
 
 		// The tool part keeps the DISPATCH ACK forever — the result never
 		// rewrites it (the teacher gets the result once, via the steer).
-		const saved = projectNative(chatStore.getChat(chat.id)!.messages);
+		const saved = projectNative((await chatStore.getChat(chat.id))!.messages);
 		const part = saved[1]!.parts.find((p) => p.type === "tool-demo");
 		assert.ok(part && part.type === "tool-demo", "demo tool part persisted");
 		assert.equal(typeof (part as { output?: unknown }).output, "string", "part output is the ack, not the result");
 	});
 
 	it("runJob still steers on visual failure and the job lands error", async () => {
-		const chat = chatStore.createChat("Test: visual runner failure");
+		const chat = await chatStore.createChat("Test: visual runner failure");
 		createdChats.push(chat.id);
-		chatStore.saveMessages(chat.id, [
+		await chatStore.saveMessages(chat.id, [
 			{ id: "u1", role: "user", content: "draw it", timestamp: 1 } as never,
 			{
 				id: "a1",
@@ -909,11 +916,11 @@ describe("demo/visual job runners", () => {
 	});
 
 	it("dispatch through a teacher turn: the call acks mid-turn and the runner completes in the background", async () => {
-		const chat = chatStore.createChat("Test: demo spawn dispatch");
+		const chat = await chatStore.createChat("Test: demo spawn dispatch");
 		createdChats.push(chat.id);
 		// BYOK turn gate (owner, 2026-09-22): the scripted chat needs a
 		// conversation model — the per-chat pin, exactly like the setup flow.
-		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 
 		// A teacher that calls demo on turn 1, then continues in the SAME turn.
 		const teacher = scriptedModel([
@@ -943,20 +950,17 @@ describe("demo/visual job runners", () => {
 						input: { type: "text", text: "teach me compounding" },
 					}),
 				}),
-				// The handler hands the factory the native build options
-				// (messages are the merged record; the record IS the agent
-				// state — no adapter conversion).
-				(opts) =>
-					createTeacherAgent(undefined, {
-						engine: teacher,
-						messages: opts.messages,
-						tools: createTeacherTools({
-							chatId: chat.id,
-							chatStore,
-							jobStore,
-							spawn: (job, input) => void runner.runJob(job.id, input),
-						}),
+				// The demo tools with the test runner's spawn seam (the
+				// scripted lesson drives the demo/write_demo/run_demo calls).
+				{
+					engine: teacher,
+					tools: createTeacherTools({
+						chatId: chat.id,
+						chatStore,
+						jobStore,
+						spawn: (job, input) => void runner.runJob(job.id, input),
 					}),
+				},
 			);
 			if (ack.status !== 200) assert.fail(`expected 200 ack, got ${ack.status}: ${await ack.text()}`);
 			await drainRunning(chat.id);
@@ -971,7 +975,7 @@ describe("demo/visual job runners", () => {
 			const done = jobStore.getJob(job!.id)!;
 			assert.equal(done.status, "done");
 
-			const saved = projectNative(chatStore.getChat(chat.id)!.messages);
+			const saved = projectNative((await chatStore.getChat(chat.id))!.messages);
 			const part = saved[1]!.parts.find((p) => p.type === "tool-demo");
 			assert.ok(part && part.type === "tool-demo", "demo tool part persisted");
 			assert.equal(part.state, "output-available", "the part resolved with the ack at dispatch time");
@@ -992,7 +996,7 @@ describe("demo/visual job runners", () => {
 // ─── 6. registry wiring ──────────────────────────────────────────────────────
 
 describe("tool + renderer registry wiring", () => {
-	it("demo and visual are SERVER-EXECUTED dispatch tools with the contract schemas", () => {
+	it("demo and visual are SERVER-EXECUTED dispatch tools with the contract schemas", async () => {
 		const { runner } = testRunner();
 		const tools = jobTools({ chatId: "chat_registry", jobStore, spawn: (job) => void runner.runJob(job.id) });
 		assert.deepEqual(Object.keys(tools).sort(), ["demo", "pdf", "research", "visual"]);
@@ -1008,7 +1012,7 @@ describe("tool + renderer registry wiring", () => {
 		assert.equal(Value.Check(pdfInputSchema, { path: "/tmp/doc.pdf" }), false, "pdf requires a question");
 	});
 
-	it("the artifact renderer registry maps demo/visual to the W6 cards", () => {
+	it("the artifact renderer registry maps demo/visual to the W6 cards", async () => {
 		assert.equal(artifactRenderers.demo, DemoCard);
 		assert.equal(artifactRenderers.visual, VisualCard);
 		// sources v0 — pdf maps to its dispatch card (the live-smoke gap)
@@ -1024,7 +1028,7 @@ describe("tool + renderer registry wiring", () => {
 		}
 	});
 
-	it("the tool-call card: the prober's graph tools — collapsed headline + their compact row output", () => {
+	it("the tool-call card: the prober's graph tools — collapsed headline + their compact row output", async () => {
 		// list_propositions: the session id is the call's subject
 		const propPart = {
 			type: "tool-list_propositions",
@@ -1055,7 +1059,7 @@ describe("tool + renderer registry wiring", () => {
 		assert.doesNotMatch(headline, /Orbital/, "the collapsed line shows the tool name only — no noise");
 	});
 
-	it("the tool-call card: collapsed one-liner with the tool name + headline arg; expand shows input and output", () => {
+	it("the tool-call card: collapsed one-liner with the tool name + headline arg; expand shows input and output", async () => {
 		const part = {
 			type: "tool-read",
 			state: "output-available",
@@ -1074,7 +1078,7 @@ describe("tool + renderer registry wiring", () => {
 		assert.ok(html.includes("<details"), "collapsed by default via a details element");
 	});
 
-	it("the tool-call card: image-bearing read results note the attachment; errors render red", () => {
+	it("the tool-call card: image-bearing read results note the attachment; errors render red", async () => {
 		const imgPart = {
 			type: "tool-read",
 			state: "output-available",
@@ -1100,7 +1104,7 @@ describe("tool + renderer registry wiring", () => {
 		assert.match(errHtml, /text-red-500/);
 	});
 
-	it("the tool-call card: find/grep headline the pattern, ls defaults to ~", () => {
+	it("the tool-call card: find/grep headline the pattern, ls defaults to ~", async () => {
 		const findHtml = renderToStaticMarkup(
 			<ToolCallCard part={{ type: "tool-find", state: "output-available", toolCallId: "c", input: { pattern: "*calculus*" }, output: "notes/calculus.md" } as never} />,
 		);

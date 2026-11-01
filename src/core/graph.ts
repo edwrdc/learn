@@ -506,7 +506,7 @@ export function deriveView(graph: DerivedGraph): {
 // ─── the /api/graph payload ──────────────────────────────────────────────────
 
 /** Everything the home graph view needs, in one fetch (shape: contracts). */
-export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
+export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
 	const graph = getGraph(deps.graphStore);
 	// The canvas-facing lossy image: propositions + derived implication
 	// nodes, untyped arrows. `chains` (the stored truth) ride along for
@@ -537,7 +537,7 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
 	for (const id of sourceIds) {
-		const chat = deps.chatStore.getChat(id);
+		const chat = await deps.chatStore.getChat(id);
 		if (chat) {
 			sessions[id] = chat.title;
 			continue;
@@ -627,13 +627,13 @@ export interface GraphSessionEntry {
 
 /** The prober's session list: every birth session, most-recently-active
  *  first (undatable records sink, in stable id order). */
-export function graphSessionIndex(deps: GraphDeps): GraphSessionEntry[] {
+export async function graphSessionIndex(deps: GraphDeps): Promise<GraphSessionEntry[]> {
 	const counts = new Map<string, number>();
 	const born = getGraph(deps.graphStore);
 	for (const cluster of birthSessionPartition(born.nodes)) {
 		counts.set(cluster.id, cluster.members.length);
 	}
-	const chats = new Map(deps.chatStore.listChats().map((chat) => [chat.id, chat]));
+	const chats = new Map((await deps.chatStore.listChats()).map((chat) => [chat.id, chat]));
 	const sources = new Map(deps.graphStore.readSources().map((s) => [s.id, s]));
 	const entries: GraphSessionEntry[] = [];
 	for (const [id, propositions] of counts) {
@@ -677,7 +677,7 @@ export interface GraphSessionProposition {
 
 /** The propositions BORN in one session — what that session first
  *  articulated. Members sorted by node id — deterministic. */
-export function graphSessionPropositions(deps: GraphDeps, sessionId: string): GraphSessionProposition[] {
+export async function graphSessionPropositions(deps: GraphDeps, sessionId: string): Promise<GraphSessionProposition[]> {
 	const born = getGraph(deps.graphStore).nodes.filter((node) => birthSessionOf(node) === sessionId);
 	return born
 		.map((node) => ({ nodeId: node.id, name: node.name }))

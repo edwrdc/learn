@@ -13,7 +13,7 @@ export default async function ChatPage({
 	searchParams: Promise<{ prompt?: string }>;
 }) {
 	const [{ id }, { prompt }] = await Promise.all([params, searchParams]);
-	const chat = getChat(id);
+	const chat = await getChat(id);
 	if (!chat) notFound();
 	// The persistent setup CTA's seed (BYOK, owner 2026-09-22): slotsConfigured
 	// over the settings record, server-read — the same gate home/new read. The
@@ -33,7 +33,7 @@ export default async function ChatPage({
 			initialPrompt={prompt}
 			// A teacher turn that outlived its client: the remounted view must
 			// attach (busy shimmer + poll), never resurrect the stale record.
-			initiallyInFlight={isTurnRunning(chat.id)}
+			initiallyInFlight={await isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
 		/>
 	);

@@ -371,8 +371,8 @@ describe("projectView compaction dividers", () => {
 
 // ---------------------------------------------------------------------------
 // THE CHROME LAW (the OpenRouter no-tools incident, owner 2026-10-05):
-// pi-agent-core seeds a leading SystemMessage (prompt + tool
-// declarations) at state.messages[0]; the record never persists it. The
+// a native caller's message list can lead with a SystemMessage (prompt +
+// tool declarations); the record never persists it. The
 // cut slices the RECORD's history — the chrome carries through ahead of
 // the compaction head, exactly as pi's prepareRequest re-applies
 // context.systemPrompt + context.tools around its projection.

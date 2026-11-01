@@ -35,8 +35,8 @@ const graphDeps = { chatStore, graphStore } as const satisfies GraphDeps;
 /** The session merge source for a chat — what the pipeline passes: the
  *  fold stamp only (the merger reads no transcript; quiz-event rebuilding
  *  died with the events ledger, 2026-09-27). */
-function sessionSource(chatId: string): { foldedAt: string } {
-	const record = chatStore.getChat(chatId)!;
+async function sessionSource(chatId: string): Promise<{ foldedAt: string }> {
+	const record = (await chatStore.getChat(chatId))!;
 	return { foldedAt: record.updatedAt };
 }
 
@@ -154,11 +154,11 @@ function answer(over: Partial<QuestionAnswerData>): QuestionAnswerData {
 
 /** Create a chat in the real store with messages; returns the record.
  *  Tree-blind world: the plan tree is irrelevant to the merger — no tree. */
-function fixtureChat(title: string, messages: LhMessage[]) {
-	const chat = chatStore.createChat(title);
+async function fixtureChat(title: string, messages: LhMessage[]) {
+	const chat = await chatStore.createChat(title);
 	createdChats.push(chat.id);
-	chatStore.saveMessages(chat.id, messages);
-	return chatStore.getChat(chat.id)!;
+	await chatStore.saveMessages(chat.id, messages);
+	return (await chatStore.getChat(chat.id))!;
 }
 
 /** The full fixture transcript: five graded quizzes + a dismissed one + an ask. */
@@ -258,7 +258,7 @@ function fixtureVerdicts(): AuditVerdicts {
 }
 
 /** The chat every merger test folds (shared, so ordering is intentional). */
-const chat1 = fixtureChat("Graph fixture", fixtureMessages());
+const chat1 = await fixtureChat("Graph fixture", fixtureMessages());
 
 /** Set by the cross-session tests; the snapshot test (which runs after) reads them. */
 let chat2Id = "";
@@ -277,8 +277,8 @@ function scopedGraph(chatIds: string[]) {
 }
 
 describe("the merger (mergeFindings)", () => {
-	it("creates nodes from the verdicts with chat-level provenance", () => {
-		const stats = mergeFindings(chat1.id, fixtureFindings(), fixtureVerdicts(), graphDeps, sessionSource(chat1.id));
+	it("creates nodes from the verdicts with chat-level provenance", async () => {
+		const stats = mergeFindings(chat1.id, fixtureFindings(), fixtureVerdicts(), graphDeps, await sessionSource(chat1.id));
 		assert.deepEqual(stats, { nodes: 3, chains: 1 });
 
 		const graph = scopedGraph([chat1.id]);
@@ -307,12 +307,12 @@ describe("the merger (mergeFindings)", () => {
 
 	});
 
-	it("messageId anchors (2026-10-13): creates AND link-appends stamp the passage id; chains stay chat-level", () => {
+	it("messageId anchors (2026-10-13): creates AND link-appends stamp the passage id; chains stay chat-level", async () => {
 		// The session submit's anchor (owner, 2026-10-13): a proposition may
 		// carry its passage's message id — the merger stamps it into the
 		// node's provenance point for BOTH births and re-encounters. A
 		// caller without one (notes, legacy/core — pinned above) keeps "".
-		const chat = fixtureChat(
+		const chat = await fixtureChat(
 			"Anchor fixture",
 			[
 				...user("u1", "teach anchors"),
@@ -328,7 +328,7 @@ describe("the merger (mergeFindings)", () => {
 			},
 			{ links: [] },
 			graphDeps,
-			sessionSource(chat.id),
+			await sessionSource(chat.id),
 		);
 		assert.equal(first.nodes, 1);
 		const created = scopedGraph([chat.id]).nodes.find((n) => n.statement === "Anchored statement")!;
@@ -347,7 +347,7 @@ describe("the merger (mergeFindings)", () => {
 			},
 			{ links: [{ id: "q1", linkTo: created.id }] },
 			graphDeps,
-			sessionSource(chat.id),
+			await sessionSource(chat.id),
 		);
 		assert.equal(second.nodes, 1, "q1 linked (no create), q2 created");
 		const linkLine = graphStore
@@ -361,14 +361,14 @@ describe("the merger (mergeFindings)", () => {
 		assert.deepEqual(chains[0]!.provenance, [{ chatId: chat.id, messageId: "" }], "chains stay chat-level — never anchored");
 	});
 
-	it("merges INDEPENDENTLY per call — no cross-run identity (owner, 2026-09-29)", () => {
+	it("merges INDEPENDENTLY per call — no cross-run identity (owner, 2026-09-29)", async () => {
 		// The mappings ledger is gone: resolution is a job-local in-memory
 		// map, so a second merge of the same verdicts knows nothing of the
 		// first. Cross-run identity is the AUDITOR's job (linkTo) plus the
 		// coverage ledger (nothing re-extracts) — never the merger's.
 		// (Own chat + unique statements — this suite stacks on shared
 		// files, so nothing here may touch the other tests' counts.)
-		const rep = fixtureChat("Independence fixture", [user("u1", "rep")].flat());
+		const rep = await fixtureChat("Independence fixture", [user("u1", "rep")].flat());
 		const findings: SessionFindings = {
 			propositions: [
 				{ id: "p1", name: "Rep one", statement: "Independence one statement", aliases: [] },
@@ -376,9 +376,9 @@ describe("the merger (mergeFindings)", () => {
 			],
 			chains: [{ premises: ["p1"], conclusion: "p2" }],
 		};
-		const first = mergeFindings(rep.id, findings, { links: [] }, graphDeps, sessionSource(rep.id));
+		const first = mergeFindings(rep.id, findings, { links: [] }, graphDeps, await sessionSource(rep.id));
 		assert.deepEqual(first, { nodes: 2, chains: 1 });
-		const second = mergeFindings(rep.id, findings, { links: [] }, graphDeps, sessionSource(rep.id));
+		const second = mergeFindings(rep.id, findings, { links: [] }, graphDeps, await sessionSource(rep.id));
 		assert.deepEqual(second, { nodes: 2, chains: 1 }, "nothing remembered — everything re-creates");
 		const graph = scopedGraph([rep.id]);
 		assert.equal(graph.nodes.length, 4, "the propositions merge again as fresh nodes");
@@ -387,8 +387,8 @@ describe("the merger (mergeFindings)", () => {
 		assert.equal(graphStore.readCheckpoints().filter((c) => c.chatId === rep.id).length, 2);
 	});
 
-	it("is idempotent WITHIN one submit — a repeated proposition id resolves once", () => {
-		const dup = fixtureChat("Duplicate-id fixture", [user("u1", "dup")].flat());
+	it("is idempotent WITHIN one submit — a repeated proposition id resolves once", async () => {
+		const dup = await fixtureChat("Duplicate-id fixture", [user("u1", "dup")].flat());
 		const findings: SessionFindings = {
 			propositions: [
 				{ id: "p1", name: "Dup", statement: "Dup statement", aliases: [] },
@@ -396,13 +396,13 @@ describe("the merger (mergeFindings)", () => {
 			],
 			chains: [],
 		};
-		const stats = mergeFindings(dup.id, findings, { links: [] }, graphDeps, sessionSource(dup.id));
+		const stats = mergeFindings(dup.id, findings, { links: [] }, graphDeps, await sessionSource(dup.id));
 		assert.deepEqual(stats, { nodes: 1, chains: 0 }, "the duplicate id is skipped — first resolution stands");
 	});
 
-	it("applies a linkTo verdict: phrasings join aliases, provenance unions, no duplicate node", () => {
+	it("applies a linkTo verdict: phrasings join aliases, provenance unions, no duplicate node", async () => {
 		const alphaId = scopedGraph([chat1.id]).nodes.find((n) => n.statement === "Alpha intuition")!.id;
-		const chat2 = fixtureChat("Graph fixture 2", [
+		const chat2 = await fixtureChat("Graph fixture 2", [
 			user("u1", "again"),
 			assistant("a1", [
 				quizPart(
@@ -432,7 +432,7 @@ describe("the merger (mergeFindings)", () => {
 			// on the proposition (owner, 2026-09-28).
 			{ links: [{ id: "q1", linkTo: alphaId }] },
 			graphDeps,
-			sessionSource(chat2.id),
+			await sessionSource(chat2.id),
 		);
 		assert.deepEqual(stats, { nodes: 0, chains: 0 });
 
@@ -447,7 +447,7 @@ describe("the merger (mergeFindings)", () => {
 		);
 	});
 
-	it("resolves imported-notes ids to their file paths in the snapshot (static provenance)", () => {
+	it("resolves imported-notes ids to their file paths in the snapshot (static provenance)", async () => {
 		// The notes front door in miniature: a source record + a merge under
 		// its src id — the snapshot must label it with the file path (a
 		// static entry), never as a chat session.
@@ -469,14 +469,14 @@ describe("the merger (mergeFindings)", () => {
 			graphDeps,
 			{ foldedAt: "2026-09-13T00:00:00.000Z" },
 		);
-		const snap = graphSnapshot(graphDeps);
+		const snap = await graphSnapshot(graphDeps);
 		const node = snap.nodes.find((n) => n.statement === "Vim registers map single keys to editing commands.")!;
 		assert.equal(snap.fileSources["src_snapfixture"], "/vault/learn vim.md");
 		assert.deepEqual(snap.nodeSessions[node.id], ["src_snapfixture"], "the file entry joins the node's sessions list");
 		assert.equal(snap.sessions["src_snapfixture"], undefined, "a notes source is never a chat session");
 	});
 
-	it("derives BIRTH-SESSION clusters in graphSnapshot, labeled with the session's name", () => {
+	it("derives BIRTH-SESSION clusters in graphSnapshot, labeled with the session's name", async () => {
 		// Wave 7 (owner-locked 2026-09-23): embeddings are dead — a cluster is
 		// the session that BIRTHED its propositions, derived on read from
 		// provenance. No ledger partition to play, no LLM naming pass — the
@@ -502,7 +502,7 @@ describe("the merger (mergeFindings)", () => {
 			{ foldedAt: "2026-09-13T00:00:00.000Z" },
 		);
 		assert.equal(merge.nodes, 3);
-		const snap = graphSnapshot(graphDeps);
+		const snap = await graphSnapshot(graphDeps);
 		// Presentation threshold: every cluster is >= 3 members.
 		assert.ok(snap.clusters.every((c) => c.members.length >= 3));
 		// Our trio is exactly one cluster — the notes file that BIRTHED it,
@@ -531,8 +531,8 @@ describe("the merger (mergeFindings)", () => {
 		assert.equal(imp.length, 0, "this fixture's chains are single-premise — all collapsed to direct arrows");
 	});
 
-	it("derives the sessions index in graphSnapshot", () => {
-		const snap = graphSnapshot(graphDeps);
+	it("derives the sessions index in graphSnapshot", async () => {
+		const snap = await graphSnapshot(graphDeps);
 		const idByStatement = new Map(snap.nodes.map((n) => [n.statement, n.id]));
 		// No node-state classes (2026-09-08) and no understanding
 		// observations (2026-09-27 cleanup): the snapshot carries only the
@@ -550,8 +550,8 @@ describe("the merger (mergeFindings)", () => {
 		assert.deepEqual(snap.nodeSessions[idByStatement.get("Gamma application")!], [chat1.id]);
 	});
 
-	it("never string-matches without a verdict — an identical statement without linkTo is a NEW node", () => {
-		const chat3 = fixtureChat("Graph fixture 3", [user("u1", "third")].flat());
+	it("never string-matches without a verdict — an identical statement without linkTo is a NEW node", async () => {
+		const chat3 = await fixtureChat("Graph fixture 3", [user("u1", "third")].flat());
 		chat3Id = chat3.id;
 		const stats = mergeFindings(
 			chat3.id,
@@ -569,13 +569,13 @@ describe("the merger (mergeFindings)", () => {
 			// empty verdicts — identity is the auditor's call alone
 			{ links: [] },
 			graphDeps,
-			sessionSource(chat3.id),
+			await sessionSource(chat3.id),
 		);
 		assert.equal(stats.nodes, 1, "created — the merger does not match strings");
 		assert.equal(getGraph(graphStore).nodes.filter((n) => n.statement === "Alpha intuition").length, 2);
 	});
 
-	it("merges the notes front door: source id as chatId, checkpoint at import time", () => {
+	it("merges the notes front door: source id as chatId, checkpoint at import time", async () => {
 		// Raw personal notes carry no transcript — no message anchors; the
 		// file is the provenance (and no events exist to build, 2026-09-27).
 		const stats = mergeFindings(
@@ -608,7 +608,7 @@ describe("the merger (mergeFindings)", () => {
 // ─── store primitives ────────────────────────────────────────────────────────
 
 describe("graph ledger store", () => {
-	it("round-trips lines and skips corrupt / foreign-shaped lines (strict reads)", () => {
+	it("round-trips lines and skips corrupt / foreign-shaped lines (strict reads)", async () => {
 		const node = {
 			id: "n_storetest",
 			name: "Store test",
@@ -633,7 +633,7 @@ describe("graph ledger store", () => {
 	});
 
 
-	it("returns RAW node lines — repeated ids (link-appends) are each their own line; getGraph merges", () => {
+	it("returns RAW node lines — repeated ids (link-appends) are each their own line; getGraph merges", async () => {
 		const line = (msgId: string) =>
 			JSON.stringify({
 				id: "n_linktest",
@@ -671,8 +671,8 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 	 *  Deleting dA must: keep X (dB's link line survives, dA's create-line
 	 *  aliases stripped — the identity stays), kill Y (orphan), keep Z and
 	 *  dB's edge, kill dA's coverage/checkpoints. */
-	function buildTwoSessionScenario() {
-		const dA = fixtureChat("Deletion session A", [
+	async function buildTwoSessionScenario() {
+		const dA = await fixtureChat("Deletion session A", [
 			user("du1", "teach me the deletion topic"),
 			assistant("da1", [
 				quizPart(
@@ -689,7 +689,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 			],
 			chains: [{ premises: ["p1"], conclusion: "p2", }],
 		};
-		mergeFindings(dA.id, findingsA, { links: [] }, graphDeps, sessionSource(dA.id));
+		mergeFindings(dA.id, findingsA, { links: [] }, graphDeps, await sessionSource(dA.id));
 		// Resolve through THIS session's provenance — the shared ledger
 		// holds lookalike statements from earlier tests, so scope by chat.
 		const bornOf = (chatId: string, statement: string): string =>
@@ -697,7 +697,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		const xId = bornOf(dA.id, "Shared core statement");
 		const yId = bornOf(dA.id, "Solo fact statement");
 
-		const dB = fixtureChat("Deletion session B", [
+		const dB = await fixtureChat("Deletion session B", [
 			user("eu1", "more on the shared core"),
 			assistant("eb1", [
 				quizPart(
@@ -714,7 +714,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 			],
 			chains: [{ premises: ["q1"], conclusion: "q2", }],
 		};
-		mergeFindings(dB.id, findingsB, { links: [{ id: "q1", linkTo: xId }] }, graphDeps, sessionSource(dB.id));
+		mergeFindings(dB.id, findingsB, { links: [{ id: "q1", linkTo: xId }] }, graphDeps, await sessionSource(dB.id));
 		const zId = bornOf(dB.id, "B extra statement");
 
 		// Coverage rows (both chats) + positions garnish — the deletion
@@ -728,8 +728,8 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		return { dA, dB, xId, yId, zId };
 	}
 
-	it("delete-nodes: the shared node survives with the other session's content; the orphan dies; the creator's aliases are stripped (owner ruling 2026-09-23)", () => {
-		const { dA, dB, xId, yId, zId } = buildTwoSessionScenario();
+	it("delete-nodes: the shared node survives with the other session's content; the orphan dies; the creator's aliases are stripped (owner ruling 2026-09-23)", async () => {
+		const { dA, dB, xId, yId, zId } = await buildTwoSessionScenario();
 		const zLineBefore = JSON.stringify(graphStore.readNodes().find((n) => n.id === zId));
 
 		const stats = deleteChatTraces(graphStore, dA.id, "delete-nodes");
@@ -765,7 +765,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.equal(positions[yId], undefined);
 		assert.deepEqual(positions[xId], { x: 1, y: 1 });
 		// The snapshot resolves X to dB only — the deleted chat left no ghost.
-		const snapshot = graphSnapshot(graphDeps);
+		const snapshot = await graphSnapshot(graphDeps);
 		assert.deepEqual(snapshot.nodeSessions[xId], [dB.id]);
 		assert.ok(snapshot.sessions[dB.id] && !snapshot.sessions[dA.id]);
 		// Atomic rewrites left no temp files, and appends still work.
@@ -779,8 +779,8 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.deepEqual(deleteChatTraces(graphStore, dA.id, "delete-nodes"), { ...stats, nodesRemoved: 0, chainsRemoved: 0, coverageRemoved: 0, checkpointsRemoved: 0 } satisfies ChatDeletionStats);
 	});
 
-	it("preserve-graph: only the extraction bookkeeping dies — the graph ledgers are byte-identical", () => {
-		const { dA, dB, xId, yId, zId } = buildTwoSessionScenario();
+	it("preserve-graph: only the extraction bookkeeping dies — the graph ledgers are byte-identical", async () => {
+		const { dA, dB, xId, yId, zId } = await buildTwoSessionScenario();
 		const before = {
 			nodes: graphStore.readNodes(),
 			chains: graphStore.readChains(),
@@ -805,7 +805,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		// 404 — unknown chat.
 		assert.deepEqual(await deleteChatSession("chat_missing_delete", "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
 
-		const { dA } = buildTwoSessionScenario();
+		const { dA } = await buildTwoSessionScenario();
 		// 409 — a turn in flight.
 		beginTurn(dA.id);
 		const turnedAway = await deleteChatSession(dA.id, "delete-nodes");
@@ -829,7 +829,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 			assert.equal(outcome.jobsRemoved, 1);
 			assert.ok(outcome.graphRevision > 0, "the version stamp moved");
 		}
-		assert.equal(chatStore.getChat(dA.id), null, "the chat record is gone");
+		assert.equal(await chatStore.getChat(dA.id), null, "the chat record is gone");
 		assert.equal(jobStore.getJob(doneJob.id), null, "the chat's job records are gone");
 		// And a second call is an honest 404.
 		assert.deepEqual(await deleteChatSession(dA.id, "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
@@ -884,7 +884,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 		graphStore.writePositions({ n_dead: { x: 1, y: 1 }, n_keep: { x: 2, y: 2 }, arg_dead_keep: { x: 1.5, y: 1.5 }, arg_keep_dead: { x: 2.5, y: 2.5 } });
 	}
 
-	it("deleteNodeTraces: FULL DEATH — the node, its edges, its evidence, its anchors, its position", () => {
+	it("deleteNodeTraces: FULL DEATH — the node, its edges, its evidence, its anchors, its position", async () => {
 		buildNodeScenario();
 		const keepLineBefore = JSON.stringify(graphStore.readNodes().find((n) => n.id === "n_keep"));
 		const stats = deleteNodeTraces(graphStore, "n_dead");
@@ -916,7 +916,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 		assert.equal(deleteNodeTraces(graphStore, "n_dead"), null);
 	});
 
-	it("deleteNodeTraces: a node nothing references still dies, and only its file moves", () => {
+	it("deleteNodeTraces: a node nothing references still dies, and only its file moves", async () => {
 		graphStore.appendNode({
 			id: "n_solo",
 			name: "Solo",
@@ -930,7 +930,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 		assert.equal(graphStore.readNodes().some((n) => n.id === "n_solo"), false);
 	});
 
-	it("deleteGraphNode: the orchestration — extraction gate, 404, success", () => {
+	it("deleteGraphNode: the orchestration — extraction gate, 404, success", async () => {
 		// 404 — unknown node.
 		assert.deepEqual(deleteGraphNode("n_missing_node"), {
 			ok: false,
@@ -986,16 +986,16 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 });
 
 describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
-	it("one session's block: derived uncovered, the newest fold, honest nulls", () => {
+	it("one session's block: derived uncovered, the newest fold, honest nulls", async () => {
 		// Empty coverage: everything uncovered, no fold yet, not running.
 		// Teacher prose only (owner, 2026-09-28): coverage slots are the
 		// teacher's text blocks, so the fixture is all-teacher.
-		const chat = fixtureChat("coverage read", [
+		const chat = await fixtureChat("coverage read", [
 			teacher("cov_t1", "tell me about coverage reads"),
 			teacher("cov_t2", "and about per-session blocks"),
 			teacher("cov_t3", "a third distinct message"),
 		].flat());
-		const empty = sessionCoverage(chat.id)!;
+		const empty = (await sessionCoverage(chat.id))!;
 		assert.ok(empty);
 		assert.equal(empty.totalMessages, 3);
 		assert.equal(empty.coveredCount, 0);
@@ -1007,13 +1007,13 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 
 		// Fold the first two messages: the read derives the split + the
 		// newest fold timestamp from the ledger rows.
-		const slots = coverageSlots(chatStore.getChat(chat.id)!.messages);
+		const slots = coverageSlots((await chatStore.getChat(chat.id))!.messages);
 		graphStore.appendCoverage({ chatId: chat.id, fp: slots[0]!.fp, tokens: slots[0]!.tokens, foldedAt: "2026-09-24T10:00:00.000Z" });
 		graphStore.appendCoverage({ chatId: chat.id, fp: slots[1]!.fp, tokens: slots[1]!.tokens, foldedAt: "2026-09-24T11:30:00.000Z" });
 		// Another session's row must not leak into this read.
 		graphStore.appendCoverage({ chatId: "chat_other", fp: slots[2]!.fp, tokens: slots[2]!.tokens, foldedAt: "2026-09-24T23:00:00.000Z" });
 
-		const cov = sessionCoverage(chat.id)!;
+		const cov = (await sessionCoverage(chat.id))!;
 		assert.equal(cov.totalMessages, 3);
 		assert.equal(cov.coveredCount, 2);
 		assert.equal(cov.uncoveredCount, 1);
@@ -1022,8 +1022,8 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 		assert.equal(cov.lastFoldedAt, "2026-09-24T11:30:00.000Z", "the NEWEST fold, and scoped to this session's rows");
 	});
 
-	it("running: true only for THIS session's chat-kind run (the registry pin)", () => {
-		const chat = fixtureChat("coverage running", [user("cov_r1", "running pin")].flat());
+	it("running: true only for THIS session's chat-kind run (the registry pin)", async () => {
+		const chat = await fixtureChat("coverage running", [user("cov_r1", "running pin")].flat());
 		const g = globalThis as { __lhExtractionRuns?: unknown };
 		const realRuns = g.__lhExtractionRuns;
 		try {
@@ -1036,7 +1036,7 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 				inFlight: new Set(),
 				lastStartedAt: 0,
 			};
-			assert.equal(sessionCoverage(chat.id)!.running, false, "no chat-kind run for this id");
+			assert.equal((await sessionCoverage(chat.id))!.running, false, "no chat-kind run for this id");
 			g.__lhExtractionRuns = {
 				running: new Map([
 					[chat.id, { chatId: chat.id, kind: "chat", phase: "extracting", startedAt: 3, usage: {}, controller: new AbortController() }],
@@ -1044,14 +1044,14 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 				inFlight: new Set(),
 				lastStartedAt: 0,
 			};
-			assert.equal(sessionCoverage(chat.id)!.running, true);
+			assert.equal((await sessionCoverage(chat.id))!.running, true);
 		} finally {
 			g.__lhExtractionRuns = realRuns;
 		}
 	});
 
-	it("unknown chat → null (the caller owns the 404)", () => {
-		assert.equal(sessionCoverage("chat_never_was"), null);
+	it("unknown chat → null (the caller owns the 404)", async () => {
+		assert.equal(await sessionCoverage("chat_never_was"), null);
 	});
 });
 
@@ -1074,13 +1074,13 @@ describe("deriveView (the argument's geometry)", () => {
 		createdAt: "2026-09-30T00:00:00.000Z",
 	});
 
-	it("a SINGLE-premise chain collapses to ONE direct arrow — no imp node", () => {
+	it("a SINGLE-premise chain collapses to ONE direct arrow — no imp node", async () => {
 		const view = deriveView({ nodes: [prop("a"), prop("b")], chains: [chain("arg_ab", ["a"], "b")] });
 		assert.deepEqual(view.nodes.map((n) => n.id), ["a", "b"], "no arg_ node minted");
 		assert.deepEqual(view.edges, [{ from: "a", to: "b" }], "the argument IS a plain arrow");
 	});
 
-	it("a MULTI-premise chain keeps the imp node + fan (premises in, conclusion out)", () => {
+	it("a MULTI-premise chain keeps the imp node + fan (premises in, conclusion out)", async () => {
 		const view = deriveView({
 			nodes: [prop("a"), prop("b"), prop("c")],
 			chains: [chain("arg_ab", ["a", "b"], "c")],
@@ -1098,7 +1098,7 @@ describe("deriveView (the argument's geometry)", () => {
 		assert.equal(imp.name, "\u27f9");
 	});
 
-	it("two chains SHARING a conclusion stay distinct — two geometry points, never a unioned fan", () => {
+	it("two chains SHARING a conclusion stay distinct — two geometry points, never a unioned fan", async () => {
 		const view = deriveView({
 			nodes: [prop("a"), prop("b"), prop("c"), prop("d"), prop("e")],
 			chains: [chain("arg_e1", ["a", "b"], "e"), chain("arg_e2", ["c", "d"], "e")],
@@ -1111,13 +1111,13 @@ describe("deriveView (the argument's geometry)", () => {
 		assert.ok(view.edges.some((x) => x.from === "arg_e2" && x.to === "e"));
 	});
 
-	it("dangling chains drop (missing member — the honest belt)", () => {
+	it("dangling chains drop (missing member — the honest belt)", async () => {
 		const view = deriveView({ nodes: [prop("a")], chains: [chain("arg_ghost", ["a"], "gone"), chain("arg_gone", ["ghost"], "a")] });
 		assert.deepEqual(view.nodes.map((n) => n.id), ["a"]);
 		assert.deepEqual(view.edges, []);
 	});
 
-	it("LOGICAL edges: every chain contracts to direct premise→conclusion arrows (all chains, deduped)", () => {
+	it("LOGICAL edges: every chain contracts to direct premise→conclusion arrows (all chains, deduped)", async () => {
 		const view = deriveView({
 			nodes: [prop("a"), prop("b"), prop("c")],
 			chains: [chain("arg_ab", ["a", "b"], "c"), chain("arg_ac", ["a"], "c")],
@@ -1134,7 +1134,7 @@ describe("deriveView (the argument's geometry)", () => {
 		assert.ok(view.logicalEdges.every((e) => !e.from.startsWith("arg_") && !e.to.startsWith("arg_")));
 	});
 
-	it("impLinks: one linkage per MULTI-premise chain — the depth pass's midpoint input", () => {
+	it("impLinks: one linkage per MULTI-premise chain — the depth pass's midpoint input", async () => {
 		const view = deriveView({
 			nodes: [prop("a"), prop("b"), prop("c")],
 			chains: [chain("arg_ab", ["a", "b"], "c"), chain("arg_ac", ["a"], "c")],

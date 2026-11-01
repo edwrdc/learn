@@ -15,11 +15,10 @@
  *
  * UI-ONLY CONTENT (owner ruling, fork 1 + the plan's custom-message
  * taxonomy): the probe→teach handoff, sub-agent steers,
- * and plan blocks are LhMarkerMessage — this app's declaration-merged
- * member of pi-agent-core's CustomAgentMessages extension point, shaped
+ * and plan blocks are LhMarkerMessage — this app's custom role, shaped
  * exactly like pi's own CustomMessage ({role:"custom", customType,
- * content, display, details}). ONE seam — toLlmMessages, wired as the
- * agent's convertToLlm — owns every model-facing decision: markers
+ * content, display, details}). ONE seam — toLlmMessages, applied by the
+ * durable request filter — owns every model-facing decision: markers
  * flatten to their canonical user text (single-sourced in
  * core/contracts), plan blocks are UI-only and filtered, and dangling
  * tool calls (an aborted turn) get the interrupted-result synthesis the
@@ -33,7 +32,6 @@
  * question gate holds steers; a POST would 409).
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
@@ -54,8 +52,7 @@ export const INTERRUPTED_TEXT =
 // ─── The record's message type ───────────────────────────────────────────────
 
 /**
- * The app's custom message (declaration-merged into pi-agent-core's
- * CustomAgentMessages below). Shaped like pi's own CustomMessage —
+ * The app's custom message. Shaped like a native message —
  * `content` is the MODEL-facing text (single-sourced in core/contracts,
  * never fake human speech), `details` is the UI payload (never
  * model-visible), `display` marks messages the UI renders (our projection
@@ -83,20 +80,11 @@ export interface LhMarkerMessage {
 	timestamp: number;
 }
 
-declare module "@earendil-works/pi-agent-core" {
-	interface CustomAgentMessages {
-		lhMarker: LhMarkerMessage;
-	}
-}
-
 /** A record message: a native pi message (or our marker) plus the record id. */
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & { id: string };
 
-/** A record message list is assignable to the agent's context — that IS
- *  the replay (ui-stream/chat-handler assign it to initialState.messages). */
-export function asAgentMessages(messages: readonly LhMessage[]): AgentMessage[] {
-	return messages as unknown as AgentMessage[];
-}
+/** A model-facing message list: native messages plus our markers. */
+export type AppMessage = Message | LhMarkerMessage;
 
 // ─── id minting ──────────────────────────────────────────────────────────────
 
@@ -482,7 +470,7 @@ export function pendingProblemDismissalOf(messages: readonly LhMessage[]): strin
 // ─── the one model-facing seam (the agent's convertToLlm) ────────────────────
 
 /** The ids of every toolResult in the tail (for the dangling-call scan). */
-function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
+function resultIdsFrom(messages: readonly AppMessage[]): Set<string> {
 	const ids = new Set<string>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role === "toolResult") {
@@ -493,9 +481,8 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
 }
 
 /**
- * AgentMessage[] → the provider wire (the agent's convertToLlm — required
- * by pi-agent-core's loop config, the ONE place model-facing decisions
- * live):
+ * The model-facing message list → the provider wire (the ONE place
+ * model-facing decisions live):
  *
  * - user / assistant / toolResult pass through VERBATIM — signatures,
  *   usage, provider stamps all native — minus our record-`id` field.
@@ -506,10 +493,10 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  *   synthesized interrupted result — the provider protocol's hard
  *   invariant: a tool call must be followed by its result.
  *
- * Contract (pi-agent-core): never throws — an unknown shape passes
- * through untouched rather than killing the loop.
+ * Contract: never throws — an unknown shape passes through untouched
+ * rather than killing the run.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+export function toLlmMessages(messages: readonly AppMessage[]): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -531,17 +518,9 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			};
 		}
 	}
-	// THE LEADING SYSTEM MESSAGE IS REQUEST CHROME, NEVER COMPACTABLE
-	// PAYLOAD (the OpenRouter no-tools incident, owner 2026-10-05):
-	// pi-agent-core's Agent seeds a SystemMessage carrying the system
-	// prompt AND the tool declarations at state.messages[0]
-	// (createInitialSystemMessage — "messages declare the provider-visible
-	// loadout"). The record never persists it (ui-stream's settleWith
-	// filters the role), so RECORD-path callers never see it — but the
-	// Agent's convertToLlm DOES. The cut slices the RECORD's history;
-	// when [0] is the chrome it must carry through AHEAD of the
-	// compaction head, exactly as pi's own prepareRequest re-applies
-	// context.systemPrompt + context.tools around its projection.
+	// The leading system message is request chrome, never compactable
+	// payload: the record never persists it, but a native caller's list can
+	// lead with it, so the cut carries it AHEAD of the compaction head.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
 	const out: Message[] = [];
@@ -597,8 +576,12 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 // ─── native scans (the UIMessage-era pending/phase seams, natively) ──────────
 
 /** The pending-question gate (findPendingToolCall's native twin): the
- *  NEWEST assistant message's FIRST question-tool call with no result in
- *  the tail — one question at a time, the dock's subject. */
+ *  NEWEST assistant message's FIRST question-tool call still awaiting the
+ *  learner — one question at a time, the dock's subject. A call counts as
+ *  answered only through its RESULT; the durable loop commits the pose as
+ *  a placeholder result (the clean "question posed" ack, details: null),
+ *  so an existing result is not an answer by itself. The legacy shape (no
+ *  result at all — records imported mid-question) stays pending. */
 export function danglingQuestionOf(
 	messages: readonly LhMessage[],
 ): { toolCallId: string; tool: string; input: unknown } | null {
@@ -606,12 +589,19 @@ export function danglingQuestionOf(
 		const m = messages[mi]!;
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const assistant = m as AssistantMessage & { id: string };
-		const answered = resultIdsFrom(messages.slice(mi + 1));
+		const results = new Map<string, ToolResultMessage>();
+		for (const tail of messages.slice(mi + 1)) {
+			if ((tail as { role?: string }).role !== "toolResult") continue;
+			const result = tail as ToolResultMessage;
+			results.set(result.toolCallId, result);
+		}
 		for (const block of assistant.content) {
 			if (block.type !== "toolCall") continue;
 			if (!(QUESTION_TOOLS as readonly string[]).includes(block.name)) continue;
-			if (answered.has(block.id)) continue;
-			return { toolCallId: block.id, tool: block.name, input: block.arguments };
+			const result = results.get(block.id);
+			if (result === undefined || (!result.isError && result.details == null)) {
+				return { toolCallId: block.id, tool: block.name, input: block.arguments };
+			}
 		}
 		return null; // the newest assistant message's questions are all answered
 	}
@@ -674,9 +664,22 @@ export function endsInDismissal(messages: readonly LhMessage[]): boolean {
 	return last !== undefined && isDismissedResult(last);
 }
 
+/** The auto-continuation's progress signature: the transcript length and its
+ *  newest message id. A failed run that commits no assistant entry leaves
+ *  both unchanged, so the client can tell "still owed" from "still owed and
+ *  nothing happened" and stop re-sending forever. */
+export function continuationSignature(messages: readonly LhMessage[]): string {
+	const last = messages[messages.length - 1] as { id?: string } | undefined;
+	return `${messages.length}:${last?.id ?? ""}`;
+}
+
 export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;
+	// A pending question OWNS the next move: its committed placeholder result
+	// is not a consumed tool result, so a mount/reload must not fire the
+	// continuation turn the learner never asked for.
+	if (danglingQuestionOf(messages) !== null) return false;
 	// The trailing results batch (contiguous by construction — the agent
 	// appends its batch; the question gate keeps a quiz call and its
 	// learner answer adjacent).

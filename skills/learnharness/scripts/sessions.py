@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from _data import DataError, add_common_arguments, data_root, print_json, read_chat, safe_path
+from _data import DataError, add_common_arguments, data_root, print_json, read_chat, read_chat_meta, safe_path
 
 QUESTION_TOOLS = {"quiz", "probe", "ask_user_question", "explain", "recall"}
 LEARNING_TOOLS = QUESTION_TOOLS | {"problem", "conclude", "probe_done", "plan_init", "research", "pdf", "visual", "demo"}
@@ -41,6 +41,9 @@ ACK_TEXT = {
     "conclude": "Problem concluded. Say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls. The next problem is NEVER posed here: it waits for the learner's explicit go-ahead (a *Next problem* message, or their own words asking for the next one). Between problems, answer their questions about the concluded one.",
     "probe_done": "Assessment recorded — it is shown to the learner now and the teacher plans from it. Say your closing sentence and end your turn; the teaching phase takes over from here.",
 }
+# The synthetic pose acknowledgment stored as a question call's result until the
+# learner answers. A clean placeholder is not an answer snapshot.
+QUESTION_POSE_ACK = "Question posed — the turn ends here; the learner's graded answer arrives as this call's result."
 
 
 def _json(value: Any) -> str:
@@ -273,6 +276,13 @@ def _fields(value: Any, depth: int = 0) -> list[str]:
     return [_text(value if isinstance(value, str) else _json(value))]
 
 
+def _pose_placeholder(message: dict[str, Any]) -> bool:
+    """The app's clean question placeholder: no payload, exact pose ack text."""
+    content = message.get("content")
+    return (message.get("details") is None and isinstance(content, list) and len(content) == 1
+            and content[0] == {"type": "text", "text": QUESTION_POSE_ACK})
+
+
 def _call_statuses(messages: list[dict[str, Any]]) -> dict[tuple[int, int], str]:
     """Legacy duplicate IDs bind to the nearest preceding call, never last-wins."""
     preceding: dict[str, tuple[int, int]] = {}
@@ -357,12 +367,19 @@ def render_markdown(selection: dict[str, Any]) -> str:
             tool_name = message.get("toolName")
             tool_name = tool_name if isinstance(tool_name, str) else None
             if tool_name in QUESTION_TOOLS and not message.get("isError"):
-                snapshot, source = _answer_snapshot(message)
-                lines.extend([f"### Learner answer snapshot — source: {source}",
-                              "Teacher-authored keys/committed solutions/explanations below are archival, not learner evidence. Reveal status: response recorded; actual UI viewing not recorded. Snapshot display indexes are not authored option positions.", *_fields(snapshot)])
-                if message.get("details") is not None and "content" in message:
-                    lines.extend(["Additional model-facing answer content (may differ from the primary details snapshot; preserved, not reconciled):",
-                                  *_blocks(message["content"], role, index, statuses)])
+                if _pose_placeholder(message):
+                    lines.extend(["### Question posed — no learner answer recorded",
+                                  "The stored result is the pose acknowledgment, not a learner answer. It is preserved as stored text below."])
+                    lines.extend(_blocks(message.get("content"), role, index, statuses))
+                    if "details" in message:
+                        lines.extend(["Stored result details:", *_fields(message["details"])])
+                else:
+                    snapshot, source = _answer_snapshot(message)
+                    lines.extend([f"### Learner answer snapshot — source: {source}",
+                                  "Teacher-authored keys/committed solutions/explanations below are archival, not learner evidence. Reveal status: response recorded; actual UI viewing not recorded. Snapshot display indexes are not authored option positions.", *_fields(snapshot)])
+                    if message.get("details") is not None and "content" in message:
+                        lines.extend(["Additional model-facing answer content (may differ from the primary details snapshot; preserved, not reconciled):",
+                                      *_blocks(message["content"], role, index, statuses)])
             else:
                 if tool_name not in LEARNING_TOOLS | OPERATION_TOOLS:
                     lines.append("Unsupported/unrendered tool-result semantics; stored fields follow.")
@@ -414,7 +431,7 @@ def list_sessions(root: Path) -> dict[str, Any]:
     for path in paths:
         session_id = path.stem
         try:
-            record = read_chat(root, session_id)
+            record = read_chat_meta(root, session_id)
         except DataError as exc:
             skipped.append({"id": session_id, "error": str(exc)})
             print(f"Warning: skipped session {session_id}: {exc}", file=sys.stderr)

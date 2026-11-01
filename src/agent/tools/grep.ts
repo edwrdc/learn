@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../tool-adapter.ts";
 import { serverExecute } from "../tool-execute.ts";
 import {
 	capOutput,
@@ -46,7 +46,7 @@ const grepInput = Type.Object({
 	limit: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum number of matches to return (default: 100)" })),
 });
 
-export const grepTool: AgentTool<typeof grepInput> = {
+export const grepTool: AppTool<typeof grepInput> = {
 	name: "grep",
 	label: "grep",
 	description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignores node_modules, .git, and Library directories. Output is truncated to ${DEFAULT_LIMIT} matches or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`,

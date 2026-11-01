@@ -45,6 +45,11 @@ const { promptOverrides } = await import("../src/store/prompt-overrides.ts");
 const { PUT: putSettingsSection } = await import("../app/api/settings/[section]/route.ts");
 const { DELETE: deletePromptText } = await import("../app/api/settings/prompts/[...segment]/route.ts");
 const { readSettingsRecord } = await import("../src/server/index.ts");
+const { chatStore } = await import("../src/store/chats.ts");
+const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
+const { prepareConversation } = await import("../src/server/durable-registry.ts");
+const { effectiveSettings, stores } = await import("../src/server/stores.ts");
+const { BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
 
 /** The REAL repo prompts dir this suite must never touch (read-only). */
 const REPO_PROMPTS = path.resolve(import.meta.dirname, "../data/prompts");
@@ -246,7 +251,7 @@ describe("the source-derived segment list", () => {
 // discipline), so every override-writing composition test lives here.
 
 describe("composeInstructions: override honoring + the byte-identical source path", () => {
-	const { composeInstructions, createTeacherAgent } = teacherAgent;
+	const { composeInstructions } = teacherAgent;
 
 	it("switches-less composition is byte-identical to the pre-refactor loader", () => {
 		// The plain loader, rebuilt inline: base + the agent's own
@@ -304,19 +309,33 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 		}
 	});
 
-	it("promptSwitches threads through agent construction into the system prompt", () => {
+	it("promptSwitches thread through the durable turn's configured instructions", async () => {
 		promptOverrides.writeOverride("system-prompt.md", "TOTALLY CUSTOM BASE");
+		const chat = await chatStore.createChat("prompt override turn");
 		try {
-			// BYOK (owner, 2026-09-22): no factory pins — the agent build needs
-			// an injected engine; a scripted faux one stands in (the prompt is
-			// what's under test here, not the model).
 			const engine = fauxEngine();
-			const agent = createTeacherAgent(undefined, { engine, promptSwitches: { "system-prompt.md": true } });
-			assert.ok(agent.state.systemPrompt.includes("TOTALLY CUSTOM BASE"));
-			const source = createTeacherAgent(undefined, { engine });
-			assert.ok(!source.state.systemPrompt.includes("TOTALLY CUSTOM BASE"), "no switches → cached source");
+			const runtime = await openChatRuntime(chat.id);
+			const deps = {
+				chatStore: stores.chatStore,
+				graphStore: stores.graphStore,
+				jobStore: stores.jobStore,
+				spawn: () => {},
+				deliver: () => {},
+				searchAvailable: () => false,
+				graphNodes: () => [],
+			};
+			const base = effectiveSettings();
+			await prepareConversation(runtime, chat.id, [], undefined, engine, { ...base, agent: { ...base.agent, prompts: { "system-prompt.md": true } } }, deps);
+			assert.ok((await runtime.root.agent(BACKGROUND_CONTEXT)).instructions?.includes("TOTALLY CUSTOM BASE"));
+			await prepareConversation(runtime, chat.id, [], undefined, engine, base, deps);
+			assert.ok(
+				!(await runtime.root.agent(BACKGROUND_CONTEXT)).instructions?.includes("TOTALLY CUSTOM BASE"),
+				"no switches → source instructions",
+			);
 		} finally {
 			promptOverrides.deleteOverride("system-prompt.md");
+			await closeChatRuntime(chat.id);
+			await chatStore.deleteChat(chat.id);
 		}
 	});
 });

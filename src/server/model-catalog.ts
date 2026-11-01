@@ -18,7 +18,7 @@
  */
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { piModels } from "../agent/models.ts";
 import { customEndpointState, syncCustomEndpointProvider } from "./custom-endpoint.ts";
 import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "../core/custom-endpoint.ts";

@@ -23,8 +23,11 @@ export const PATHS = {
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
 	data: DATA_ROOT,
-	/** Chat sessions (AI SDK UIMessage transcripts, one JSON file per chat). */
+	/** Chat session METADATA (one JSON file per chat; the transcript lives
+	 *  in the durable store below — see src/store/chats.ts). */
 	chats: path.join(DATA_ROOT, "chats"),
+	/** Per-chat durable transcript databases (src/store/durable.ts). */
+	durable: path.join(DATA_ROOT, "durable"),
 	graph: path.join(DATA_ROOT, "graph"),
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */

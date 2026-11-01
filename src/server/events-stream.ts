@@ -13,7 +13,7 @@
  * (owner ruling 2026-10-02 — polling's cloud economics don't exist at
  * loopback; the poll lattice it left behind is what this replaces).
  *
- * Wire dialect mirrors the turn stream (pi/ui-stream.ts): text/event-stream,
+ * Wire dialect mirrors the turn stream (pi/durable-turn.ts): text/event-stream,
  * no-cache/no-transform, X-Accel-Buffering off — plus a `: ping` comment
  * every 25s to keep any intermediary from idling the socket out (locally
  * unnecessary, harmless, and it makes dead-connection detection cheap).
@@ -22,7 +22,7 @@
  * settle ([DONE]); this channel ends when the CLIENT goes away — cancel()
  * is the only end, and it must leave the bus untouched for other windows.
  * The closure shape (teardown assigned in start, called in cancel) is the
- * ui-stream subscribe() pattern.
+ * turn runner subscribe() pattern.
  */
 import { subscribe, type ServerEvent } from "../core/events.ts";
 
@@ -56,7 +56,7 @@ export function eventsResponse(): Response {
 
 			// Attach FIRST, synchronously: no event can fall between
 			// construction and subscription (single-threaded — the same
-			// attach-then-replay law as ui-stream's subscribe()).
+			// attach-then-replay law as the turn runner's subscribe()).
 			unsubscribe = subscribe((event: ServerEvent) => {
 				const { type, ...payload } = event;
 				frame(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`);

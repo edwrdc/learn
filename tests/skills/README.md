@@ -1,6 +1,6 @@
 # LearnHarness data skill tests
 
-Run independently of the application, with Python 3.10+ and no dependencies:
+Run with Python 3.10+:
 
 ```sh
 python3 -B -m unittest discover -s tests/skills -v
@@ -13,6 +13,11 @@ formats, path boundaries, and unchanged file bytes/mtimes. A portability test co
 the skill and fixture data outside the repository and invokes both output formats
 from an unrelated working directory, checking that no cache or data files appear.
 
+The format-2 database tests run `tests/skills/durable_fixture.mjs` to build a real
+pi-durable database through the app's store module; they skip when Node, tsx, or the
+installed dependencies are unavailable. The readers themselves stay standard-library
+Python and never need Node, the app, or the repository at runtime.
+
 No real installed-user profile, provider keys, app server, LLM, or network is used.
-The test command is intentionally separate from the app's Node test suite; the skill
-has no app-runtime, release, or website integration.
+The app's Node suite also runs `tests/durable-skill-reader.test.ts`, which drives the
+same readers against a real migrated chat store.

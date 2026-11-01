@@ -8,12 +8,11 @@
  * ONE VIEW PROTOCOL: every turn is a server-side background process (owner
  * ruling 2026-09-25); this model is a view. Sends POST one explicit input
  * event ({chatId, input}); the response and the reattach stream
- * (GET /api/chats/[id]/stream) are the SAME verbatim AgentEvent SSE,
+ * (GET /api/chats/[id]/stream) are the SAME verbatim turn-event SSE,
  * applied by the same function. Status vocabulary (pre-Wave-D parity):
  * ready | submitted | streaming | error.
  */
 
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import {
 	needsContinuation,
@@ -200,6 +199,22 @@ export interface SessionModelOptions extends SessionModelDeps {
 	onReattachSettled?: () => void;
 }
 
+/** The wire events this view applies (server: src/server/pi/durable-turn.ts
+ *  TurnWireEvent). Only the fields the fold reads are typed; the switch
+ *  ignores everything else. */
+type WireEvent =
+	| {
+			type: "message_start" | "message_update" | "message_end";
+			message: Record<string, unknown> & { role?: string; id?: string };
+	  }
+	| {
+			type: "tool_execution_end";
+			toolCallId: string;
+			isError: boolean;
+			result?: { content?: Array<{ type?: string; text?: string }>; details?: unknown } | null;
+	  }
+	| { type: "turn_end"; toolResults: ToolResultMessage[] };
+
 export class SessionModel {
 	readonly chatId: string;
 	/** Injectable fetch (tests); defaults to the global. */
@@ -325,7 +340,7 @@ export class SessionModel {
 			this.setError(String(event.errorText ?? "An error occurred."));
 			return false;
 		}
-		const agent = event as unknown as AgentEvent;
+		const agent = event as unknown as WireEvent;
 		switch (agent.type) {
 			case "message_start":
 			case "message_update":

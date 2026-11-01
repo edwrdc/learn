@@ -44,10 +44,10 @@ after(() => {
 const big = (text: string, kb = 100): LhMessage => newUserMessage(`${text}: ${"x".repeat(kb * 1024)}`);
 
 /** A chat whose record projects far over any test threshold. */
-function overThresholdChat(label: string): string {
-	const chat = chatStore.createChat(label);
+async function overThresholdChat(label: string): Promise<string> {
+	const chat = await chatStore.createChat(label);
 	const messages = [big("m1"), big("m2"), big("m3"), newUserMessage("recent")];
-	chatStore.saveMessages(chat.id, messages);
+	await chatStore.saveMessages(chat.id, messages);
 	return chat.id;
 }
 
@@ -75,7 +75,7 @@ const depsOf = (chatId: string, thresholdTokens: number): CompactionDeps => ({
 
 describe("the compaction service", () => {
 	it("over-threshold record → marker appended, usage logged, both events emitted", async () => {
-		const chatId = overThresholdChat("compact: basic");
+		const chatId = await overThresholdChat("compact: basic");
 		const events: string[] = [];
 		const off = subscribe((e) => {
 			const { chatId: c, running } = e as { chatId?: string; running?: boolean };
@@ -85,7 +85,7 @@ describe("the compaction service", () => {
 		await ensureCompacted(depsOf(chatId, 40_000), chatId);
 		off();
 
-		const record = chatStore.getChat(chatId)!;
+		const record = (await chatStore.getChat(chatId))!;
 		const marker = activeCompactionOf(record.messages);
 		assert.ok(marker, "the marker landed");
 		assert.ok(marker!.content.includes("SUMMARY #"));
@@ -100,15 +100,15 @@ describe("the compaction service", () => {
 	});
 
 	it("under-threshold record → a no-op (no marker, no summary call)", async () => {
-		const chatId = overThresholdChat("compact: under");
+		const chatId = await overThresholdChat("compact: under");
 		const before = summarizeCalls;
 		await ensureCompacted(depsOf(chatId, 10_000_000), chatId);
 		assert.equal(summarizeCalls, before);
-		assert.equal(activeCompactionOf(chatStore.getChat(chatId)!.messages), null);
+		assert.equal(activeCompactionOf((await chatStore.getChat(chatId))!.messages), null);
 	});
 
 	it("the registry is a mutex: concurrent ensureCompacted → ONE summary", async () => {
-		const chatId = overThresholdChat("compact: mutex");
+		const chatId = await overThresholdChat("compact: mutex");
 		const before = summarizeCalls;
 		const deps = depsOf(chatId, 40_000);
 		await Promise.all([ensureCompacted(deps, chatId), ensureCompacted(deps, chatId), ensureCompacted(deps, chatId)]);
@@ -116,7 +116,7 @@ describe("the compaction service", () => {
 	});
 
 	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {
-		const chatId = overThresholdChat("compact: gate");
+		const chatId = await overThresholdChat("compact: gate");
 		const events: string[] = [];
 		const off = subscribe((e) => {
 			const { chatId: c, running } = e as { chatId?: string; running?: boolean };
@@ -130,7 +130,7 @@ describe("the compaction service", () => {
 	});
 
 	it("chained compaction: the span carries the PRIOR summary forward", async () => {
-		const chatId = overThresholdChat("compact: chained");
+		const chatId = await overThresholdChat("compact: chained");
 		let seenPrompt = "";
 		const deps: CompactionDeps = {
 			...depsOf(chatId, 40_000),
@@ -145,18 +145,18 @@ describe("the compaction service", () => {
 		// first compaction
 		await ensureCompacted({ ...depsOf(chatId, 40_000) }, chatId);
 		// grow the record past the threshold again (post-markers + new tail)
-		chatStore.saveMessages(chatId, [...chatStore.getChat(chatId)!.messages, big("m9"), big("m10"), big("m11")]);
+		await chatStore.saveMessages(chatId, [(await chatStore.getChat(chatId))!.messages, big("m9"), big("m10"), big("m11")].flat());
 		// second compaction — the span must open with the FIRST summary
 		await ensureCompacted(deps, chatId);
 		assert.ok(seenPrompt.includes("prior compaction summary"), "the prior summary rides the span");
 		assert.ok(seenPrompt.includes(COMPACTED_HISTORY_HEADER), "as the marker's canonical text");
-		const record = chatStore.getChat(chatId)!;
+		const record = (await chatStore.getChat(chatId))!;
 		const markers = record.messages.filter((m) => (m as { customType?: string }).customType === "compaction");
 		assert.equal(markers.length, 2, "both markers persist (history is never rewritten)");
 		assert.ok(activeCompactionOf(record.messages)!.content.includes("SECOND SUMMARY"), "the newest rules");
 	});
 
-	it("effectiveThresholdTokens: the setting rules big windows; the window rule binds small ones", () => {
+	it("effectiveThresholdTokens: the setting rules big windows; the window rule binds small ones", async () => {
 		assert.equal(effectiveThresholdTokens(150_000, 200_000), 150_000);
 		assert.equal(effectiveThresholdTokens(150_000, 100_000), 100_000 - 16_384);
 		assert.equal(effectiveThresholdTokens(undefined, 200_000), 150_000);
@@ -164,7 +164,7 @@ describe("the compaction service", () => {
 	});
 
 	it("kickCompaction: fire-and-forget, registry-set, over-threshold only", async () => {
-		const chatId = overThresholdChat("compact: kick");
+		const chatId = await overThresholdChat("compact: kick");
 		const before = summarizeCalls;
 		let built = 0;
 		kickCompaction(() => {
@@ -188,7 +188,7 @@ describe("the compaction service", () => {
 	});
 
 	it("a summarizer failure leaves the record untouched and the gate re-arms", async () => {
-		const chatId = overThresholdChat("compact: fail");
+		const chatId = await overThresholdChat("compact: fail");
 		const before = summarizeCalls;
 		const failing: CompactionDeps = {
 			...depsOf(chatId, 40_000),
@@ -197,10 +197,10 @@ describe("the compaction service", () => {
 			},
 		};
 		await ensureCompacted(failing, chatId);
-		assert.equal(activeCompactionOf(chatStore.getChat(chatId)!.messages), null, "no marker on failure");
+		assert.equal(activeCompactionOf((await chatStore.getChat(chatId))!.messages), null, "no marker on failure");
 		// the next gate retries cleanly
 		await ensureCompacted(depsOf(chatId, 40_000), chatId);
-		assert.ok(activeCompactionOf(chatStore.getChat(chatId)!.messages));
+		assert.ok(activeCompactionOf((await chatStore.getChat(chatId))!.messages));
 		assert.equal(summarizeCalls, before + 1);
 	});
 });

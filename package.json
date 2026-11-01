@@ -16,7 +16,8 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
-		"test": "NODE_ENV=test tsx --test tests/*.test.ts tests/*.test.tsx",
+		"postinstall": "node scripts/patch-pi-durable.mjs",
+		"test": "NODE_ENV=test tsx --test --test-concurrency=1 tests/*.test.ts tests/*.test.tsx",
 		"lint": "eslint .",
 		"typecheck": "tsc --noEmit",
 		"desktop:dev": "concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
@@ -24,8 +25,9 @@
 		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=LH_NOTARY APPLE_TEAM_ID=JS6XN22HY6 electron-builder --mac --arm64"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "1.4.0",
+		"@earendil-works/chord": "1.4.0",
 		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-durable": "1.4.0",
 		"@mozilla/readability": "^0.6.0",
 		"@radix-ui/react-use-controllable-state": "^1.2.6",
 		"@resvg/resvg-js": "^2.6.2",
