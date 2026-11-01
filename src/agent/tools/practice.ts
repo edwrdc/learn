@@ -15,7 +15,7 @@
  */
 
 import { Type, type Static } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../tool-adapter.ts";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
 import { lsTool } from "./ls.ts";
@@ -114,7 +114,7 @@ export function problemTool(
 	gate: PracticeGate,
 	graphNodes?: PracticeToolContext["graphNodes"],
 	seed?: () => Promise<void>,
-): AgentTool<typeof problemInputObject> {
+): AppTool<typeof problemInputObject> {
 	return {
 		name: "problem",
 		label: "problem",
@@ -214,7 +214,7 @@ export const concludeInputObject = Type.Object({
 
 export type ConcludeInput = Static<typeof concludeInputObject>;
 
-export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): AgentTool<typeof concludeInputObject> {
+export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): AppTool<typeof concludeInputObject> {
 	return {
 		name: "conclude",
 		label: "conclude",
@@ -239,7 +239,7 @@ export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): Ag
 }
 
 /** The practice toolset (the practice agent's whole registry). */
-export function practiceTools(ctx: PracticeToolContext): Record<string, AgentTool<any>> {
+export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<any>> {
 	// ONE gate per turn, shared by both tools — the intra-turn truth.
 	const { gate, seed } = lazyGate(ctx);
 	// THE RARELY-NEEDED SET (owner round 10): read/ls/find/grep over the

@@ -431,8 +431,8 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 
 		// The weak-model failure from the OpenRouter log: the whole array
 		// emitted as a JSON-STRING ("propositions.0: must be object").
-		// pi-agent-core's prepareArguments shim runs BEFORE TypeBox — the
-		// heal parses it, validation passes, no retry burned.
+		// The prepareArguments shim runs BEFORE TypeBox — the heal parses
+		// it, validation passes, no retry burned.
 		const extractor = submitModel("submit_findings", {
 			propositions: JSON.stringify(FINDINGS.propositions),
 			chains: FINDINGS.chains,

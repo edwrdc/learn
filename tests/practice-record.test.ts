@@ -13,7 +13,6 @@ import { describe, it } from "node:test";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import {
 	activeProblemOf,
-	asAgentMessages,
 	concludedByDismissalPair,
 	newProblemDismissedMarker,
 	newNextMessage,
@@ -312,7 +311,7 @@ describe("the dismiss-problem input (ask-style discard)", () => {
 
 describe("toLlmMessages (practice shapes)", () => {
 	it("the thinking marker flattens to a labeled user message", () => {
-		const out = toLlmMessages(asAgentMessages([newThinkingMessage("call_p1", "It is 42")]));
+		const out = toLlmMessages([newThinkingMessage("call_p1", "It is 42")]);
 		assert.equal(out.length, 1);
 		const user = out[0] as { role: string; content: Array<{ type: string; text: string }> };
 		assert.equal(user.role, "user");
@@ -320,12 +319,12 @@ describe("toLlmMessages (practice shapes)", () => {
 	});
 
 	it("the dismissal marker is UI-only (the synthesized pair carries the face)", () => {
-		const out = toLlmMessages(asAgentMessages([newProblemDismissedMarker("call_p1")]));
+		const out = toLlmMessages([newProblemDismissedMarker("call_p1")]);
 		assert.equal(out.length, 0);
 	});
 
 	it("the synthesized pair passes through natively", () => {
-		const out = toLlmMessages(asAgentMessages(concludedByDismissalPair("call_p1")));
+		const out = toLlmMessages(concludedByDismissalPair("call_p1"));
 		assert.equal(out.length, 2);
 		assert.equal(out[0]!.role, "assistant");
 		assert.equal(out[1]!.role, "toolResult");

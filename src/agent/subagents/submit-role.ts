@@ -22,7 +22,7 @@ import type { RoleStateIo, SubmitRunState } from "./durable-run.ts";
 //
 // OpenRouter log evidence: weak models under a big submit payload often
 // emit a whole array as ONE JSON-STRING instead of a native array
-// ("propositions.0: must be object"). pi-agent-core runs
+// ("propositions.0: must be object"). The runtime runs
 // `prepareArguments` BEFORE TypeBox validation — the sanctioned shim
 // point (same doctrine as restoreMathEscapes at the display seam: heal
 // weak-model wire behavior, don't punish it with a retry). Best-effort:

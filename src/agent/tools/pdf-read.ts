@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Type } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../tool-adapter.ts";
 import { serverExecute } from "../tool-execute.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../subagents/pdf-ops.ts";
 
@@ -75,7 +75,7 @@ export interface PdfFetchSummary {
 	flagged_pages: number[];
 }
 
-export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> {
+export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 	const pdfFetchInput = Type.Object({
 		url: Type.String({ description: "The PDF URL to download" }),
 	});

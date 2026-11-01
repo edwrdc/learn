@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../src/agent/tool-adapter.ts";
 import { expandBraces, globToRegex, matchGlob, walkFiles } from "../src/agent/tools/fs-shared.ts";
 import { findTool } from "../src/agent/tools/find.ts";
 import { grepTool } from "../src/agent/tools/grep.ts";
@@ -31,7 +31,7 @@ let FIXTURE: string;
 
 /** Drive one tool's native execute and return the model-facing text
  *  (pi signature: execute(toolCallId, params, signal) → AgentToolResult). */
-async function runText(tool: AgentTool<any>, params: unknown, signal?: AbortSignal): Promise<string> {
+async function runText(tool: AppTool<any>, params: unknown, signal?: AbortSignal): Promise<string> {
 	const result = await tool.execute!("c", params, signal);
 	const first = result.content[0];
 	assert.ok(first !== undefined && first.type === "text", "first content part is text");

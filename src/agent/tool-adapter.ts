@@ -13,11 +13,10 @@ import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { Static, TSchema } from "typebox";
 import type { Usage } from "@earendil-works/pi-ai";
 
-/** The result shape the app's tools return (pi-agent-core's AgentToolResult,
- *  structurally: the loop is gone, the tool bodies are not). */
-export interface AppToolResult {
+/** The result shape the app's tools return. */
+export interface AppToolResult<D = unknown> {
 	content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
-	details?: unknown;
+	details?: D;
 	isError?: boolean;
 	terminate?: boolean;
 	usage?: Usage;
@@ -29,7 +28,7 @@ export interface AppTool<P extends TSchema = TSchema> {
 	label?: string;
 	description: string;
 	parameters: P;
-	prepareArguments?(args: unknown): unknown;
+	prepareArguments?(args: unknown): Static<P>;
 	executionMode?: "parallel" | "sequential";
 	execute(toolCallId: string, args: Static<P>, signal?: AbortSignal): Promise<AppToolResult>;
 }

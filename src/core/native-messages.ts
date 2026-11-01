@@ -15,11 +15,10 @@
  *
  * UI-ONLY CONTENT (owner ruling, fork 1 + the plan's custom-message
  * taxonomy): the probe→teach handoff, sub-agent steers,
- * and plan blocks are LhMarkerMessage — this app's declaration-merged
- * member of pi-agent-core's CustomAgentMessages extension point, shaped
+ * and plan blocks are LhMarkerMessage — this app's custom role, shaped
  * exactly like pi's own CustomMessage ({role:"custom", customType,
- * content, display, details}). ONE seam — toLlmMessages, wired as the
- * agent's convertToLlm — owns every model-facing decision: markers
+ * content, display, details}). ONE seam — toLlmMessages, applied by the
+ * durable request filter — owns every model-facing decision: markers
  * flatten to their canonical user text (single-sourced in
  * core/contracts), plan blocks are UI-only and filtered, and dangling
  * tool calls (an aborted turn) get the interrupted-result synthesis the
@@ -33,7 +32,6 @@
  * question gate holds steers; a POST would 409).
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
@@ -54,8 +52,7 @@ export const INTERRUPTED_TEXT =
 // ─── The record's message type ───────────────────────────────────────────────
 
 /**
- * The app's custom message (declaration-merged into pi-agent-core's
- * CustomAgentMessages below). Shaped like pi's own CustomMessage —
+ * The app's custom message. Shaped like a native message —
  * `content` is the MODEL-facing text (single-sourced in core/contracts,
  * never fake human speech), `details` is the UI payload (never
  * model-visible), `display` marks messages the UI renders (our projection
@@ -83,20 +80,11 @@ export interface LhMarkerMessage {
 	timestamp: number;
 }
 
-declare module "@earendil-works/pi-agent-core" {
-	interface CustomAgentMessages {
-		lhMarker: LhMarkerMessage;
-	}
-}
-
 /** A record message: a native pi message (or our marker) plus the record id. */
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & { id: string };
 
-/** A record message list is assignable to the agent's context — that IS
- *  the replay (the turn runner assigns it to the record projection). */
-export function asAgentMessages(messages: readonly LhMessage[]): AgentMessage[] {
-	return messages as unknown as AgentMessage[];
-}
+/** A model-facing message list: native messages plus our markers. */
+export type AppMessage = Message | LhMarkerMessage;
 
 // ─── id minting ──────────────────────────────────────────────────────────────
 
@@ -482,7 +470,7 @@ export function pendingProblemDismissalOf(messages: readonly LhMessage[]): strin
 // ─── the one model-facing seam (the agent's convertToLlm) ────────────────────
 
 /** The ids of every toolResult in the tail (for the dangling-call scan). */
-function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
+function resultIdsFrom(messages: readonly AppMessage[]): Set<string> {
 	const ids = new Set<string>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role === "toolResult") {
@@ -493,9 +481,8 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
 }
 
 /**
- * AgentMessage[] → the provider wire (the agent's convertToLlm — required
- * by pi-agent-core's loop config, the ONE place model-facing decisions
- * live):
+ * The model-facing message list → the provider wire (the ONE place
+ * model-facing decisions live):
  *
  * - user / assistant / toolResult pass through VERBATIM — signatures,
  *   usage, provider stamps all native — minus our record-`id` field.
@@ -506,10 +493,10 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  *   synthesized interrupted result — the provider protocol's hard
  *   invariant: a tool call must be followed by its result.
  *
- * Contract (pi-agent-core): never throws — an unknown shape passes
- * through untouched rather than killing the loop.
+ * Contract: never throws — an unknown shape passes through untouched
+ * rather than killing the run.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+export function toLlmMessages(messages: readonly AppMessage[]): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -533,7 +520,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 	}
 	// THE LEADING SYSTEM MESSAGE IS REQUEST CHROME, NEVER COMPACTABLE
 	// PAYLOAD (the OpenRouter no-tools incident, owner 2026-10-05):
-	// pi-agent-core's Agent seeds a SystemMessage carrying the system
+	// The old loop seeded a SystemMessage carrying the system
 	// prompt AND the tool declarations at state.messages[0]
 	// (createInitialSystemMessage — "messages declare the provider-visible
 	// loadout"). The record never persists it (the durable projection drops

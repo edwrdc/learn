@@ -37,7 +37,6 @@ import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
 import { newMessageId } from "./native-messages.ts";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
 // ─── constants (the tunables, owner-approved) ────────────────────────────────
@@ -83,7 +82,10 @@ export function calculateContextTokens(usage: {
  * whole message — record scaffolding (ids, usage, responseId, app-side
  * details, escaped quotes/backslashes) inflates ~3x (measured on the
  * 2026-10-05 relational-databases incident: 84k estimated vs ~30k real). */
-export function estimateMessageTokens(message: LhMessage | AgentMessage): number {
+/** Anything the token estimator reads: a role and its content. */
+export type EstimableMessage = { role?: string; content?: unknown };
+
+export function estimateMessageTokens(message: EstimableMessage): number {
 	const content: unknown = (message as { content?: unknown }).content;
 	let chars = 0;
 	if ((message as { role?: string }).role === "assistant") {
@@ -123,14 +125,12 @@ function textCharsOfContent(content: unknown): number {
  * so pre-marker usage is not a valid anchor (pi's "don't trust usage
  * captured before a later compaction" law). Index into messages, or
  * null. */
-export function lastAssistantUsageIndex(
-	messages: readonly (LhMessage | AgentMessage)[],
-): number | null {
+export function lastAssistantUsageIndex(messages: readonly EstimableMessage[]): number | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if ((m as { role?: string }).role === "custom" && (m as LhMarkerMessage).customType === "compaction") return null;
 		if ((m as { role?: string }).role !== "assistant") continue;
-		const a = m as AssistantMessage & { stopReason?: string };
+		const a = m as unknown as AssistantMessage & { stopReason?: string };
 		if (a.stopReason === "aborted") continue;
 		if (calculateContextTokens((a.usage ?? {}) as Parameters<typeof calculateContextTokens>[0]) === 0) continue;
 		return i;
@@ -155,16 +155,14 @@ export interface ContextTokenEstimate {
  * it. The heuristic never re-estimates history the provider already
  * counted (the relational-databases bug: full-record JSON.stringify/4
  * tripled the true context and fired a 30k session at an 80k threshold). */
-export function estimateContextTokens(
-	messages: readonly (LhMessage | AgentMessage)[],
-): ContextTokenEstimate {
+export function estimateContextTokens(messages: readonly EstimableMessage[]): ContextTokenEstimate {
 	const anchor = lastAssistantUsageIndex(messages);
 	if (anchor === null) {
 		let trailing = 0;
 		for (const m of messages) trailing += estimateMessageTokens(m);
 		return { tokens: trailing, usageTokens: 0, trailingTokens: trailing, lastUsageIndex: null };
 	}
-	const anchored = messages[anchor]! as AssistantMessage;
+	const anchored = messages[anchor]! as unknown as AssistantMessage;
 	const usageTokens = calculateContextTokens(anchored.usage as Parameters<typeof calculateContextTokens>[0]);
 	let trailing = 0;
 	for (let i = anchor + 1; i < messages.length; i++) trailing += estimateMessageTokens(messages[i]!);
@@ -172,7 +170,7 @@ export function estimateContextTokens(
 }
 
 /** Estimate a whole message list (the plain heuristic — cut-walk use). */
-export function estimateTokens(messages: readonly (LhMessage | AgentMessage)[]): number {
+export function estimateTokens(messages: readonly EstimableMessage[]): number {
 	let total = 0;
 	for (const m of messages) total += estimateMessageTokens(m);
 	return total;

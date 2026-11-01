@@ -1,11 +1,11 @@
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AppTool, AppToolResult } from "./tool-adapter.ts";
 import type { Static, TSchema } from "typebox";
 import { CONCLUDE_ACK_TEXT } from "../core/contracts/chat.ts";
 
 /**
  * tool-execute — the execution machinery every server-side lh tool shares,
  * expressed natively (Wave A of the pi-native migration, 2026-09-26): tools
- * are authored as pi-agent-core AgentTools (TypeBox parameters, native
+ * are authored as AppTools (TypeBox parameters, native
  * execute), and this module owns the semantics the old LhTool wrapper
  * (lh-tool.ts, deleted) used to add around every execute:
  *
@@ -117,7 +117,7 @@ function runWithAbortGuard<T>(
 export function invalidInputResult(
 	toolName: string,
 	problems: string[],
-): AgentToolResult<{ tool: string; problems: string[] }> {
+): AppToolResult<{ tool: string; problems: string[] }> {
 	return {
 		content: [
 			{
@@ -153,13 +153,13 @@ function isImageResult(v: unknown): v is ImageFileResult {
 }
 
 /**
- * Map a tool body's return to the native AgentToolResult — the parity the
+ * Map a tool body's return to the native AppToolResult — the parity the
  * old toPiTool tail owned: string results pass verbatim to the model,
  * objects as JSON; `details` carries the RAW value (the record's tool part
  * output reads it, the turn view), and image results become native content
  * parts with details ?? null.
  */
-export function toToolResult(result: unknown): AgentToolResult<unknown> {
+export function toToolResult(result: unknown): AppToolResult<unknown> {
 	if (isImageResult(result)) {
 		return {
 			content: [
@@ -187,7 +187,7 @@ export interface ToolExecuteContext {
 }
 
 /**
- * Build a native AgentTool execute from a tool body — the guard (timeout +
+ * Build a native AppTool execute from a tool body — the guard (timeout +
  * abort cascade) plus the shared result mapping, byte-identical to the old
  * toPiTool pipeline for every server-side tool. Question tools do NOT use
  * this: their placeholder is instant (questionResult below) and their
@@ -197,10 +197,10 @@ export function serverExecute<P extends TSchema>(
 	toolName: string,
 	schema: P,
 	run: (input: Static<P>, ctx: ToolExecuteContext) => unknown,
-): AgentTool<any>["execute"] {
+): AppTool<any>["execute"] {
 	// The returned execute is deliberately typed loose (params: unknown) so
-	// it satisfies every AgentTool slot — heterogeneous registries type
-	// AgentTool<any>, whose Static is unknown, and strictFunctionTypes
+	// it satisfies every AppTool slot — heterogeneous registries type
+	// AppTool<any>, whose Static is unknown, and strictFunctionTypes
 	// rejects a params-narrower function against it. The loop has already
 	// validated arguments against `schema` (runtime) and `run` keeps the
 	// precise Static<P> input; `schema` exists in the signature precisely so
@@ -219,7 +219,7 @@ export function serverExecute<P extends TSchema>(
  * batch (question + other calls in one message) that terminate-only
  * semantics would let run on (owner Option A, 2026-09-25).
  */
-export function questionResult(): AgentToolResult<null> {
+export function questionResult(): AppToolResult<null> {
 	return {
 		content: [
 			{
@@ -237,7 +237,7 @@ export function questionResult(): AgentToolResult<null> {
  *  only QUESTION_TOOLS placeholders), because the learner's submissions
  *  arrive as MESSAGES, never as this call's result. terminate: true ends
  *  the turn at the pose; the commitment rides the call's arguments. */
-export function problemResult(): AgentToolResult<null> {
+export function problemResult(): AppToolResult<null> {
 	return {
 		content: [
 			{
@@ -253,7 +253,7 @@ export function problemResult(): AgentToolResult<null> {
 /** The conclude ack: NOT terminate — the turn continues so the same reply
  *  can reveal + pose the next problem. Text single-sourced in contracts
  *  (CONCLUDE_ACK_TEXT — shared with the dismissal-synthesized pair). */
-export function concludeResult(): AgentToolResult<null> {
+export function concludeResult(): AppToolResult<null> {
 	return {
 		content: [{ type: "text", text: CONCLUDE_ACK_TEXT }],
 		details: null,

@@ -1,5 +1,5 @@
 import { Type, type Static } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../tool-adapter.ts";
 import { serverExecute } from "../tool-execute.ts";
 import type { JobRecord } from "../../core/contracts.ts";
 import type { JobStore } from "../../core/ports.ts";
@@ -128,7 +128,7 @@ const PDF_DESCRIPTION =
  * Research remains available without a search-provider key; the role's
  * existing user-toggle filtering still applies outside this registry.
  */
-export function jobTools(ctx: JobToolContext): Record<string, AgentTool<any>> {
+export function jobTools(ctx: JobToolContext): Record<string, AppTool<any>> {
 	return {
 		research: {
 			name: "research",

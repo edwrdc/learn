@@ -26,7 +26,6 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
-import { createPracticeAgent } from "../src/agent/teacher-agent.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
 import { chatStore } from "../src/store/chats.ts";

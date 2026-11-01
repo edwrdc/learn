@@ -64,8 +64,7 @@ const validQuiz = {
 	nodeId: "arith",
 };
 
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AppTool, AppToolResult } from "../src/agent/tool-adapter.ts";
 
 /** The Wave A boundary predicate (2026-09-26): pi's loop structurally
  *  validates against the TypeBox parameters, then execute re-runs the
@@ -74,20 +73,20 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
  *  sees both as retryable input errors). This helper replicates the old
  *  safeParse seam end to end. */
 async function boundaryParse(
-	// `input: never` param: contravariance lets any AgentTool's execute slot in.
+	// `input: never` param: contravariance lets any AppTool's execute slot in.
 	tool: { parameters: any; execute: (id: string, input: never) => Promise<unknown> },
 	input: unknown,
-): Promise<{ success: boolean; error?: AgentToolResult<{ tool: string; problems: string[] }> }> {
+): Promise<{ success: boolean; error?: AppToolResult<{ tool: string; problems: string[] }> }> {
 	if (!Value.Check(tool.parameters, input)) return { success: false };
-	const result = (await tool.execute("tc", input as never)) as AgentToolResult<{
+	const result = (await tool.execute("tc", input as never)) as AppToolResult<{
 		tool: string;
 		problems: string[];
 	}>;
 	if (result.isError) return { success: false, error: result };
 	return { success: true };
 }
-const problemLines = (r?: AgentToolResult<{ tool: string; problems: string[] }>): string[] =>
-	r?.details.problems ?? [];
+const problemLines = (r?: AppToolResult<{ tool: string; problems: string[] }>): string[] =>
+	r?.details?.problems ?? [];
 
 describe("teachQuizToolFor: the dynamic plan-nodeId validation (position signal)", () => {
 	it("accepts a nodeId that matches a node of the session's tree", async () => {
@@ -205,7 +204,7 @@ describe("the prober's quiz: no nodeId field at all", () => {
 		assert.deepEqual(Object.keys(tools).sort(), [
 			"ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research",
 		]);
-		const probe = tools.probe as AgentTool<any>;
+		const probe = tools.probe as AppTool<any>;
 		assert.equal(Value.Check(probe.parameters, { ...validQuiz, nodeId: "anything" }), true, "no session check to fail");
 	});
 });

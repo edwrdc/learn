@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import {

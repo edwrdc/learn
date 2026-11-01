@@ -35,7 +35,7 @@ import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
 import { providerEventsDir } from "../src/agent/provider-events.ts";
 import { PATHS } from "../config.ts";
 import type { PiEngine } from "../src/agent/models.ts";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AppTool } from "../src/agent/tool-adapter.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -214,7 +214,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		const chat = await createChat("Durable: abort partial");
 		let release!: () => void;
 		const gate = new Promise<void>((r) => (release = r));
-		const slow: AgentTool = {
+		const slow: AppTool = {
 			name: "slow",
 			label: "slow",
 			description: "waits",

@@ -23,7 +23,7 @@ const nextConfig: NextConfig = {
 	// ⚠ EXCLUDE PATTERNS ARE LOAD-BEARING IN WAYS THE DOCS DON'T DESCRIBE
 	// (empirically established 2026-10-08): adding dir excludes like
 	// "dist/**/*" / "./dist/**/*" for repo-root output dirs STRIPPED THE
-	// server-external packages (pi-ai / pi-agent-core lost everything
+	// server-external packages (pi-ai lost everything
 	// under their dist/ — the traced copy collapsed to a bare package.json
 	// and the packaged server died on ERR_MODULE_NOT_FOUND; openai/
 	// @anthropic-ai — pi-ai's deps — vanished from the trace entirely).
@@ -74,7 +74,6 @@ const nextConfig: NextConfig = {
 			// per-platform-binary story as the canvas above (one per build).
 			"node_modules/@resvg/resvg-js-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
-			"node_modules/@earendil-works/pi-agent-core/dist/**/*.json",
 			// Next 16.3.2 native Turbopack applies unanchored excludes while
 			// traversing modules; **/data/**/* still prunes gcp-metadata and
 			// its private runtime chain. Includes are applied after traversal.
@@ -90,7 +89,11 @@ const nextConfig: NextConfig = {
 	// code (undici streams, catalog data) that breaks when bundled into routes.
 	serverExternalPackages: [
 		"@earendil-works/pi-ai",
-		"@earendil-works/pi-agent-core",
+		// The durable runtime opens SQLite through node:sqlite and keeps its
+		// module graph runtime-loaded; bundling breaks its storage entry.
+		"@earendil-works/pi-durable",
+		"@earendil-works/chord",
+		"@earendil-works/pi-telemetry",
 		"pdfjs-dist", // sources v0: bundling breaks its node fake-worker path
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@resvg/resvg-js", // native binding — same

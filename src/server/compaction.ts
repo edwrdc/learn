@@ -27,7 +27,6 @@
  * marker's id.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	activeCompactionOf,
@@ -167,7 +166,7 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
 export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number): number {
 	const est = estimateContextTokens(messages);
 	if (est.lastUsageIndex !== null) return est.tokens;
-	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[]) as unknown as readonly LhMessage[]) + systemPromptTokens;
+	return estimateTokens(toLlmMessages(messages)) + systemPromptTokens;
 }
 
 // ─── the compaction run ─────────────────────────────────────────────────────

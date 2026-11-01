@@ -20,7 +20,7 @@ import {
 } from "../src/core/native-messages.ts";
 import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
 import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/agent/tools/practice.ts";
-import { composeInstructions, createPracticeAgent } from "../src/agent/teacher-agent.ts";
+import { composeInstructions } from "../src/agent/teacher-agent.ts";
 import { allSegmentPaths } from "../src/agent/prompt-segments.ts";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
@@ -219,23 +219,6 @@ describe("the practice agent", () => {
 		assert.ok(withSearch.research, "a live engine also keeps research");
 	});
 
-	it("constructs with exactly the two practice tools", async () => {
-		// baseAgentOptions needs an engine (the BYOK thrower is the only
-		// fallback) — inject a never-streamed faux engine for the smoke.
-		const agent = createPracticeAgent(ctxOf([]), {
-			engine: {
-				model: { api: "faux", provider: "faux", id: "faux-model", contextWindow: 8192 } as never,
-				streamFn: (async () => {
-					throw new Error("not streamed in this test");
-				}) as never,
-			},
-		});
-		// The agent built with the live turn API (the registry itself is
-		// pinned above; pi's Agent exposes no state getter).
-		assert.equal(typeof agent.prompt, "function");
-		assert.equal(typeof agent.steer, "function");
-		assert.equal(typeof agent.waitForIdle, "function");
-	});
 });
 
 // ── persistent nudges (shipped defaults, no model calls) ──────────────────────
