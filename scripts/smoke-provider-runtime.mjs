@@ -103,6 +103,17 @@ async function probe(standalone) {
 			noNetwork();
 			console.log(`[smoke-provider-runtime] ${name}: native lazy Google adapter reached onPayload; generation stopped`);
 		}
+		// The durable runtime is an explicit server external too: resolve and
+		// evaluate its shipped entries from the payload (no model call).
+		const durableEntry = pathToFileURL(path.join(root, "node_modules/@earendil-works/pi-durable/dist/index.js"));
+		const durable = await import(durableEntry.href);
+		const chord = await import(new URL("dist/context/index.js", pathToFileURL(path.join(root, "node_modules/@earendil-works/chord/package.json"))).href);
+		const sqlite = await import(pathToFileURL(path.join(root, "node_modules/@earendil-works/pi-durable/dist/storage/sqlite/node.js")).href);
+		assert.equal(typeof durable.Harness.open, "function", "pi-durable Harness missing from the payload");
+		assert.equal(typeof chord.BACKGROUND_CONTEXT, "object", "chord context missing from the payload");
+		assert.equal(typeof sqlite.openNodeSqliteStorage, "function", "the packaged SQLite storage entry is missing");
+		console.log("[smoke-provider-runtime] durable/chord/sqlite entries resolved inside the payload");
+
 		// Resolution/evaluation, not folder-exists checks. This also covers the
 		// previously missing transitive edge and permits legitimate nested deps.
 		for (const name of ["@google/genai", "google-auth-library", "gcp-metadata", "json-bigint", "bignumber.js"]) {
