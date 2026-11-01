@@ -47,11 +47,13 @@ import {
 } from "../core/contracts.ts";
 import type { TurnInput } from "../core/input-events.ts";
 import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../core/native-messages.ts";
+import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores } from "./stores.ts";
-import { isTurnRunning } from "./turn-liveness.ts";
+import { isCommittedRunLive, isTurnRunning } from "./turn-liveness.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { modelTextOf, openChatRuntime } from "../store/durable.ts";
+import { abortBackgroundRun } from "./durable-background.ts";
 
 /** Fires one server-side teacher turn: (chatId, input) → HTTP-ish status.
  *  Wave C: the input is the IDLE WAKE — every queued marker as the turn's
@@ -178,39 +180,45 @@ export function deliverJobResult(steer: SteerMessage): Promise<void> {
 
 /** Submit one pending marker into the chat's LIVE run through the durable
  *  inbox (a model-context write: the Harness places it at the next turn
- *  boundary inside the same run). The submission is idempotent by the
- *  steer's deterministic id, so a re-pumped loop cannot duplicate it. */
-async function submitSteer(chatId: string, steer: SteerMessage): Promise<void> {
+ *  boundary inside the same run). The committed run check and the inbox
+ *  enqueue are ONE transaction, so a run that settles in between can never
+ *  turn the steer into a new run with no handle and no usage settlement.
+ *  Returns false when no committed run is live. Idempotent by the steer's
+ *  deterministic request id. */
+async function submitSteer(chatId: string, steer: SteerMessage): Promise<boolean> {
 	const runtime = await openChatRuntime(chatId);
-	await runtime.root.submit(
-		{
-			type: "input",
-			content: (modelTextOf(steer) ?? steer.content) as never,
-			whenBusy: "steer",
+	return runtime.root.commit(async (tx) => {
+		if ((await tx.doc(LiveDoc, runtime.root.id)).run === undefined) return false;
+		if (await tx.submissionByRequest(runtime.root.id, steer.id)) return true;
+		const submission = await tx.createSubmission({
+			conversationId: runtime.root.id,
 			requestId: steer.id,
+			type: "input",
+			status: "queued",
+		});
+		const inbox = await tx.doc(InboxDoc, runtime.root.id);
+		inbox.items.push({
+			id: submission.id,
+			mode: "steer",
+			content: (modelTextOf(steer) ?? steer.content) as never,
 			entry: { kind: "lh.marker", data: { message: steer } } as never,
-		},
-		BACKGROUND_CONTEXT,
-	);
+		});
+		return true;
+	}, BACKGROUND_CONTEXT);
 }
 
 /** The steer route's live hand-off (composer steering, 2026-10-03): a
  *  learner message for a RUNNING turn becomes a durable inbox input — the
- *  run reads it at its next boundary and the record keeps it. Returns
- *  false when no run is live (the caller 409s and the client falls back
- *  to a plain text send). A run that settles between the check and the
- *  submit turns the steer into an ordinary input run, which answers the
- *  learner instead of stranding the message. */
+ *  run reads it at its next boundary and the record keeps it. False means
+ *  no committed run is live (the caller 409s and the client falls back to
+ *  a plain text send); the inbox admission is atomic with that check. */
 export async function steerLiveChat(chatId: string, message: LhMessage): Promise<boolean> {
-	if (!(await isTurnRunning(chatId))) return false;
-	await submitSteer(chatId, message as SteerMessage);
-	return true;
+	return submitSteer(chatId, message as SteerMessage);
 }
 
 /** A marker the run actually delivered (its entry committed): flip the job
  *  and resolve the waiting runner. Called by the turn view on each newly
- *  committed marker entry, so the dock card leaves at visibility — the old
- *  message_end seam, now a commit. */
+ *  committed marker entry, so the dock card leaves at visibility. */
 export function markSteerDelivered(chatId: string, steerId: string): void {
 	const queue = state().queues.get(chatId);
 	if (!queue) return;
@@ -297,7 +305,7 @@ export function abortJob(jobId: string): AbortOutcome {
 	if (!job) return { ok: false, reason: "not_found" };
 	if (job.status !== "running") return { ok: false, reason: "not_running" };
 
-	fireJobAbort(jobId); // no-op when the loop already returned (delivering)
+	const killed = fireJobAbort(jobId); // false when the loop already returned (delivering) or never reattached
 
 	// Drop any queued steers for this job (their deliver() resolves unfired).
 	// HANDED entries (already in a live run's follow-up queue) are past
@@ -316,6 +324,14 @@ export function abortJob(jobId: string): AbortOutcome {
 	}
 
 	stores.jobStore.updateJob(jobId, { status: "error", error: "Aborted by learner", activity: "aborted" });
+	// A RECOVERED run has no in-process registration until its loop
+	// reattaches: resolve it from the durable index and abort the child
+	// directly, or the model keeps streaming after the record says error.
+	if (!killed) {
+		void abortBackgroundRun(job.chatId, jobId).catch((error) => {
+			console.error(`[job ${jobId}] durable abort failed:`, error);
+		});
+	}
 	void deliverJobResult(buildAbortSteer(job)).catch(() => {
 		/* deliverJobResult marks the job error on unrecoverable failure */
 	});
@@ -388,22 +404,26 @@ async function pump(chatId: string): Promise<void> {
 			}
 			s.queues.set(chatId, stillPending);
 
-			// VEHICLE 1 — THE LIVE RUN's durable inbox: the marker is admitted
-			// to the chat's running conversation and the run reads it at its
-			// next turn boundary (inside the same run, on the live wire). The
-			// delivery promise settles when the marker's entry commits
-			// (markSteerDelivered) or at settlement (settleSteers).
-			//
-			// probe-handoffs never ride a live run (owner ruling: the handoff
-			// must START the teacher's run) — while one is pending, wait the
-			// run out and fall through to the idle wake below.
-			if (await isTurnRunning(chatId)) {
+			// VEHICLE 1 — THE LIVE RUN's durable inbox. A probe-handoff never
+			// rides a live run (it must START the teacher's run); while one is
+			// pending, wait the run out and fall through to the idle wake.
+			if (await isCommittedRunLive(chatId)) {
 				const handoffWaits = stillPending.some((e) => e.steer.customType === "probe-handoff");
 				const riders = stillPending.filter((e) => e.steer.customType !== "probe-handoff");
+				let allAdmitted = true;
 				for (const entry of riders) {
 					if (entry.submitted) continue;
+					if (!(await submitSteer(chatId, entry.steer))) {
+						allAdmitted = false;
+						break;
+					}
 					entry.submitted = true;
-					await submitSteer(chatId, entry.steer);
+				}
+				// A run that settled between the check and the transaction is
+				// NOT a steer: re-enter through the claim-aware idle wake.
+				if (!allAdmitted) {
+					await delay(POLL_MS);
+					continue;
 				}
 				if (riders.length > 0 && !handoffWaits) return; // the run delivers
 				await delay(POLL_MS);

@@ -78,6 +78,7 @@ export type {
 	BackgroundRunRequest,
 	BackgroundRunResult,
 	RunDescriptor,
+	RunRole,
 	RunState,
 } from "../agent/subagents/durable-run.ts";
 import { demoRoleTools } from "../agent/subagents/demo-builder.ts";
@@ -338,8 +339,8 @@ function roleExtension(
 		hooks: [
 			hook(GenerationTask, {
 				afterTools: async (_assistant, results, api, context) => {
-					// Flush the round's render first: the old loops rendered
-					// even on their last iteration (the image just went unseen).
+					// Flush the round's render first, or a last-iteration image
+					// goes unseen.
 					await flushPendingRender(conversation, descriptor, deps);
 					if (await cleanSubmitInRound(descriptor, results, api, context)) return { terminate: true };
 					const assistant = await countAssistantEntries(conversation);
@@ -361,8 +362,8 @@ function submitToolName(kind: BackgroundKind): string | null {
 	return null;
 }
 
-/** The old `shouldStop` law: a round that carries a schema-valid, accepted
- *  submit ends the run even when the model batched other calls beside it. */
+/** A round that carries a schema-valid, accepted submit ends the run even
+ *  when the model batched other calls beside it. */
 async function cleanSubmitInRound(
 	descriptor: RunDescriptor,
 	results: readonly EntryId[],
@@ -881,8 +882,8 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 				stopped.name = "AbortError";
 				throw stopped;
 			}
-			// Surface the provider's own text (the old runSubagent threw the
-			// error message verbatim; the job's failure brief quotes it).
+			// Surface the provider's own text, verbatim: the job's failure
+			// brief quotes it.
 			if ("detail" in settled && typeof settled.detail === "string" && settled.detail.length > 0) {
 				throw new Error(settled.detail);
 			}
@@ -934,6 +935,22 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		runtime.registry.uninstall(extension);
 		unbindRunEngine(descriptor.sessionId);
 	}
+}
+
+/** Abort a recovered run whose app-level loop has not reattached: there is
+ *  no in-process AbortController to fire yet, so the child conversation's
+ *  own abort is the kill switch. Marks the index failed so a later sweep
+ *  does not reattach a run the learner stopped. */
+export async function abortBackgroundRun(chatId: string, jobId: string): Promise<boolean> {
+	const runtime = await openChatRuntime(chatId);
+	const index = await readIndex(runtime);
+	const ref = index.runs[jobId] as unknown as RunRef | undefined;
+	if (!ref || ref.status !== "running") return false;
+	const conversation = await runtime.harness.conversation(idOf(ref.conversationId), BACKGROUND_CONTEXT);
+	if (!conversation) return false;
+	await conversation.abort(BACKGROUND_CONTEXT);
+	await updateIndex(runtime, jobId, { status: "failed" });
+	return true;
 }
 
 /** Drop one consumed run from the chat's durable index. */

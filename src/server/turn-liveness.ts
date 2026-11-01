@@ -56,10 +56,18 @@ export function endTurn(chatId: string): void {
 }
 
 /** Is a turn running for this chat? THE reader contract: the committed run
- *  state of the chat's durable conversation. */
+ *  state of the chat's durable conversation, plus this process's admission
+ *  claim (the settle window is still "busy" for readers). */
 export async function isTurnRunning(chatId: string): Promise<boolean> {
 	const since = claims().get(chatId);
 	if (since !== undefined && Date.now() - since <= MAX_TURN_MS) return true;
+	return isCommittedRunLive(chatId);
+}
+
+/** The committed run only: a claim that outlives its run (the settle
+ *  services) is NOT a live run to steer into — an input submitted then would
+ *  start an unmanaged run with no turn handle and no usage settlement. */
+export async function isCommittedRunLive(chatId: string): Promise<boolean> {
 	const pending = peekChatRuntime(chatId);
 	if (!pending) return false;
 	const runtime = await pending.catch(() => undefined);

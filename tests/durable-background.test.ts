@@ -38,7 +38,9 @@ const {
 const { BackgroundRunsDoc, configureBackgroundRuns } = await import("../src/server/durable-background.ts");
 type RunDescriptor = import("../src/server/durable-background.ts").RunDescriptor;
 const { createJobRunner, researchModelOverride } = await import("../src/agent/subagents/runner.ts");
-const { setTurnRunner } = await import("../src/server/jobs.ts");
+const { setTurnRunner, abortJob } = await import("../src/server/jobs.ts");
+const { isJobLive } = await import("../src/agent/subagents/aborts.ts");
+const { LiveDoc } = await import("@earendil-works/pi-durable");
 // The composition root wires the background host services at module init.
 await import("../src/server/chat-handler.ts");
 type PiEngine = import("../src/agent/models.ts").PiEngine;
@@ -204,6 +206,84 @@ describe("durable background restart", () => {
 		);
 
 		researchModelOverride.current = undefined;
+	});
+
+	it("aborting a recovered run before its loop reattaches kills the child and its provider request", async () => {
+		const chat = await chatStore.createChat("Durable: recovered abort");
+		await chatStore.saveMessages(chat.id, [
+			{ id: "u1", role: "user", content: "research please", timestamp: 1 } as never,
+			{
+				id: "a1",
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-abort", name: "research", arguments: PROMPT_INPUT as never }],
+				api: "openai-completions",
+				provider: "openrouter",
+				model: "test",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "toolUse",
+				timestamp: 1,
+			} as never,
+			{
+				id: "r1",
+				role: "toolResult",
+				toolCallId: "call-abort",
+				toolName: "research",
+				content: [{ type: "text", text: "Dispatched." }],
+				details: "Dispatched.",
+				isError: false,
+				timestamp: 1,
+			} as never,
+		]);
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-abort" });
+		const search = stubSearch();
+		setTurnRunner(async () => 200);
+		const runner = createJobRunner({
+			chatStore,
+			jobStore,
+			deliver: async () => undefined,
+			searchProvider: () => search,
+		});
+		researchModelOverride.current = fauxEngine([hangUntilAborted()]);
+		const first = runner.runJob(job.id, PROMPT_INPUT);
+		await waitFor(async () => {
+			const rt = await openChatRuntime(chat.id);
+			const index = (await rt.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
+				runs: Record<string, { conversationId: number }>;
+			};
+			return index?.runs?.[job.id] !== undefined;
+		}, 10000, "the run is admitted");
+		await closeChatRuntime(chat.id);
+		await first.catch(() => undefined);
+		researchModelOverride.current = undefined;
+
+		let providerSignal: AbortSignal | undefined;
+		const resumed = fauxEngine([
+			((_context: unknown, options: { signal?: AbortSignal } | undefined) =>
+				new Promise<AssistantMessage>((resolve) => {
+					providerSignal = options?.signal;
+					const finish = () => resolve(fauxAssistantMessage("interrupted"));
+					if (providerSignal?.aborted) finish();
+					else providerSignal?.addEventListener("abort", finish, { once: true });
+				})) as unknown as FauxResponseStep,
+		]);
+		configureBackgroundRuns({ resolveEngine: () => resumed, searchProvider: () => search });
+		const reopened = await openChatRuntime(chat.id);
+		const index = (await reopened.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
+			runs: Record<string, { conversationId: number; status: string }>;
+		};
+		const conversationId = index.runs[job.id]!.conversationId;
+		await waitFor(() => providerSignal !== undefined, 10000, "the resumed provider call is live");
+		assert.equal(isJobLive(job.id), false, "no loop reattached, so no in-process abort registration");
+
+		assert.equal(abortJob(job.id).ok, true);
+		await waitFor(() => providerSignal!.aborted, 10000, "the provider request was cancelled");
+		const live = await reopened.harness.snapshot(LiveDoc, conversationId as never, BACKGROUND_CONTEXT);
+		assert.equal((live as { run?: unknown } | undefined)?.run, undefined, "the native child is no longer live");
+		const after = (await reopened.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
+			runs: Record<string, { status: string }>;
+		};
+		assert.equal(after.runs[job.id]!.status, "failed", "the durable index cannot reattach it");
+		assert.equal(jobStore.getJob(job.id)!.status, "error", "the record reflects the learner's abort");
 	});
 
 	it("fails the reopen closed when a pending run's model cannot be restored, then resumes on repair", async () => {
