@@ -131,7 +131,10 @@ function wireOf(message: LhMessage): Message | null {
 
 /** The round-wide question stop (the patched afterTools seam): a round that
  *  called a question tool ends the run unless one of those calls failed
- *  authoring validation (the model must retry inside the same turn). */
+ *  authoring validation (the model must retry inside the same turn). The stop
+ *  PARKS the inbox: a steer queued behind the question must not start another
+ *  model call before the learner answers. The answer's continuation submit
+ *  places the parked inputs in the same run that reacts to the answer. */
 function questionStopHook(chatId: string) {
 	return hook(GenerationTask, {
 		afterTools: async (assistantId, resultIds, api, context) => {
@@ -154,7 +157,7 @@ function questionStopHook(chatId: string) {
 					return;
 				}
 			}
-			return { terminate: true };
+			return { terminate: true, parkInputs: true };
 		},
 	});
 }

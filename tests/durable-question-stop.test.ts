@@ -71,7 +71,7 @@ const handoff = defineTool({
 });
 const TOOLS = [quiz, ask, read, problem, unlock, handoff];
 
-function questionStopHook() {
+function questionStopHook(park = false) {
 	return hook(GenerationTask, {
 		afterTools: async (assistant, results, api, context) => {
 			const message = (await api.entry(assistant, context))?.model?.[0];
@@ -84,9 +84,33 @@ function questionStopHook() {
 				const result = (await api.entry(id, context))?.model?.[0];
 				if (result?.role === "toolResult" && questionIds.has(result.toolCallId) && result.isError) return;
 			}
-			return { terminate: true } as const;
+			return park ? ({ terminate: true, parkInputs: true } as const) : ({ terminate: true } as const);
 		},
 	});
+}
+
+/** A question whose tool call blocks until the test releases it, so a steer
+ *  can be admitted while the run is provably live. */
+function blockingQuestion() {
+	let enter!: () => void;
+	let release!: () => void;
+	const entered = new Promise<void>((resolve) => {
+		enter = resolve;
+	});
+	const blocked = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const tool = defineTool({
+		name: "quiz",
+		description: "pose question",
+		parameters: Type.Object({ question: Type.String() }),
+		execute: async () => {
+			enter();
+			await blocked;
+			return { output: [{ type: "text" as const, text: "Question posed" }], control: { terminate: true as const } };
+		},
+	});
+	return { tool, entered, release };
 }
 
 function bookkeepingDropHook() {
@@ -105,6 +129,7 @@ type Opened = {
 
 type OpenOptions = {
 	hooks?: Extension["hooks"];
+	tools?: readonly unknown[];
 	storage?: Storage;
 	agent?: AgentChange;
 	conversationId?: ConversationId;
@@ -116,7 +141,7 @@ async function open(responses: FauxResponseStep[], options: OpenOptions = {}): P
 	models.setProvider(faux.provider);
 	const registry = createRegistry();
 	registry.install(
-		defineExtension({ name: "question-stop-test", tools: TOOLS, hooks: options.hooks ?? [questionStopHook()] }),
+		defineExtension({ name: "question-stop-test", tools: (options.tools ?? TOOLS) as never, hooks: options.hooks ?? [questionStopHook()] }),
 	);
 	const harness = await Harness.open(
 		options.storage ?? new MemoryStorage(),
@@ -171,6 +196,14 @@ function resultFor(entries: readonly EntryRecord[], call: string) {
 	const result = toolResults(entries).find((entry) => entry.call === call);
 	assert.ok(result, `missing tool result for ${call}`);
 	return result;
+}
+
+/** The app's hidden continuation input (the reaction run's bookkeeping
+ *  entry; the request hook drops it). Submitting it while the inbox holds a
+ *  parked steer queues it behind the steer and one final boundary places
+ *  both into the same run. */
+async function continueRun(opened: Opened) {
+	return (await opened.conversation.submit({ type: "input", content: BOOKKEEPING }, ctx)).wait(ctx);
 }
 
 describe("durable question stop gate", { concurrency: false }, () => {
@@ -393,6 +426,156 @@ describe("durable question stop gate", { concurrency: false }, () => {
 			await second.harness.close(ctx);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("parks a steer queued behind a question and places it once when the answer starts the next run", async () => {
+		const blocked = blockingQuestion();
+		const opened = await open([round([["quiz", { question: "q1" }, "q1"]]), fauxAssistantMessage("Answered.")], {
+			tools: [blocked.tool],
+			hooks: [questionStopHook(true), bookkeepingDropHook()],
+		});
+		try {
+			const first = await opened.conversation.submit({ type: "input", content: "ask me" }, ctx);
+			await blocked.entered;
+			const steer = await opened.conversation.submit(
+				{ type: "input", content: "a job finished", whenBusy: "steer" },
+				ctx,
+			);
+			blocked.release();
+			await first.wait(ctx);
+			await opened.conversation.waitForIdle(ctx);
+			assert.equal(opened.requests.length, 1, "no model call while the question waits for the learner");
+			assert.equal((await steer.status(ctx)).status, "queued", "the steer is parked, not placed or withdrawn");
+
+			const settled = await continueRun(opened);
+			assert.equal(settled.status, "done");
+			assert.equal(opened.requests.length, 2, "the continuation starts exactly one reaction run");
+			const reaction = opened.requests[1]!;
+			assert.ok(reaction.some((message) => message.role === "user" && message.content === "a job finished"));
+			assert.ok(!reaction.some((message) => message.role === "user" && message.content === BOOKKEEPING));
+			assert.equal((await steer.status(ctx)).status, "done", "the reaction run answered the placed steer");
+			const entries = (await opened.conversation.entries({ order: "ascending" }, 200, undefined, ctx)).items;
+			assert.equal(
+				entries.filter((entry) => entry.model?.[0]?.role === "user" && entry.model[0].content === "a job finished")
+					.length,
+				1,
+				"placed exactly once",
+			);
+		} finally {
+			await opened.harness.close(ctx);
+		}
+	});
+
+	it("keeps a parked steer across a reopen and places it once on the answer", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "lh-durable-park-"));
+		try {
+			const file = join(dir, "chat.sqlite");
+			const blocked = blockingQuestion();
+			const first = await open([round([["quiz", { question: "q1" }, "q1"]])], {
+				storage: await openNodeSqliteStorage(file),
+				tools: [blocked.tool],
+				hooks: [questionStopHook(true), bookkeepingDropHook()],
+			});
+			const pose = await first.conversation.submit({ type: "input", content: "ask me" }, ctx);
+			await blocked.entered;
+			const steer = await first.conversation.submit(
+				{ type: "input", content: "a job finished", whenBusy: "steer" },
+				ctx,
+			);
+			blocked.release();
+			await pose.wait(ctx);
+			await first.conversation.waitForIdle(ctx);
+			assert.equal(first.requests.length, 1);
+			await first.harness.close(ctx);
+
+			const second = await open([fauxAssistantMessage("Answered.")], {
+				storage: await openNodeSqliteStorage(file),
+				tools: [blocked.tool],
+				hooks: [questionStopHook(true), bookkeepingDropHook()],
+				conversationId: first.conversation.id,
+			});
+			assert.equal(second.requests.length, 0, "reopening runs nothing");
+			const settled = await continueRun(second);
+			assert.equal(settled.status, "done");
+			assert.equal(second.requests.length, 1, "one reaction run after the continuation");
+			assert.ok(
+				second.requests[0]!.some((message) => message.role === "user" && message.content === "a job finished"),
+			);
+			const entries = (await second.conversation.entries({ order: "ascending" }, 200, undefined, ctx)).items;
+			assert.equal(
+				entries.filter((entry) => entry.model?.[0]?.role === "user" && entry.model[0].content === "a job finished")
+					.length,
+				1,
+				"placed exactly once after the reopen",
+			);
+			const handle = await second.harness.submission(steer.id, ctx);
+			assert.equal((await handle!.status(ctx)).status, "done", "placed and answered after the reopen");
+			await second.harness.close(ctx);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps native handoff placement when the round also asks to park", async () => {
+		const blocked = blockingQuestion();
+		const opened = await open(
+			[
+				round([
+					["quiz", { question: "q1" }, "q1"],
+					["handoff", { text: "take over" }, "h1"],
+				]),
+				fauxAssistantMessage("After the handoff."),
+			],
+			{ tools: [blocked.tool, handoff], hooks: [questionStopHook(true), bookkeepingDropHook()] },
+		);
+		try {
+			const first = await opened.conversation.submit({ type: "input", content: "ask me" }, ctx);
+			await blocked.entered;
+			const steer = await opened.conversation.submit(
+				{ type: "input", content: "a job finished", whenBusy: "steer" },
+				ctx,
+			);
+			blocked.release();
+			await first.wait(ctx);
+			await opened.conversation.waitForIdle(ctx);
+			const entries = (await opened.conversation.entries({ order: "ascending" }, 200, undefined, ctx)).items;
+			assert.ok(entries.some((entry) => entry.kind === "pi.reset"), "the handoff reset still lands");
+			assert.equal((await steer.status(ctx)).status, "done", "the handoff boundary still places queued input");
+			assert.equal(opened.requests.length, 2, "the handoff starts its run with the queued steer");
+		} finally {
+			await opened.harness.close(ctx);
+		}
+	});
+
+	it("keeps a queued reset native when the round also asks to park", async () => {
+		const blocked = blockingQuestion();
+		const opened = await open([round([["quiz", { question: "q1" }, "q1"]])], {
+			tools: [blocked.tool],
+			hooks: [questionStopHook(true), bookkeepingDropHook()],
+		});
+		try {
+			const first = await opened.conversation.submit({ type: "input", content: "ask me" }, ctx);
+			await blocked.entered;
+			await opened.conversation.submit(
+				{
+					type: "write",
+					entry: {
+						kind: "lh.reset",
+						head: "self",
+						model: [{ role: "user", content: "restart", timestamp: Date.now() }],
+					},
+				},
+				ctx,
+			);
+			blocked.release();
+			await first.wait(ctx);
+			await opened.conversation.waitForIdle(ctx);
+			const entries = (await opened.conversation.entries({ order: "ascending" }, 200, undefined, ctx)).items;
+			assert.ok(entries.some((entry) => entry.kind === "lh.reset"), "the queued reset still lands");
+			assert.equal(opened.requests.length, 1);
+		} finally {
+			await opened.harness.close(ctx);
 		}
 	});
 
