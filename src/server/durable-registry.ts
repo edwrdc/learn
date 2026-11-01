@@ -25,7 +25,7 @@ import { composeInstructions } from "../agent/teacher-agent.ts";
 import { createProberTools, createTeacherTools } from "../agent/tools.ts";
 import { practiceTools } from "../agent/tools/practice.ts";
 import { toRegistrations } from "../agent/tool-adapter.ts";
-import { engineModels, type PiEngine } from "../agent/models.ts";
+import { bindRunEngine, type PiEngine } from "../agent/models.ts";
 import { providerEventObserver } from "../agent/provider-events.ts";
 import { claimToolCallId, collectToolCallIds } from "./pi/call-ids.ts";
 import { activeCompactionOf, keptIndexFor } from "../core/compaction.ts";
@@ -251,7 +251,10 @@ export async function prepareConversation(
 		}),
 	);
 	const engineKind = phase === "practice" ? "practice" : phase === "probe" ? "prober" : "teacher";
-	runtime.useModels(engineModels(engine, providerEventObserver(chatId, engineKind)));
+	// The root conversation's provider session id IS the public chat id
+	// (store/durable.ts init), so binding the chat id binds this turn's
+	// engine for its requests only — a background child never shares it.
+	bindRunEngine(chatId, engine, providerEventObserver(chatId, engineKind));
 	await runtime.root.configure(
 		{
 			model: { provider: engine.model.provider, modelId: engine.model.id },

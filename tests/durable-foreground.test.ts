@@ -60,7 +60,21 @@ function scripted(steps: Step[]): { engine: PiEngine; calls: string[][] } {
 			: step;
 	};
 	faux.setResponses(steps.map(wrap) as never);
-	return { engine: { model: faux.getModel(), streamFn: faux.streamSimple }, calls };
+	return {
+		engine: {
+			model: faux.getModel(),
+			// A provider adapter's raw observer: pi-ai hands the parsed
+			// provider payload to options.onProviderStreamEvent before it
+			// normalizes it. The faux core has no wire format, so emit the
+			// adapter-owned shape here; the real SSE proof lives in
+			// tests/models-router.test.ts.
+			streamFn: (model, context, options) => {
+				void options?.onProviderStreamEvent?.({ type: "faux.raw.event", item_id: "raw-1" }, model);
+				return faux.streamSimple(model, context, options);
+			},
+		},
+		calls,
+	};
 }
 
 function post(chatId: string, input: unknown): Request {
@@ -341,9 +355,12 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			const file = path.join(dir, `${chat.id}.jsonl`);
 			assert.ok(fs.existsSync(file), "one JSONL per chat");
 			const lines = fs.readFileSync(file, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
-			assert.ok(
-				lines.some((line) => line.event !== undefined && line.provider === "faux"),
-				"the parsed provider stream event was recorded",
+			const eventLine = lines.find((line) => line.event !== undefined && line.provider === "faux");
+			assert.ok(eventLine, "the provider adapter's raw event was recorded");
+			assert.deepEqual(
+				eventLine.event,
+				{ type: "faux.raw.event", item_id: "raw-1" },
+				"the observer saw the adapter-owned payload, not a normalized pi-ai event",
 			);
 			assert.ok(lines.some((line) => typeof line.note === "string" && line.note.includes("run start")), "the run marker records");
 		} finally {

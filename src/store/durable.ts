@@ -31,12 +31,11 @@ import {
 	type Registry,
 	type Storage,
 } from "@earendil-works/pi-durable";
-import type { Models } from "@earendil-works/pi-ai";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../../config.ts";
 import type { LhMessage } from "../core/native-messages.ts";
-import { APP_IDENTITY, piModels } from "../agent/models.ts";
+import { APP_IDENTITY, routedModels, unbindRunEngine } from "../agent/models.ts";
 
 /** Entry kind of the bookkeeping input that starts a reaction run. It is
  *  hidden from the projection and dropped from every provider request
@@ -77,9 +76,6 @@ export interface ChatRuntime {
 	 *  (tools, prompt sections, hooks) here, so a runtime opened by a
 	 *  read-only path still runs tools once a turn starts. */
 	readonly registry: Registry;
-	/** The Models bridge for the coming turn (see engineModels). A turn
-	 *  installs its engine here; the Harness reads it at each request. */
-	useModels(models: Models): void;
 	/** Serializes app-originated entry appends (the old synchronous store's
 	 *  ordering guarantee, now that every write is async). */
 	queue: Promise<unknown>;
@@ -128,15 +124,14 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	fs.mkdirSync(dir, { recursive: true });
 	const storage = await openNodeSqliteStorage(path.join(dir, "harness.sqlite"));
 	const registry = createRegistry();
-	// Mutable behind a getter: HarnessOptions captures the reader, a turn's
-	// engine swap must reach the next request.
-	const models: { current: Models } = { current: piModels() };
 	let harness: Harness;
 	try {
 		harness = await Harness.open(
 			storage,
 			{
-				models: () => models.current,
+				// Per-conversation engines ride the session router; the reader
+				// itself never changes (no shared mutable "current engine").
+				models: routedModels(),
 				identity: APP_IDENTITY,
 				registry,
 				settings: () => harnessSettings(),
@@ -166,9 +161,6 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 		harness,
 		root,
 		registry,
-		useModels: (next) => {
-			models.current = next;
-		},
 		queue: Promise.resolve(),
 		closing: false,
 	};
@@ -226,6 +218,7 @@ export async function closeChatRuntime(chatId: string): Promise<void> {
 		await runtime.harness.close(BACKGROUND_CONTEXT).catch((error) => {
 			console.error(`[chat ${chatId}] durable close failed:`, error);
 		});
+		unbindRunEngine(chatId);
 	})();
 	map.set(chatId, { phase: "closing", done });
 	try {
@@ -276,12 +269,16 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 	// The newest edit per target wins (chained edits are legal; the last
 	// writer's substitution is the one the model sees too). An entry that
 	// carries edits contributes THROUGH its target, never on its own.
-	const edits = new Map<EntryId, { entry: EntryRecord; replace?: readonly unknown[]; omit: boolean }>();
+	const edits = new Map<
+		EntryId,
+		{ entry: EntryRecord; target: EntryId; replace?: readonly unknown[]; omit: boolean }
+	>();
 	const owners = new Set<EntryId>();
 	for (const entry of entries) {
 		for (const edit of entry.edits ?? []) {
 			edits.set(edit.target, {
 				entry,
+				target: edit.target,
 				replace: edit.action === "replace" ? edit.messages : undefined,
 				omit: edit.action === "omit",
 			});
@@ -290,13 +287,13 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 	}
 	const messages: LhMessage[] = [];
 	const entryOf = new Map<string, EntryId>();
-	const push = (message: unknown, entry: EntryRecord, index: number) => {
+	const push = (message: unknown, entry: EntryRecord, index: number, owner: EntryId = entry.id) => {
 		// The system prompt is request chrome, never transcript: the old
 		// settle dropped it, and the record's shape must not change.
 		if ((message as { role?: string }).role === "system") return;
 		const id = messageId(entry, index);
 		messages.push({ ...(message as object), id } as LhMessage);
-		entryOf.set(id, entry.id);
+		entryOf.set(id, owner);
 	};
 	for (const entry of entries) {
 		if (entry.kind === CONTINUATION_KIND) continue;
@@ -305,13 +302,20 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 		const edit = edits.get(entry.id);
 		if (edit?.omit) continue;
 		if (edit) {
+			// The projection hands every edited message back to the entry it
+			// ORIGINALLY belongs to (edit.target), never to the edit entry:
+			// a second upsert must replace the original target again, or the
+			// newest edit lands on an entry the projection already skips and
+			// the first edit stays visible (parent repro 2026-11-01).
 			const ownerData = edit.entry.data as LhEntryData | undefined;
 			if (ownerData?.message) {
 				messages.push(ownerData.message);
-				entryOf.set(ownerData.message.id, entry.id);
+				entryOf.set(ownerData.message.id, edit.target);
 				continue;
 			}
-			(edit.replace ?? []).forEach((message, index) => push(message, edit.entry, index));
+			// The message id comes from the NEWEST edit (an answer carries
+			// its own id); the ownership for a later edit stays the target.
+			(edit.replace ?? []).forEach((message, index) => push(message, edit.entry, index, edit.target));
 			continue;
 		}
 		if (data?.message) {

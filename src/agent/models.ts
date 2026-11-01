@@ -1,11 +1,9 @@
 import {
 	clampThinkingLevel,
-	createAssistantMessageEventStream,
 	createModels,
 	createProvider,
 	getSupportedThinkingLevels,
 	type Api,
-	type AssistantMessageEventStream,
 	type Model,
 	type Models,
 	type Provider,
@@ -71,60 +69,91 @@ export function piModels() {
 	return collection;
 }
 
-/** One engine as a pi-ai Models collection, for hosts (the durable Harness)
- *  that resolve a model ref through Models and stream through it. The engine
- *  is the app's ONE provider adapter: its streamFn already pins the custom
- *  endpoint's provider and credential snapshot and the thinking level, so a
- *  turn's provider behavior is identical whichever loop drives it.
+/** Per-conversation engine bindings for the durable Harness. The Harness's
+ *  `models` reader is process-wide, but foreground turns and every background
+ *  child share one Harness: a single mutable "current engine" would let the
+ *  last turn's settings redirect another conversation's provider request
+ *  (including two runs of the same catalog model with different thinking
+ *  levels, or two custom-endpoint snapshots). The router keys by the
+ *  conversation's provider session id — the public, per-conversation value
+ *  the Harness already forwards as `sessionId` on every request. */
+interface RunBinding {
+	engine: PiEngine;
+	observer?: ProviderEventObserver;
+}
+
+const runBindings = new Map<string, RunBinding>();
+
+/** Bind one conversation's provider session id to its captured engine. The
+ *  engine's stream function still owns the provider/credential/thinking pin. */
+export function bindRunEngine(sessionId: string, engine: PiEngine, observer?: ProviderEventObserver): void {
+	runBindings.set(sessionId, { engine, observer });
+}
+
+export function unbindRunEngine(sessionId: string): void {
+	runBindings.delete(sessionId);
+}
+
+let routed: Models | undefined;
+
+/** The Models collection the durable Harness reads: the process catalog with
+ *  per-session engine dispatch. `getModel` prefers a bound engine's captured
+ *  model object (endpoint limits and base URL snapshots stay pinned); the
+ *  request itself always streams through the bound engine, so which model
+ *  object getModel happened to return cannot redirect a provider request.
  *
- *  Only getModel/getModels/streamSimple are the engine's; every other member
- *  delegates to the process catalog (creation tools read it). The observer
- *  is the raw-wire recorder seam: it sees every parsed provider event before
- *  the harness normalizes it, the same layer onProviderStreamEvent covered. */
-export function engineModels(engine: PiEngine, observer?: ProviderEventObserver): Models {
+ *  The raw-wire recorder rides `options.onProviderStreamEvent` (pi-ai's
+ *  pre-normalization observer). It is forwarded into the engine's streamFn
+ *  options — never reconstructed from the normalized event stream. */
+export function routedModels(): Models {
+	if (routed) return routed;
 	const base = piModels();
-	const observe = (stream: AssistantMessageEventStream): AssistantMessageEventStream => {
-		if (!observer) return stream;
-		const out = createAssistantMessageEventStream();
-		void (async () => {
-			try {
-				for await (const event of stream) {
-					observer(
-						event,
-						"partial" in event
-							? event.partial
-							: event.type === "done"
-								? event.message
-								: event.error,
-					);
-					out.push(event);
-				}
-				out.end(await stream.result());
-			} catch (error) {
-				console.error(`[models] ${engine.model.provider}:${engine.model.id} stream observer failed:`, error);
-				out.end(await stream.result().catch(() => undefined));
-			}
-		})();
-		return out;
+	const stream = (
+		model: Model<Api>,
+		context: Parameters<StreamFunction>[1],
+		options?: Parameters<StreamFunction>[2],
+	) => {
+		const binding = options?.sessionId ? runBindings.get(options.sessionId) : undefined;
+		if (!binding) return base.streamSimple(model, context, options);
+		const observer = binding.observer;
+		const upstream = options?.onProviderStreamEvent;
+		const forwarded =
+			observer === undefined
+				? options
+				: {
+						...options,
+						onProviderStreamEvent: async (data: unknown, observed: Model<Api>) => {
+							if (upstream) await upstream(data, observed);
+							observer(data, observed);
+						},
+					};
+		return binding.engine.streamFn(binding.engine.model, context, forwarded);
 	};
-	return new Proxy(base, {
+	routed = new Proxy(base, {
 		get(target, property) {
 			if (property === "getModel") {
-				return (provider: string, id: string) =>
-					provider === engine.model.provider && id === engine.model.id ? engine.model : undefined;
+				return (provider: string, id: string) => {
+					for (const { engine } of runBindings.values()) {
+						if (engine.model.provider === provider && engine.model.id === id) return engine.model;
+					}
+					return target.getModel(provider, id);
+				};
 			}
 			if (property === "getModels") {
-				return (provider?: string) =>
-					provider === undefined || provider === engine.model.provider ? [engine.model] : [];
+				return (provider?: string) => target.getModels(provider);
 			}
-			if (property === "streamSimple") {
+			if (property === "streamSimple") return stream;
+			// completeSimple/dispatch resolve through this object's streamSimple;
+			// binding the base method would bypass the per-session engine.
+			if (property === "completeSimple") {
 				return (model: Model<Api>, context: Parameters<StreamFunction>[1], options?: Parameters<StreamFunction>[2]) =>
-					observe(engine.streamFn(model, context, options));
+					stream(model, context, options).result();
 			}
 			const value = Reflect.get(target, property, target);
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 	});
+	return routed;
 }
 
 /** OpenRouter API key (BYOK); tests never read this — they inject engines. */
@@ -244,9 +273,11 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 		return {
 			model,
 			level,
-			streamFn: (requestModel, context, options) => {
+			streamFn: (_requestModel, context, options) => {
 				const upstream = options?.fetch ?? fetch;
-				return provider.streamSimple(requestModel, context, {
+				// The captured model carries the endpoint snapshot's baseUrl;
+				// a later catalog edit must never redirect an in-flight turn.
+				return provider.streamSimple(model, context, {
 					...options,
 					apiKey,
 					identity: options?.identity ?? APP_IDENTITY,
@@ -273,8 +304,8 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 		// bound streamSimple: the agent loop forwards state.thinkingLevel as
 		// `reasoning` (undefined = off on pi-ai's scale); the clamp above keeps
 		// the pin honest even when config or settings drift off the map.
-		streamFn: (requestModel, context, options) =>
-			models.streamSimple(requestModel, context, {
+		streamFn: (_requestModel, context, options) =>
+			models.streamSimple(model, context, {
 				...options,
 				reasoning: level === "off" ? undefined : level,
 			}),
