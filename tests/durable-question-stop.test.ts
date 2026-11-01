@@ -579,6 +579,20 @@ describe("durable question stop gate", { concurrency: false }, () => {
 		}
 	});
 
+	it("the installed dependency carries the compatibility patch", () => {
+		// `npm ci` runs scripts/patch-pi-durable.mjs through postinstall. A
+		// fresh install without the patch must fail here, not only through
+		// the behavioral regressions below.
+		const installed = dirname(createRequire(import.meta.url).resolve("@earendil-works/pi-durable/package.json"));
+		const runtime = readFileSync(join(installed, "dist/harness/generation.js"), "utf8");
+		assert.match(runtime, /extensionTerminate/, "the afterTools stop is missing");
+		assert.match(runtime, /extensionPark/, "the question input park is missing");
+		assert.match(runtime, /hasQueuedReset\(boundary\.inbox\.items\)/, "the park/native-reset guard is missing");
+		const types = readFileSync(join(installed, "dist/harness/types.d.ts"), "utf8");
+		assert.match(types, /parkInputs/, "the hook result type is missing");
+		assert.match(types, /entry\(id: EntryId/, "the hook entry read is missing");
+	});
+
 	it("keeps a patched install unchanged and refuses another version or source", () => {
 		const installed = dirname(createRequire(import.meta.url).resolve("@earendil-works/pi-durable/package.json"));
 		const script = fileURLToPath(new URL("../scripts/patch-pi-durable.mjs", import.meta.url));
