@@ -1,5 +1,5 @@
 /**
- * THE DURABLE CHAT STORE (pi-durable migration, owner-approved 2026-11-01).
+ * THE DURABLE CHAT STORE.
  *
  * One SQLite database per PUBLIC chat id at PATHS.durable/<chatId>/. The
  * database has exactly ONE Harness owner in this process (the handle map
@@ -43,8 +43,12 @@ import { APP_IDENTITY, routedModels, unbindRunEngine } from "../agent/models.ts"
 export const CONTINUATION_KIND = "lh.continuation";
 
 /** The continuation input's content. Never model-visible; a readable
- *  sentinel so a dropped hook shows up as this line, not as silence. */
+ *  sentinel so a dropped hook shows up as this line, not as silence. It is
+ *  a STRUCTURED user message because every learner text the app writes is a
+ *  string: the request hook hides exactly this shape, and a learner who types
+ *  the sentinel keeps their message. */
 export const CONTINUATION_TEXT = "[continue]";
+export const CONTINUATION_CONTENT = Object.freeze([{ type: "text" as const, text: CONTINUATION_TEXT }]);
 
 /** Every entry kind this app writes. Durable reserves the `pi.` prefix. */
 export type LhEntryKind =
@@ -76,8 +80,7 @@ export interface ChatRuntime {
 	 *  (tools, prompt sections, hooks) here, so a runtime opened by a
 	 *  read-only path still runs tools once a turn starts. */
 	readonly registry: Registry;
-	/** Serializes app-originated entry appends (the old synchronous store's
-	 *  ordering guarantee, now that every write is async). */
+	/** Serializes app-originated entry appends. */
 	queue: Promise<unknown>;
 	closing: boolean;
 }
@@ -285,8 +288,6 @@ export function removeChatRuntimeFiles(chatId: string): void {
 	fs.rmSync(durableDir(chatId), { recursive: true, force: true });
 }
 
-// ─── the projection ──────────────────────────────────────────────────────────
-
 const SCAN_PAGE = 256;
 
 /** Every entry of the chat's root conversation, oldest first. */
@@ -339,8 +340,7 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 	const messages: LhMessage[] = [];
 	const entryOf = new Map<string, EntryId>();
 	const push = (message: unknown, entry: EntryRecord, index: number, owner: EntryId = entry.id) => {
-		// The system prompt is request chrome, never transcript: the old
-		// settle dropped it, and the record's shape must not change.
+		// The system prompt is request chrome, never transcript.
 		if ((message as { role?: string }).role === "system") return;
 		const id = messageId(entry, index);
 		messages.push({ ...(message as object), id } as LhMessage);
@@ -353,11 +353,8 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 		const edit = edits.get(entry.id);
 		if (edit?.omit) continue;
 		if (edit) {
-			// The projection hands every edited message back to the entry it
-			// ORIGINALLY belongs to (edit.target), never to the edit entry:
-			// a second upsert must replace the original target again, or the
-			// newest edit lands on an entry the projection already skips and
-			// the first edit stays visible (parent repro 2026-11-01).
+			// Ownership stays with edit.target: a second upsert must replace
+			// the original target again, never the edit entry.
 			const ownerData = edit.entry.data as LhEntryData | undefined;
 			if (ownerData?.message) {
 				messages.push(ownerData.message);
@@ -390,10 +387,8 @@ export async function readChatMessages(chatId: string): Promise<LhMessage[]> {
 	return projectEntries(await readEntries(runtime));
 }
 
-// ─── writes ──────────────────────────────────────────────────────────────────
-
-/** UI-only markers carry no model face (the old convertToLlm filter, moved
- *  to write time: durable stores the model contribution). */
+/** UI-only markers carry no model face (durable stores the model
+ *  contribution at write time). */
 const UI_ONLY_MARKERS = new Set(["plan-block", "problem-dismissed"]);
 
 /** The model-facing text of one record message, or null when it has none. */

@@ -518,17 +518,9 @@ export function toLlmMessages(messages: readonly AppMessage[]): Message[] {
 			};
 		}
 	}
-	// THE LEADING SYSTEM MESSAGE IS REQUEST CHROME, NEVER COMPACTABLE
-	// PAYLOAD (the OpenRouter no-tools incident, owner 2026-10-05):
-	// The old loop seeded a SystemMessage carrying the system
-	// prompt AND the tool declarations at state.messages[0]
-	// (createInitialSystemMessage — "messages declare the provider-visible
-	// loadout"). The record never persists it (the durable projection drops
-	// filters the role), so RECORD-path callers never see it — but a native
-	// caller's message list can still lead with it. The cut slices the
-	// RECORD's history; when [0] is the chrome it must carry through AHEAD
-	// of the compaction head, exactly as pi's own prepareRequest re-applies
-	// context.systemPrompt + context.tools around its projection.
+	// The leading system message is request chrome, never compactable
+	// payload: the record never persists it, but a native caller's list can
+	// lead with it, so the cut carries it AHEAD of the compaction head.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
 	const out: Message[] = [];
@@ -672,9 +664,22 @@ export function endsInDismissal(messages: readonly LhMessage[]): boolean {
 	return last !== undefined && isDismissedResult(last);
 }
 
+/** The auto-continuation's progress signature: the transcript length and its
+ *  newest message id. A failed run that commits no assistant entry leaves
+ *  both unchanged, so the client can tell "still owed" from "still owed and
+ *  nothing happened" and stop re-sending forever. */
+export function continuationSignature(messages: readonly LhMessage[]): string {
+	const last = messages[messages.length - 1] as { id?: string } | undefined;
+	return `${messages.length}:${last?.id ?? ""}`;
+}
+
 export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;
+	// A pending question OWNS the next move: its committed placeholder result
+	// is not a consumed tool result, so a mount/reload must not fire the
+	// continuation turn the learner never asked for.
+	if (danglingQuestionOf(messages) !== null) return false;
 	// The trailing results batch (contiguous by construction — the agent
 	// appends its batch; the question gate keeps a quiz call and its
 	// learner answer adjacent).

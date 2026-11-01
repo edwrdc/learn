@@ -38,6 +38,7 @@ import {
 	messageAnchorId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
+	continuationSignature,
 	needsContinuation,
 	type ChatInput,
 	type ChatSettings,
@@ -447,12 +448,28 @@ export function Chat({
 	// server-side — that would double-run the teacher (the server would 409
 	// it; the poll below resumes instead).
 	const mountContinuation = useRef(false);
+	// One automatic continuation per un-consumed tail: a run that fails
+	// without committing anything leaves the record identical, and re-sending
+	// forever only hammered the server (the no_model incident). A user send
+	// or any committed entry changes the signature and re-arms it.
+	const continuedTail = useRef<string | null>(null);
+	const autoContinue = useCallback(
+		(messages: LhMessage[]) => {
+			if (!needsContinuation(messages)) {
+				continuedTail.current = null;
+				return;
+			}
+			const tail = continuationSignature(messages);
+			if (continuedTail.current === tail) return;
+			continuedTail.current = tail;
+			void send({ type: "continue" });
+		},
+		[send],
+	);
 	useEffect(() => {
 		if (mountContinuation.current) return;
 		mountContinuation.current = true;
-		if (!turnInFlight && status === "ready" && needsContinuation(initialMessages)) {
-			void send({ type: "continue" });
-		}
+		if (!turnInFlight && status === "ready") autoContinue(initialMessages);
 		// mount-only by design (turnInFlight read at initial value)
 	}, []);
 
@@ -747,10 +764,8 @@ export function Chat({
 		// record ENDS on un-consumed results, the dock owns no question, and
 		// nothing runs. The native fold (needsContinuation) is the old SDK
 		// lastAssistantMessageIsCompleteWithToolCalls check.
-		if (status === "ready" && needsContinuation(record.messages)) {
-			void send({ type: "continue" });
-		}
-	}, [chatId, setMessages, send, status]);
+		if (status === "ready") autoContinue(record.messages);
+	}, [chatId, setMessages, status, autoContinue]);
 
 	// The settled terminal's other half (stream-reattach wave): the
 	// transport resolved turn-settled — no turn running, the record is

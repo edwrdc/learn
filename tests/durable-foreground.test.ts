@@ -20,15 +20,31 @@ import {
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn, settledTurnResponse, abortTurn } from "../src/server/turn-runs.ts";
 import { isTurnRunning } from "../src/server/turn-liveness.ts";
 import { appendRunUsage } from "../src/server/turn-service.ts";
-import { deliverJobResult, setTurnRunner } from "../src/server/jobs.ts";
-import { buildProbeHandoffSteer } from "../src/core/contracts.ts";
+import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/server/jobs.ts";
+import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from "../src/core/contracts.ts";
 import { chatStore } from "../src/store/chats.ts";
-import { appendMessages, closeChatRuntime, durableDir, readEntries } from "../src/store/durable.ts";
-import { danglingQuestionOf, type LhMessage } from "../src/core/native-messages.ts";
+import { jobStore } from "../src/store/jobs.ts";
+import {
+	appendMessages,
+	closeChatRuntime,
+	durableDir,
+	openChatRuntime,
+	readEntries,
+} from "../src/store/durable.ts";
+import {
+	continuationSignature,
+	danglingQuestionOf,
+	needsContinuation,
+} from "../src/core/native-messages.ts";
+import { prepareConversation } from "../src/server/durable-registry.ts";
+import { effectiveSettings, stores } from "../src/server/stores.ts";
+import { POST as dismissPOST } from "../app/api/chats/[id]/dismiss/route.ts";
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
 import { projectView } from "../src/core/view.ts";
 import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
@@ -397,6 +413,324 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		assert.equal(wakes, 1, "exactly one wake carries the handoff");
 	});
 
+	it("the foreground agent is offered only its own extension, never a live background child's", async () => {
+		const chat = await createChat("Durable: extension selection");
+		const runtime = await openChatRuntime(chat.id);
+		const backgroundTool = defineTool({
+			name: "bg_only_tool",
+			description: "a live background child's tool",
+			parameters: Type.Object({}),
+			execute: async () => ({ output: [{ type: "text" as const, text: "bg" }] }),
+		});
+		runtime.registry.install(defineExtension({ name: "lh-bg-probe", tools: [backgroundTool] }));
+
+		const faux = createFauxCore({});
+		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
+		await prepareConversation(runtime, chat.id, [], undefined, engine, effectiveSettings(), {
+			chatStore: stores.chatStore,
+			graphStore: stores.graphStore,
+			jobStore: stores.jobStore,
+			spawn: () => undefined,
+			deliver: () => undefined,
+			searchAvailable: () => false,
+			graphNodes: () => [],
+		});
+		const agent = await runtime.root.agent(BACKGROUND_CONTEXT);
+		const names = agent.tools.map((tool) => tool.name);
+		assert.equal(names.includes("bg_only_tool"), false, "the background child's tool is not offered");
+		assert.ok(names.length > 0, "the foreground phase tools are selected");
+		assert.ok(
+			runtime.registry.snapshot().installed().some((extension) => extension.name === "lh-bg-probe"),
+			"the background extension stays installed for its own conversation",
+		);
+	});
+
+	it("a second live turn replays only from its admission boundary", async () => {
+		const chat = await createChat("Durable: live replay boundary");
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const faux = createFauxCore({});
+		faux.setResponses([
+			fauxAssistantMessage([fauxText("FIRST_REPLY")]),
+			(async () => {
+				await gate;
+				return fauxAssistantMessage([fauxText("SECOND_REPLY")]);
+			}) as FauxResponseStep,
+		]);
+		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
+		await turn(chat.id, { type: "text", text: "one" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the first turn settles");
+
+		const ack = await handleChatRequest(post(chat.id, { type: "text", text: "two" }), { engine });
+		assert.equal(ack.status, 200);
+		const wire = new Response(runningTurn(chat.id)!.subscribe()).text();
+		release();
+		const body = await wire;
+		assert.ok(body.includes("SECOND_REPLY"), "the second turn's own reply is on its wire");
+		assert.equal(body.includes("FIRST_REPLY"), false, "the earlier reply is not replayed");
+	});
+
+	it("activity bumps updatedAt for a turn, an answer and a silent dismissal", async () => {
+		const chat = await createChat("Durable: updatedAt");
+		await createChat("Durable: newer sibling");
+		const before = (await chatStore.getChat(chat.id))!.updatedAt;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+
+		const { engine } = scripted([fauxAssistantMessage([fauxText("turn reply")])]);
+		await turn(chat.id, { type: "text", text: "hello" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the turn settles");
+		const afterTurn = (await chatStore.getChat(chat.id))!.updatedAt;
+		assert.notEqual(afterTurn, before, "a turn is activity");
+
+		// Two dangling questions: answering one lands in the cheap parallel
+		// terminal (no run), which must still count as activity.
+		await appendMessages(chat.id, [
+			{
+				id: "a-two-questions",
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "q-a", name: "quiz", arguments: QUIZ_INPUT as never },
+					{ type: "toolCall", id: "q-b", name: "quiz", arguments: QUIZ_INPUT as never },
+				],
+				api: "openai-completions",
+				provider: "openrouter",
+				model: "test",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "toolUse",
+				timestamp: 1,
+			} as never,
+		]);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const afterSeed = (await chatStore.getChat(chat.id))!.updatedAt;
+		const answerAck = await handleChatRequest(
+			post(chat.id, { type: "answer", toolCallId: "q-a", answer: gradedAnswer(["Mercury"]) }),
+		);
+		assert.equal(answerAck.status, 200);
+		const afterAnswer = (await chatStore.getChat(chat.id))!.updatedAt;
+		assert.notEqual(afterAnswer, afterSeed, "an answer is activity");
+
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const dismissAck = await dismissPOST(
+			new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					input: { type: "dismiss", toolCallId: "q-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+				}),
+			}),
+			{ params: Promise.resolve({ id: chat.id }) },
+		);
+		assert.equal(dismissAck.status, 200);
+		const afterDismiss = (await chatStore.getChat(chat.id))!.updatedAt;
+		assert.notEqual(afterDismiss, afterAnswer, "a silent dismissal is activity");
+		assert.equal((await chatStore.listChats())[0]!.id, chat.id, "activity moves the chat up the sidebar");
+	});
+
+	it("a pending question owes no continuation; explicit continue cannot bypass the pause", async () => {
+		const chat = await createChat("Durable: question pause");
+		const { engine } = scripted([
+			fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-pending" })], { stopReason: "toolUse" }),
+		]);
+		await turn(chat.id, { type: "text", text: "teach me" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the pose settles");
+
+		const posed = (await chatStore.getChat(chat.id))!;
+		assert.equal(needsContinuation(posed.messages), false, "a pending question is not a consumed result");
+		const runtime = await openChatRuntime(chat.id);
+		const entriesBefore = (await readEntries(runtime)).length;
+
+		const phantom = scripted([fauxAssistantMessage([fauxText("PHANTOM_REPLY")])]);
+		const ack = await handleChatRequest(post(chat.id, { type: "continue" }), { engine: phantom.engine });
+		assert.equal(ack.status, 200);
+		assert.ok((await ack.text()).includes("turn-settled"), "the cheap terminal, not a run");
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		assert.equal(phantom.calls.length, 0, "no provider request");
+		assert.equal((await readEntries(runtime)).length, entriesBefore, "no new native input");
+
+		const reaction = scripted([fauxAssistantMessage([fauxText("ANSWER_REACTION")])]);
+		const answerAck = await handleChatRequest(
+			post(chat.id, { type: "answer", toolCallId: "call-pending", answer: gradedAnswer(["Mercury"]) }),
+			{ engine: reaction.engine },
+		);
+		assert.equal(answerAck.status, 200, "the real answer is accepted");
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the reaction settles");
+		assert.equal(reaction.calls.length, 1, "exactly one reaction request");
+		assert.equal(
+			reaction.calls[0]!.join("\n").includes("[continue]"),
+			false,
+			"the hidden continuation input never reaches the provider",
+		);
+		const answered = (await chatStore.getChat(chat.id))!;
+		assert.equal(danglingQuestionOf(answered.messages), null, "nothing pending");
+		assert.equal(JSON.stringify(answered.messages).includes("PHANTOM_REPLY"), false, "no phantom reply was committed");
+	});
+
+	it("a learner message that is exactly the continuation sentinel still reaches the provider", async () => {
+		const chat = await createChat("Durable: literal continuation sentinel");
+		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("literal accepted")])]);
+		await turn(chat.id, { type: "text", text: "[continue]" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the turn settles");
+		assert.equal(calls.length, 1);
+		assert.ok(
+			calls[0]!.some((content) => content === JSON.stringify("[continue]")),
+			"the learner's literal string is not the hidden structured input",
+		);
+	});
+
+	it("a failed generation that commits nothing does not re-arm the auto-continuation", async () => {
+		const chat = await createChat("Durable: failure loop");
+		await appendMessages(chat.id, [
+			{ id: "u-before", role: "user", content: "hello", timestamp: 1 } as never,
+			{
+				id: "a-dispatched",
+				role: "assistant",
+				content: [{ type: "toolCall", id: "job-call", name: "research", arguments: {} as never }],
+				api: "openai-completions",
+				provider: "openrouter",
+				model: "test",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "toolUse",
+				timestamp: 1,
+			} as never,
+			{
+				id: "r-dispatched",
+				role: "toolResult",
+				toolCallId: "job-call",
+				toolName: "research",
+				content: [{ type: "text", text: "Dispatched." }],
+				details: "Dispatched.",
+				isError: false,
+				timestamp: 1,
+			} as never,
+		]);
+		const tail = (await chatStore.getChat(chat.id))!.messages;
+		assert.equal(needsContinuation(tail), true, "the record owes a continuation");
+		const signature = continuationSignature(tail);
+
+		const faux = createFauxCore({});
+		const failing: PiEngine = {
+			model: faux.getModel(),
+			streamFn: () => {
+				throw new Error("provider unavailable");
+			},
+		};
+		const ack = await handleChatRequest(post(chat.id, { type: "continue" }), { engine: failing });
+		assert.equal(ack.status, 200);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the failed run settles");
+		const after = (await chatStore.getChat(chat.id))!.messages;
+		assert.equal(after.length, tail.length, "the failed run committed no entry");
+		assert.equal(needsContinuation(after), true, "the record still owes the reaction");
+		assert.equal(continuationSignature(after), signature, "no progress: the client must not re-send forever");
+	});
+
+	it("a steer or job result during settle never starts an unmanaged run", async () => {
+		const chat = await createChat("Durable: settle admission");
+		let releaseSettle!: () => void;
+		const settleGate = new Promise<void>((resolve) => (releaseSettle = resolve));
+		let requests = 0;
+		let wake = 0;
+		setTurnRunner(async () => {
+			wake++;
+			return 200;
+		});
+		const faux = createFauxCore({});
+		faux.setResponses([
+			(() => fauxAssistantMessage([fauxText("first reply")])) as FauxResponseStep,
+			(() => fauxAssistantMessage([fauxText("fallback reply")])) as FauxResponseStep,
+		]);
+		const engine: PiEngine = {
+			model: faux.getModel(),
+			streamFn: (model, context, options) => {
+				requests++;
+				return faux.streamSimple(model, context, options);
+			},
+		};
+		const originalAppendUsage = chatStore.appendTurnUsage;
+		let held = false;
+		chatStore.appendTurnUsage = async (id: string, entry) => {
+			if (!held) {
+				held = true;
+				await settleGate;
+			}
+			return originalAppendUsage.call(chatStore, id, entry);
+		};
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "job-settle" });
+		const result: ResearchResult = { brief: "settled result", sources: [] };
+		jobStore.updateJob(job.id, { result, activity: "delivering result" });
+		const steer = buildSubagentSteer(job, result);
+		const runtime = await openChatRuntime(chat.id);
+		try {
+			await handleChatRequest(post(chat.id, { type: "text", text: "hello" }), { engine });
+			await waitFor(() => held, 8000, "the settle service is held open");
+			assert.equal(await isTurnRunning(chat.id), true, "the claim is still held");
+			assert.equal(
+				await steerLiveChat(chat.id, { id: "steer-settle", role: "user", content: "hold on", timestamp: 1 } as never),
+				false,
+				"a steer is refused while the run is already gone",
+			);
+			const delivered = deliverJobResult(steer);
+			const entriesAtHold = (await readEntries(runtime)).length;
+			await new Promise((resolve) => setTimeout(resolve, 900));
+			assert.equal(requests, 1, "no unmanaged model request from the steer or job result");
+			assert.equal((await readEntries(runtime)).length, entriesAtHold, "no unmanaged native input committed");
+			assert.equal(jobStore.getJob(job.id)!.status, "running", "the result waits for the claim");
+
+			releaseSettle();
+			await delivered;
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the settle releases");
+			assert.equal(wake, 1, "the pump took the managed idle wake, not a native steer");
+			assert.equal(jobStore.getJob(job.id)!.status, "done", "delivery settled");
+			const settled = (await chatStore.getChat(chat.id))!;
+			assert.equal(settled.turns?.length ?? 0, 1, "only the managed turn billed usage");
+
+			// The client's 409 fallback: a plain send, one managed turn with usage.
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the settle claim is released");
+			const fallbackAck = await handleChatRequest(post(chat.id, { type: "text", text: "hold on" }), { engine });
+			assert.equal(fallbackAck.status, 200, `the fallback is accepted: ${await fallbackAck.clone().text()}`);
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the fallback turn settles");
+			assert.equal(requests, 2, "the fallback is a real turn");
+			assert.equal((await chatStore.getChat(chat.id))!.turns?.length ?? 0, 2, "the fallback is billed");
+		} finally {
+			chatStore.appendTurnUsage = originalAppendUsage;
+		}
+	});
+
+	it("a failed settle claim still releases the turn", async () => {
+		const chat = await createChat("Durable: settle claim failure");
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const faux = createFauxCore({});
+		faux.setResponses([
+			(async () => {
+				await gate;
+				return fauxAssistantMessage([fauxText("gated reply")]);
+			}) as FauxResponseStep,
+		]);
+		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
+		const runtime = await openChatRuntime(chat.id);
+		const commit = runtime.root.commit.bind(runtime.root);
+		let failedOnce = false;
+		await handleChatRequest(post(chat.id, { type: "text", text: "hello" }), { engine });
+		runtime.root.commit = (async (change: never, context: never) => {
+			if (!failedOnce) {
+				failedOnce = true;
+				throw new Error("storage write failed");
+			}
+			return commit(change, context);
+		}) as typeof runtime.root.commit;
+		try {
+			release();
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the failed claim releases");
+			assert.equal(runningTurn(chat.id), undefined, "no handle survives");
+			const next = scripted([fauxAssistantMessage([fauxText("after recovery")])]);
+			const ack = await handleChatRequest(post(chat.id, { type: "text", text: "again" }), { engine: next.engine });
+			assert.equal(ack.status, 200, "the chat is not wedged");
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the next turn settles");
+		} finally {
+			runtime.root.commit = commit as typeof runtime.root.commit;
+		}
+	});
+
 	it("a delete racing a metadata mutation never resurrects the record", async () => {
 		const chat = await createChat("Durable: delete race");
 		const changed = chatStore.saveSettings(chat.id, {
@@ -410,6 +744,3 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		assert.equal(await chatStore.getChat(chat.id), null, "the chat is gone");
 	});
 });
-
-// keep the imported type referenced (records the LhMessage shape used above)
-export type { LhMessage };
