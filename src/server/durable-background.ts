@@ -109,6 +109,9 @@ interface RunRef {
 	kind: string;
 }
 
+/** The run kinds backed by a JobRecord (headless runs use synthetic ids). */
+const JOB_RUN_KINDS: readonly BackgroundKind[] = ["research", "demo", "visual", "pdf"];
+
 interface RunsState {
 	runs: JsonObject;
 }
@@ -976,6 +979,16 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 		)) as unknown as RunDescriptor | undefined;
 		if (!stored) continue;
 		const descriptor = stored;
+		// A learner abort may have landed while the runtime was unavailable:
+		// honor the durable intent before resolving the missing model or resuming.
+		const job = JOB_RUN_KINDS.includes(descriptor.kind)
+			? stores.jobStore.getJob(descriptor.jobId)
+			: null;
+		if (job !== null && (job.abortRequested === true || job.status !== "running")) {
+			await conversation.abort(BACKGROUND_CONTEXT);
+			await updateIndex(runtime, jobId, { status: "failed" });
+			continue;
+		}
 		const engine = services?.resolveEngine(descriptor);
 		if (!engine) {
 			// FAIL CLOSED: `harness.resume()` below would execute the pending

@@ -286,6 +286,82 @@ describe("durable background restart", () => {
 		assert.equal(jobStore.getJob(job.id)!.status, "error", "the record reflects the learner's abort");
 	});
 
+	it("an abort persisted while the model cannot be restored stops the child on repair", async () => {
+		const chat = await chatStore.createChat("Durable: abort during failed reopen");
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-abort-failclosed" });
+		const search = stubSearch();
+		let wakes = 0;
+		setTurnRunner(async () => {
+			wakes++;
+			return 200;
+		});
+		const runner = createJobRunner({
+			chatStore,
+			jobStore,
+			deliver: async () => undefined,
+			searchProvider: () => search,
+		});
+		researchModelOverride.current = fauxEngine([
+			fauxAssistantMessage([fauxToolCall("web_search", { query: "abort fail closed" }, { id: "ws-abort-failclosed" })], {
+				stopReason: "toolUse",
+			}),
+			hangUntilAborted(),
+		]);
+		const first = runner.runJob(job.id, PROMPT_INPUT);
+		await waitFor(() => (jobStore.getJob(job.id)!.usage?.steps ?? 0) >= 1, 10000, "first model call billed");
+		await closeChatRuntime(chat.id);
+		await first.catch(() => undefined);
+		researchModelOverride.current = undefined;
+
+		// The model stays unavailable: the pending child cannot be rebuilt.
+		configureBackgroundRuns({ resolveEngine: () => undefined, searchProvider: () => search });
+		await assert.rejects(
+			() => openChatRuntime(chat.id),
+			(error: unknown) => error instanceof ChatRuntimeInitError,
+			"the reopen fails closed instead of running without its model",
+		);
+
+		assert.equal(abortJob(job.id).ok, true);
+		const aborted = jobStore.getJob(job.id)!;
+		assert.equal(aborted.status, "error", "the record reflects the learner's abort");
+		assert.equal(aborted.abortRequested, true, "the abort intent is durable before any runtime bootstrap");
+		jobStore.updateJob(job.id, { activity: "progress after abort" });
+		assert.equal(jobStore.getJob(job.id)!.abortRequested, true, "a progress update preserves the intent");
+
+		// The abort's own open must not need the missing model: it aborts the child.
+		const reopened = await openChatRuntime(chat.id);
+		const index = (await reopened.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
+			runs: Record<string, { conversationId: number; status: string }>;
+		};
+		const conversationId = index.runs[job.id]!.conversationId;
+		assert.equal(index.runs[job.id]!.status, "failed", "the durable index cannot reattach the child");
+		const live = await reopened.harness.snapshot(LiveDoc, conversationId as never, BACKGROUND_CONTEXT);
+		assert.equal((live as { run?: unknown } | undefined)?.run, undefined, "the native child is not live");
+		await waitFor(() => wakes > 0, 5000, "the abort steer leaves the wake pipeline");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		await closeChatRuntime(chat.id);
+
+		// Repair the model and reopen: the persisted abort still wins.
+		let requests = 0;
+		const resumed = fauxEngine([fauxAssistantMessage([fauxText("MUST_NOT_RUN")])]);
+		const resumedEngine: PiEngine = {
+			model: resumed.model,
+			streamFn: (model, context, options) => {
+				requests++;
+				return resumed.streamFn(model, context, options);
+			},
+		};
+		configureBackgroundRuns({ resolveEngine: () => resumedEngine, searchProvider: () => search });
+		const final = await openChatRuntime(chat.id);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.equal(requests, 0, "no resumed provider request after repair");
+		const finalLive = await final.harness.snapshot(LiveDoc, conversationId as never, BACKGROUND_CONTEXT);
+		assert.equal((finalLive as { run?: unknown } | undefined)?.run, undefined, "the native child stays dead");
+		assert.equal(jobStore.getJob(job.id)!.status, "error", "the job stays aborted");
+		assert.equal(jobStore.getJob(job.id)!.abortRequested, true, "the persisted intent survives the reopen");
+		researchModelOverride.current = undefined;
+	});
+
 	it("fails the reopen closed when a pending run's model cannot be restored, then resumes on repair", async () => {
 		const chat = await chatStore.createChat("Durable: background fail closed");
 		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-failclosed" });

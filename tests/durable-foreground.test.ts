@@ -528,6 +528,59 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		assert.equal((await chatStore.listChats())[0]!.id, chat.id, "activity moves the chat up the sidebar");
 	});
 
+	it("a metadata touch failure never fails a committed cheap answer or dismissal", async () => {
+		const chat = await createChat("Durable: touch failure");
+		await appendMessages(chat.id, [
+			{
+				id: "a-touch-questions",
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "q-touch-a", name: "quiz", arguments: QUIZ_INPUT as never },
+					{ type: "toolCall", id: "q-touch-b", name: "quiz", arguments: QUIZ_INPUT as never },
+				],
+				api: "openai-completions",
+				provider: "openrouter",
+				model: "test",
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				stopReason: "toolUse",
+				timestamp: 1,
+			} as never,
+		]);
+		const originalTouch = chatStore.touchChat;
+		try {
+			chatStore.touchChat = async () => {
+				throw new Error("metadata unavailable");
+			};
+			const answerAck = await handleChatRequest(
+				post(chat.id, { type: "answer", toolCallId: "q-touch-a", answer: gradedAnswer(["Mercury"]) }),
+			);
+			assert.equal(answerAck.status, 200, "the committed cheap answer acknowledges success");
+			const answered = (await chatStore.getChat(chat.id))!.messages.filter(
+				(message) => (message as { toolCallId?: string }).toolCallId === "q-touch-a",
+			);
+			assert.equal(answered.length, 1, "the answer is committed once");
+
+			const dismissAck = await dismissPOST(
+				new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						input: { type: "dismiss", toolCallId: "q-touch-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+					}),
+				}),
+				{ params: Promise.resolve({ id: chat.id }) },
+			);
+			assert.equal(dismissAck.status, 200, "the committed dismissal acknowledges success");
+			const dismissed = (await chatStore.getChat(chat.id))!.messages.filter(
+				(message) => (message as { toolCallId?: string }).toolCallId === "q-touch-b",
+			);
+			assert.equal(dismissed.length, 1, "the dismissal is committed once");
+			assert.equal(danglingQuestionOf((await chatStore.getChat(chat.id))!.messages), null, "both calls resolved");
+		} finally {
+			chatStore.touchChat = originalTouch;
+		}
+	});
+
 	it("a pending question owes no continuation; explicit continue cannot bypass the pause", async () => {
 		const chat = await createChat("Durable: question pause");
 		const { engine } = scripted([
@@ -656,6 +709,29 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			false,
 			"the hidden continuation input is gone",
 		);
+	});
+
+	it("a missing generation checkpoint fails the request closed instead of using the latest context", async () => {
+		const chat = await createChat("Durable: missing request checkpoint");
+		const runtime = await openChatRuntime(chat.id);
+		const originalGetTask = runtime.harness.getTask;
+		runtime.harness.getTask = (async () => undefined) as typeof runtime.harness.getTask;
+		try {
+			const { engine, calls } = scripted([fauxAssistantMessage([fauxText("LATEST_CONTEXT_LEAK")])]);
+			const ack = await handleChatRequest(post(chat.id, { type: "text", text: "must not reach the provider" }), {
+				engine,
+			});
+			assert.equal(ack.status, 200);
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the faulted request releases the turn");
+			assert.equal(calls.length, 0, "no provider request without the request cutoff");
+			assert.equal(
+				JSON.stringify((await chatStore.getChat(chat.id))!.messages).includes("LATEST_CONTEXT_LEAK"),
+				false,
+				"no model answer from the latest-context fallback",
+			);
+		} finally {
+			runtime.harness.getTask = originalGetTask;
+		}
 	});
 
 	it("a failed generation that commits nothing does not re-arm the auto-continuation", async () => {

@@ -279,20 +279,22 @@ export interface AbortOutcome {
  * route is master's thin composition — this is the job-side mechanism.
  * Four things happen, in order:
  *
- *   1. KILL the spend: fire the job's registered AbortController (the
+ *   1. RECORD the abort intent before touching the runtime: flip the
+ *      record to error "Aborted by learner" and set abortRequested, so a
+ *      failed open still leaves a durable cancellation for the next open
+ *      (the poll reflects the user's action at once; the user chose
+ *      error-with-reason over a distinct cancelled status). finalizeJob
+ *      never overwrites a non-running status, so the flip is terminal no
+ *      matter what the wake does.
+ *   2. KILL the spend: fire the job's registered AbortController (the
  *      runner registered it at loop start) — the in-flight model call
  *      aborts, not just the next loop check. The runner unwinds silently
  *      (its catch checks abortSignal.aborted; finishJob checks status).
- *   2. DROP any queued result steer for this job (the delivering-result
+ *   3. DROP any queued result steer for this job (the delivering-result
  *      phase): resolve its entry without firing the wake. If the wake
  *      turn is ALREADY in flight (the pump shifted the entry), it's too
  *      late — the result steer lands, and the cancellation steer dedupes
  *      against it via steerDelivered (same jobId metadata).
- *   3. FLIP the record to error "Aborted by learner" immediately — the
- *      poll reflects the user's action at once (the user chose
- *      error-with-reason over a distinct cancelled status). finalizeJob
- *      never overwrites a non-running status, so the flip is terminal no
- *      matter what the wake does.
  *   4. STEER the teacher: a one-line abort note (buildAbortSteer) through
  *      the same wake pipeline, so the teacher's promise of a result
  *      doesn't hang silently in the lesson.
@@ -304,6 +306,14 @@ export function abortJob(jobId: string): AbortOutcome {
 	const job = stores.jobStore.getJob(jobId);
 	if (!job) return { ok: false, reason: "not_found" };
 	if (job.status !== "running") return { ok: false, reason: "not_running" };
+
+	const persisted = stores.jobStore.updateJob(jobId, {
+		status: "error",
+		error: "Aborted by learner",
+		activity: "aborted",
+		abortRequested: true,
+	});
+	if (!persisted) return { ok: false, reason: "not_found" };
 
 	const killed = fireJobAbort(jobId); // false when the loop already returned (delivering) or never reattached
 
@@ -323,7 +333,6 @@ export function abortJob(jobId: string): AbortOutcome {
 		}
 	}
 
-	stores.jobStore.updateJob(jobId, { status: "error", error: "Aborted by learner", activity: "aborted" });
 	// A RECOVERED run has no in-process registration until its loop
 	// reattaches: resolve it from the durable index and abort the child
 	// directly, or the model keeps streaming after the record says error.

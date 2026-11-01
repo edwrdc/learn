@@ -34,6 +34,9 @@ export interface JobRecord {
 	 * inferred at read time (core/prices.ts). Absent on pre-2026-09 jobs and
 	 * until the runner's capture lands — renderers show "—", never zero. */
 	usage?: JobUsage;
+	/** Durable learner abort intent, persisted before the runtime abort is
+	 * attempted. A later open must not resume the child without it. */
+	abortRequested?: true;
 }
 
 /** A sub-agent run's accumulated usage — the same accounting shape as a

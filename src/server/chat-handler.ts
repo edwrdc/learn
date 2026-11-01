@@ -588,7 +588,9 @@ export async function handleChatInput(
 		try {
 			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
 			await applyAnswer(chatId, write);
-			await stores.chatStore.touchChat(chatId);
+			await stores.chatStore.touchChat(chatId).catch((err) => {
+				console.error(`[chat ${chatId}] activity touch failed:`, err);
+			});
 		} catch (err) {
 			if (err instanceof ChatInputError) {
 				return Response.json({ error: err.message }, { status: 400 });

@@ -23,6 +23,7 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-dismissal-park-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const { chatStore } = await import("../src/store/chats.ts");
+const { openChatRuntime } = await import("../src/store/durable.ts");
 const { applyParkedDismissal, parkDismissal, takeParkedDismissal } = await import(
 	"../src/server/dismissal-park.ts"
 );
@@ -130,6 +131,36 @@ describe("applyParkedDismissal — against real records", () => {
 		await applyParkedDismissal(chat);
 		// The marker freed the slot — no active problem remains.
 		assert.equal(activeProblemOf((await chatStore.getChat(chat))!.messages), null);
+	});
+
+	it("keeps the park when the write fails, then applies it on retry", async () => {
+		const chat = await chatWithDanglingQuiz("retry");
+		const pending = danglingQuestionOf((await chatStore.getChat(chat))!.messages);
+		assert.ok(pending);
+		parkDismissal(chat, {
+			type: "dismiss",
+			toolCallId: pending!.toolCallId,
+			answer: dismissedAnswer("quiz", "What is a cyclic group?"),
+		});
+		const runtime = await openChatRuntime(chat);
+		const commit = runtime.harness.commit.bind(runtime.harness);
+		let failed = false;
+		runtime.harness.commit = (async (change: never, context: never) => {
+			if (!failed) {
+				failed = true;
+				throw new Error("durable write failed");
+			}
+			return commit(change, context);
+		}) as typeof runtime.harness.commit;
+		try {
+			await assert.rejects(() => applyParkedDismissal(chat), /durable write failed/, "the storage failure surfaces");
+		} finally {
+			runtime.harness.commit = commit as typeof runtime.harness.commit;
+		}
+		assert.equal(await applyParkedDismissal(chat), true, "the retained park applies on retry");
+		assert.equal(danglingQuestionOf((await chatStore.getChat(chat))!.messages), null);
+		assert.ok(answeredCallIds((await chatStore.getChat(chat))!.messages).has(pending!.toolCallId));
+		assert.equal(takeParkedDismissal(chat), null);
 	});
 
 	it("drops a park that targets nothing (never materialized — silence)", async () => {

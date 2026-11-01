@@ -178,20 +178,25 @@ function uniqueCallIdsHook(used: Set<string>) {
  *  continuation INPUT never reaches the provider, and an active compaction
  *  cut projects [summary] + [messages from the kept boundary onward] — the
  *  same context the provider receives. The cut is resolved per turn
- *  (the model-facing half of the app's compaction contract); durable-owned
- *  compaction replaces it in the compaction unit. */
+ *  (the model-facing half of the app's compaction contract); native
+ *  automatic compaction is disabled. */
 function requestFilterHook(runtime: ChatRuntime, cut: { kept: Message; head: Message } | null) {
 	return hook(GenerationTask, {
 		beforeRequest: async (request, api, context) => {
 			// The hook carries no request cutoff; the generation checkpoint does.
 			const task = await runtime.harness.getTask(api.taskId, context);
 			const checkpoint = task?.state.checkpoint as { phase?: string; cutoff?: EntryId } | undefined;
-			const view = await runtime.root.context(
-				context,
-				checkpoint?.phase === "request" && checkpoint.cutoff !== undefined
-					? { at: checkpoint.cutoff }
-					: undefined,
-			);
+			if (checkpoint?.phase !== "request" || checkpoint.cutoff === undefined) {
+				// A hook throw alone is reported and the request continues; mark the
+				// task aborted so the throw is fatal before the provider call.
+				const signal = (api as unknown as { signal: AbortSignal }).signal;
+				void runtime.harness.abortTask(api.taskId, context).catch(() => undefined);
+				if (!signal.aborted) {
+					await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+				}
+				throw new Error(`[chat ${runtime.chatId}] no request checkpoint for task ${api.taskId}`);
+			}
+			const view = await runtime.root.context(context, { at: checkpoint.cutoff });
 			// Tool results are ordered within a round; user messages keep their order.
 			const hidden: boolean[] = [];
 			view.entries.forEach((entry, index) => {

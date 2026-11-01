@@ -48,15 +48,20 @@ export function takeParkedDismissal(chatId: string): DismissInput | null {
  *  Runs in the turn's onFinish, AFTER the run's entries committed and
  *  BEFORE the settle events — a client reacting to "turn-settled" reads the
  *  dismissal already in the record. A ChatInputError means the dismissed
- *  thing never materialized — the park is dropped silently. */
+ *  thing never materialized — the park is dropped silently. Any other write
+ *  failure keeps the park for the next settle. */
 export async function applyParkedDismissal(chatId: string): Promise<boolean> {
-	const input = takeParkedDismissal(chatId);
-	if (input === null) return false;
+	const parked = registry().get(chatId);
+	if (parked === undefined) return false;
 	try {
-		await writeDismissal(chatId, input);
-		return true;
+		await writeDismissal(chatId, parked);
 	} catch (err) {
-		if (err instanceof ChatInputError) return false;
+		if (err instanceof ChatInputError) {
+			if (registry().get(chatId) === parked) registry().delete(chatId);
+			return false;
+		}
 		throw err;
 	}
+	if (registry().get(chatId) === parked) registry().delete(chatId);
+	return true;
 }
