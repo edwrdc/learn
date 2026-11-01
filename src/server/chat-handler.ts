@@ -78,8 +78,8 @@ import { steerDelivered } from "../core/contracts.ts";
 import type { SteerMessage } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import {
-	CONTINUATION_CONTENT,
 	CONTINUATION_KIND,
+	CONTINUATION_TEXT,
 	appendMessages,
 	modelTextOf,
 	openChatRuntime,
@@ -684,7 +684,7 @@ export async function handleChatInput(
 					}
 				: {
 						type: "input",
-						content: CONTINUATION_CONTENT as never,
+						content: CONTINUATION_TEXT,
 						whenBusy: "reject",
 						requestId: admission.requestId,
 						entry: { kind: CONTINUATION_KIND } as never,

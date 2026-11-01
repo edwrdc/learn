@@ -20,7 +20,7 @@ import {
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import { defineExtension, defineTool, type LiveState } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn, settledTurnResponse, abortTurn } from "../src/server/turn-runs.ts";
@@ -31,6 +31,8 @@ import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from 
 import { chatStore } from "../src/store/chats.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import {
+	CONTINUATION_KIND,
+	appendEntries,
 	appendMessages,
 	closeChatRuntime,
 	durableDir,
@@ -573,7 +575,86 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		assert.equal(calls.length, 1);
 		assert.ok(
 			calls[0]!.some((content) => content === JSON.stringify("[continue]")),
-			"the learner's literal string is not the hidden structured input",
+			"the learner's literal string reaches the provider",
+		);
+	});
+
+	it("a legacy structured learner text equal to the continuation sentinel survives the next request", async () => {
+		const chat = await createChat("Durable: structured continuation sentinel");
+		await appendMessages(chat.id, [
+			{
+				id: "u-structured-sentinel",
+				role: "user",
+				content: [{ type: "text", text: "[continue]" }],
+				timestamp: 1,
+			} as never,
+		]);
+		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("structured accepted")])]);
+		await turn(chat.id, { type: "text", text: "after the legacy message" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the turn settles");
+		assert.ok(
+			calls[0]!.some((content) => content === JSON.stringify([{ type: "text", text: "[continue]" }])),
+			"the imported structured learner message reaches the provider",
+		);
+	});
+
+	it("a legacy structured hidden continuation entry is filtered by kind", async () => {
+		const chat = await createChat("Durable: legacy structured hidden");
+		await appendEntries(chat.id, [
+			{
+				kind: CONTINUATION_KIND,
+				model: [
+					{
+						role: "user" as const,
+						content: [{ type: "text" as const, text: "[continue]" }],
+						timestamp: 1,
+					},
+				],
+			},
+		]);
+		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("ok")])]);
+		await turn(chat.id, { type: "text", text: "visible" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the turn settles");
+		assert.equal(
+			calls[0]!.some((content) => content === JSON.stringify([{ type: "text", text: "[continue]" }])),
+			false,
+			"the legacy structured hidden input never reaches the provider",
+		);
+		assert.ok(calls[0]!.some((content) => content === JSON.stringify("visible")), "the learner's text survives");
+	});
+
+	it("a learner and the hidden continuation with the same text drop only the hidden input", async () => {
+		const chat = await createChat("Durable: identical continuation text");
+		await appendMessages(chat.id, [
+			{
+				id: "u-identical-sentinel",
+				role: "user",
+				content: [{ type: "text", text: "[continue]" }],
+				timestamp: 7,
+			} as never,
+		]);
+		const { engine, calls } = scripted([
+			fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-identical" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("answered")]),
+		]);
+		await turn(chat.id, { type: "text", text: "pose" }, engine);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the pose settles");
+		await turn(
+			chat.id,
+			{ type: "answer", toolCallId: "call-identical", answer: gradedAnswer(["Mercury"]) },
+			engine,
+		);
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the reaction settles");
+		const reaction = calls[1]!;
+		assert.equal(
+			reaction.filter((content) => content === JSON.stringify([{ type: "text", text: "[continue]" }])).length,
+			1,
+			"the learner's structured message survives",
+		);
+		assert.equal(
+			reaction.some((content) => content === JSON.stringify("[continue]")),
+			false,
+			"the hidden continuation input is gone",
 		);
 	});
 
@@ -692,6 +773,81 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			assert.equal((await chatStore.getChat(chat.id))!.turns?.length ?? 0, 2, "the fallback is billed");
 		} finally {
 			chatStore.appendTurnUsage = originalAppendUsage;
+		}
+	});
+
+	it("a steer placed at the native final boundary stays inside the managed turn", async () => {
+		const chat = await createChat("Durable: final boundary steer");
+		let releaseFirst!: () => void;
+		const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve));
+		let releaseSecond!: () => void;
+		const secondGate = new Promise<void>((resolve) => (releaseSecond = resolve));
+		let firstStarted = false;
+		let secondStarted = false;
+		let requests = 0;
+		const faux = createFauxCore({});
+		faux.setResponses([
+			(async () => {
+				firstStarted = true;
+				await firstGate;
+				return fauxAssistantMessage([fauxText("first reply")]);
+			}) as FauxResponseStep,
+			(async () => {
+				secondStarted = true;
+				await secondGate;
+				return fauxAssistantMessage([fauxText("reply to the steer")]);
+			}) as FauxResponseStep,
+		]);
+		const engine: PiEngine = {
+			model: faux.getModel(),
+			streamFn: (model, context, options) => {
+				requests++;
+				return faux.streamSimple(model, context, options);
+			},
+		};
+		await handleChatRequest(post(chat.id, { type: "text", text: "start" }), { engine });
+		const handle = runningTurn(chat.id);
+		assert.ok(handle, "the turn is registered");
+		const runtime = await openChatRuntime(chat.id);
+		try {
+			await waitFor(() => firstStarted, 8000, "the first provider request starts");
+			const firstView = await runtime.root.viewState(BACKGROUND_CONTEXT);
+			const firstRun = (firstView.value.docs["pi.live"] as LiveState | undefined)?.run?.taskId;
+			firstView.dispose();
+			assert.ok(firstRun, "the first native run is live");
+			assert.equal(
+				await steerLiveChat(
+					chat.id,
+					{ id: "steer-final", role: "user", content: "also explain", timestamp: 1 } as never,
+				),
+				true,
+				"the steer is admitted to the live run",
+			);
+			releaseFirst();
+			await waitFor(() => secondStarted, 8000, "the final boundary started the follow-up run");
+			const secondView = await runtime.root.viewState(BACKGROUND_CONTEXT);
+			const secondRun = (secondView.value.docs["pi.live"] as LiveState | undefined)?.run?.taskId;
+			secondView.dispose();
+			assert.ok(secondRun, "the follow-up native run is live");
+			assert.notEqual(secondRun, firstRun, "the final boundary started a NEW native run");
+			assert.equal(runningTurn(chat.id), handle, "one handle still claims the turn");
+			assert.equal(await isTurnRunning(chat.id), true, "the claim is held through the follow-up");
+			releaseSecond();
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the managed turn settles");
+			assert.equal(runningTurn(chat.id), undefined, "the handle unregisters once");
+			const wire = await new Response(handle.subscribe()).text();
+			assert.equal(wire.match(/"type":"agent_end"/g)?.length ?? 0, 1, "one agent_end");
+			assert.equal(requests, 2, "both responses used the bound engine");
+			const settled = (await chatStore.getChat(chat.id))!;
+			assert.equal(settled.turns?.length ?? 0, 1, "one TurnUsage");
+			assert.equal(settled.turns![0]!.steps.length, 2, "both assistant entries billed to the turn");
+			assert.ok(
+				settled.messages.some((message) => JSON.stringify(message.content).includes("also explain")),
+				"the steer is in the record",
+			);
+		} finally {
+			releaseFirst();
+			releaseSecond();
 		}
 	});
 

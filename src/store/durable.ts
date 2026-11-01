@@ -43,12 +43,10 @@ import { APP_IDENTITY, routedModels, unbindRunEngine } from "../agent/models.ts"
 export const CONTINUATION_KIND = "lh.continuation";
 
 /** The continuation input's content. Never model-visible; a readable
- *  sentinel so a dropped hook shows up as this line, not as silence. It is
- *  a STRUCTURED user message because every learner text the app writes is a
- *  string: the request hook hides exactly this shape, and a learner who types
- *  the sentinel keeps their message. */
+ *  sentinel so a dropped hook shows up as this line, not as silence. The
+ *  request hook hides the `lh.continuation` ENTRY, so a learner message
+ *  with the same text (string or structured) keeps reaching the provider. */
 export const CONTINUATION_TEXT = "[continue]";
-export const CONTINUATION_CONTENT = Object.freeze([{ type: "text" as const, text: CONTINUATION_TEXT }]);
 
 /** Every entry kind this app writes. Durable reserves the `pi.` prefix. */
 export type LhEntryKind =

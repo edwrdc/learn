@@ -12,7 +12,7 @@
  * seam are all read fresh. `configure()` writes only what changed.
  */
 
-import { defineExtension, GenerationTask, hook, type ToolRegistration } from "@earendil-works/pi-durable";
+import { defineExtension, GenerationTask, hook, type EntryId, type ToolRegistration } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "../core/pending.ts";
@@ -29,7 +29,7 @@ import { providerEventObserver } from "../agent/provider-events.ts";
 import { claimToolCallId, collectToolCallIds } from "./pi/call-ids.ts";
 import { activeCompactionOf, keptIndexFor } from "../core/compaction.ts";
 import {
-	CONTINUATION_TEXT,
+	CONTINUATION_KIND,
 	modelTextOf,
 	type ChatRuntime,
 } from "../store/durable.ts";
@@ -110,18 +110,6 @@ function toolsFor(
 	);
 }
 
-/** The continuation input is bookkeeping: its user message must never reach
- *  the provider (the reaction it starts reads the answer tool result). The
- *  structured content is what the app never writes for a learner message. */
-function isContinuation(message: Message): boolean {
-	if (message.role !== "user" || !Array.isArray(message.content)) return false;
-	return (
-		message.content.length === 1 &&
-		(message.content[0] as { type?: string; text?: string }).type === "text" &&
-		(message.content[0] as { text?: string }).text === CONTINUATION_TEXT
-	);
-}
-
 /** The wire form of one record message (what the provider saw for it). */
 function wireOf(message: LhMessage): Message | null {
 	if (message.role === "custom") {
@@ -187,20 +175,35 @@ function uniqueCallIdsHook(used: Set<string>) {
 }
 
 /** The app's request shaping, at the one boundary durable offers: the hidden
- *  continuation message never reaches the provider, and an active compaction
+ *  continuation INPUT never reaches the provider, and an active compaction
  *  cut projects [summary] + [messages from the kept boundary onward] — the
  *  same context the provider receives. The cut is resolved per turn
  *  (the model-facing half of the app's compaction contract); durable-owned
  *  compaction replaces it in the compaction unit. */
-function requestFilterHook(cut: { kept: Message; head: Message } | null) {
-	if (cut === null) {
-		return hook(GenerationTask, {
-			beforeRequest: ({ messages }) => ({ messages: messages.filter((message) => !isContinuation(message)) }),
-		});
-	}
+function requestFilterHook(runtime: ChatRuntime, cut: { kept: Message; head: Message } | null) {
 	return hook(GenerationTask, {
-		beforeRequest: ({ messages }) => {
-			const filtered = messages.filter((message) => !isContinuation(message));
+		beforeRequest: async (request, api, context) => {
+			// The hook carries no request cutoff; the generation checkpoint does.
+			const task = await runtime.harness.getTask(api.taskId, context);
+			const checkpoint = task?.state.checkpoint as { phase?: string; cutoff?: EntryId } | undefined;
+			const view = await runtime.root.context(
+				context,
+				checkpoint?.phase === "request" && checkpoint.cutoff !== undefined
+					? { at: checkpoint.cutoff }
+					: undefined,
+			);
+			// Tool results are ordered within a round; user messages keep their order.
+			const hidden: boolean[] = [];
+			view.entries.forEach((entry, index) => {
+				for (const message of view.contributions[index] ?? []) {
+					if (message.role === "user") hidden.push(entry.kind === CONTINUATION_KIND);
+				}
+			});
+			let ordinal = 0;
+			const filtered = request.messages.filter((message) =>
+				message.role === "user" ? hidden[ordinal++] !== true : true,
+			);
+			if (cut === null) return { messages: filtered };
 			const markerText = (cut.head.content as Array<{ text?: string }>)[0]?.text;
 			const withoutMarker = filtered.filter(
 				(message) =>
@@ -261,7 +264,7 @@ export async function prepareConversation(
 		hooks: [
 			questionStopHook(chatId),
 			uniqueCallIdsHook(new Set(collectToolCallIds(messages))),
-			requestFilterHook(cut),
+			requestFilterHook(runtime, cut),
 		],
 	});
 	runtime.registry.install(extension);
