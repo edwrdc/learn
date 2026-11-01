@@ -14,9 +14,27 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createExtractionPipeline } from "../src/agent/subagents/extraction.ts";
 import { getGraph } from "../src/core/graph.ts";
 import { effectiveSettings, stores } from "../src/server/stores.ts";
+import { providerKeyMissing } from "../src/core/settings.ts";
+// The composition root's side effects: the durable runtime bootstrap and the
+// background-run seam the extraction stages ride.
+import { providerHasKey, resolveEngine } from "../src/server/chat-handler.ts";
+
+/** The script's extraction pipeline: the same role chain and key gate the
+ *  server's own pipeline uses (the one composition, read fresh). */
+export function createNotesPipeline(): ReturnType<typeof createExtractionPipeline> {
+	return createExtractionPipeline({
+		...stores,
+		engineFor: (role) => resolveEngine(role),
+		providerKeyMissing: (provider, tier) =>
+			providerHasKey(provider) ? null : providerKeyMissing(provider, [tier]),
+		// Live budget: the graph section's setting, same as the app's trigger
+		getChunkTokens: () => effectiveSettings().graph.extractionChunkTokens,
+	});
+}
 
 async function main() {
 	const dir = process.argv[2] ?? "real-data-extraction/learn-sessions";
@@ -27,11 +45,7 @@ async function main() {
 		.sort();
 	console.log(`[import-notes] ${files.length} note files from ${dir} (concurrency ${limit})`);
 
-	const pipeline = createExtractionPipeline({
-		...stores,
-		// Live budget: the graph section's setting, same as the app's trigger
-		getChunkTokens: () => effectiveSettings().graph.extractionChunkTokens,
-	});
+	const pipeline = createNotesPipeline();
 	const queue = [...files];
 	const totals = { nodes: 0, chains: 0, failed: 0 };
 	const workers = Array.from({ length: Math.min(limit, files.length) }, async () => {
@@ -62,4 +76,6 @@ async function main() {
 	);
 }
 
-main();
+const invokedAsCli =
+	process.argv[1] != null && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (invokedAsCli) await main();
