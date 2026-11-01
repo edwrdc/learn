@@ -830,8 +830,8 @@ describe("pdf runner (sources v0)", () => {
 
 describe("researcher agent", () => {
 	it("runs with the web tool set (no network touched)", async () => {
-		// The researcher is a runSubagent call over the webTools registry —
-		// the tool set is what the loop sees.
+		// The researcher role's tool set is webTools — that is what its
+		// durable run sees.
 		assert.ok(webTools.web_search, "web_search available");
 		assert.ok(webTools.web_fetch, "web_fetch available");
 		assert.equal(Object.keys(webTools).length, 2, "ONLY the web tools — no question/plan tools");
