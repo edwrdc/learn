@@ -78,8 +78,8 @@ import { steerDelivered } from "../core/contracts.ts";
 import type { SteerMessage } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import {
+	CONTINUATION_CONTENT,
 	CONTINUATION_KIND,
-	CONTINUATION_TEXT,
 	appendMessages,
 	modelTextOf,
 	openChatRuntime,
@@ -137,7 +137,7 @@ setTurnRunner(async (chatId, input) => {
 	return res.status;
 });
 
-function providerHasKey(provider: string): boolean {
+export function providerHasKey(provider: string): boolean {
 	return provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customEndpointKeyPresent() : providerKeyPresent(provider);
 }
 
@@ -145,7 +145,7 @@ function providerHasKey(provider: string): boolean {
  *  the chain (role override → slot → NOTHING) may end empty, and undefined
  *  flows through to the per-need refusal gates (runner/extraction), read
  *  FRESH so a settings PUT between dispatch and spawn lands. */
-function resolveEngine(role: ModelRole): PiEngine | undefined {
+export function resolveEngine(role: ModelRole): PiEngine | undefined {
 	syncCustomEndpointProvider();
 	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
 	if (!spec) return undefined;
@@ -305,7 +305,11 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	try {
 		claimed = await claimTurnSettle(runtime, turn.turnId);
 	} catch (error) {
+		// A COMMIT error is not a false claim: the durable mark may still say
+		// running, so run the idempotent services and release the in-process
+		// claim now instead of wedging the chat until the 30-minute TTL.
 		console.error(`[chat ${chatId}] turn settle claim failed:`, error);
+		claimed = true;
 	}
 	if (!claimed) return;
 	try {
@@ -322,10 +326,10 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		if (record !== null && record.kind !== "practice" && extractionEnabled(effective.graph)) {
 			await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
 		}
-		// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
+		// PARKED DISMISSAL: a dismissal that arrived
 		// mid-turn was parked by the dismiss route; apply it against the
 		// settled record now.
-		await applyParkedDismissal(chatId);
+		if (await applyParkedDismissal(chatId)) await stores.chatStore.touchChat(chatId);
 		await markTurnSettled(runtime, turn.turnId);
 	} catch (error) {
 		// The mark stays "settling": the next open re-runs these idempotent
@@ -340,7 +344,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// Any marker still queued (a steer stranded behind the question stop or
 	// the abort) goes back through the pump's gates.
 	repumpSteers(chatId);
-	// THE SETTLE KICK (owner round 14): if the projection is now over
+	// THE SETTLE KICK: if the projection is now over
 	// threshold, the summary starts in the background INSIDE the learner's
 	// reading/answering pause.
 	if (process.env.NODE_ENV !== "test")
@@ -520,7 +524,7 @@ export async function handleChatInput(
 	const phaseBeforeTurn = chatPhase(record.messages, record.kind);
 	const modelId = `${engine.model.provider}:${engine.model.id}`;
 
-	// THE COMPACTION GATE (owner round 14, 2026-10-05): NOTHING model-facing
+	// THE COMPACTION GATE: NOTHING model-facing
 	// for this chat interleaves with a running compaction — await the settle
 	// kick's summary, compact synchronously if still over threshold. The
 	// record re-reads after because compaction appends the marker.
@@ -541,7 +545,7 @@ export async function handleChatInput(
 	record = (await stores.chatStore.getChat(chatId)) ?? record;
 
 	// The input's native appends (pure; the honest 400 for an answer with no
-	// pending question call). Wave C: the idle wake carries EVERY queued
+	// pending question call). The idle wake carries EVERY queued
 	// marker (steerDelivered filters a re-fire of an already-landed one).
 	let appends: LhMessage[];
 	try {
@@ -561,18 +565,30 @@ export async function handleChatInput(
 	// transcript append, so this is reachable).
 	if (input.type === "steers" && appends.length === 0) return settledTurnResponse();
 
-	// THE PARALLEL-QUESTION GATE (owner, 2026-10-03 — the deepseek parallel
-	// batch incident): an answer that leaves a SIBLING question pending
+	// THE QUESTION-PAUSE GENERATION GATE: while any question is unanswered,
+	// an explicit continue or a wake carrying late results may not start a
+	// generation (the phantom mount continuation after a pose). The answer
+	// path below is the only way through; it replaces the placeholder before
+	// any run. A steer wake gets 409 so the pump retries, never a fake
+	// delivery.
+	if ((input.type === "continue" || input.type === "steers") && danglingQuestionOf(record.messages) !== null) {
+		if (input.type === "steers") {
+			return Response.json({ error: "A question is pending" }, { status: 409 });
+		}
+		return settledTurnResponse();
+	}
+
+	// THE PARALLEL-QUESTION GATE: an answer that leaves a SIBLING question pending
 	// defers its wake. The dock advances to the next question (the answer
 	// write + record-changed carry the view); the LAST answer fires the one
 	// reaction turn with every result ADJACENT to its calling assistant
-	// message — the provider shape law. Nothing else can generate while a
-	// question dangles (job wakes wait, continuation folds refuse, the
-	// composer gates), so adjacency holds by construction.
+	// message — the provider shape law. The gate above is the server's one
+	// generation boundary; this branch is the answer's cheap terminal.
 	if (input.type === "answer" && danglingQuestionOf([...record.messages, appends[0]!]) !== null) {
 		try {
 			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
 			await applyAnswer(chatId, write);
+			await stores.chatStore.touchChat(chatId);
 		} catch (err) {
 			if (err instanceof ChatInputError) {
 				return Response.json({ error: err.message }, { status: 400 });
@@ -615,10 +631,17 @@ export async function handleChatInput(
 		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
 		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
 	}
+	await stores.chatStore.touchChat(chatId).catch((err) => {
+		console.error(`[chat ${chatId}] activity touch failed:`, err);
+	});
 
 	const turnUsageId = crypto.randomUUID();
-	const baseEntryCount = (await readEntries(runtime)).length;
-	const baseMessages = projectEntries(await readEntries(runtime));
+	const admittedEntries = await readEntries(runtime);
+	const baseEntryCount = admittedEntries.length;
+	const baseMessages = projectEntries(admittedEntries);
+	// The live view starts at the admission boundary, exactly like recovery:
+	// replaying the whole chat would resend every earlier reply and tool round.
+	const replayAfter = baseEntryCount > 0 ? admittedEntries[baseEntryCount - 1]!.id : undefined;
 	const phase = chatPhase(baseMessages, record.kind);
 	// The durable admission descriptor: everything a later process needs to
 	// rebuild this turn's finish path (see turn-service's ForegroundTurn).
@@ -645,7 +668,7 @@ export async function handleChatInput(
 			tools: turn?.tools,
 			phase,
 		});
-		// Debug recorder run marker (owner, 2026-10-04): correlates the
+		// Debug recorder run marker: correlates the
 		// JSONL event stream with the record's turns; no-op unless
 		// LH_PROVIDER_EVENTS=1.
 		providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
@@ -661,7 +684,7 @@ export async function handleChatInput(
 					}
 				: {
 						type: "input",
-						content: CONTINUATION_TEXT as never,
+						content: CONTINUATION_CONTENT as never,
 						whenBusy: "reject",
 						requestId: admission.requestId,
 						entry: { kind: CONTINUATION_KIND } as never,
@@ -681,6 +704,7 @@ export async function handleChatInput(
 		runtime,
 		chatId,
 		submission,
+		replayAfter,
 		onError: (error) => {
 			console.error(`[chat ${chatId}] turn error:`, error);
 			return "An error occurred.";
@@ -698,7 +722,7 @@ export async function handleChatInput(
 	void submission.wait(BACKGROUND_CONTEXT).catch((error) => {
 		console.error(`[chat ${chatId}] submission failed:`, error);
 	});
-	// CONNECTION DIET B (owner, 2026-10-10): the POST acknowledges acceptance
+	// CONNECTION DIET B: the POST acknowledges acceptance
 	// and closes; the turn runs server-side and every view attaches through
 	// GET /api/chats/[id]/stream.
 	return Response.json({ ok: true });
