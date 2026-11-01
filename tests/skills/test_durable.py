@@ -351,6 +351,25 @@ class DurableFailureTest(unittest.TestCase):
         self.assertNotEqual(response.returncode, 0)
         self.assertIn("outside", response.stderr)
 
+    def test_symlinked_durable_sidecars_cannot_escape_the_data_folder(self):
+        database = self.root / "durable" / CHAT / "harness.sqlite"
+        database.parent.mkdir(parents=True)
+        database.write_bytes(b"not a sqlite database")
+        outside = Path(self.temporary.name) / "outside.txt"
+        outside.write_text("not learning data", encoding="utf-8")
+        for suffix in ("-wal", "-shm"):
+            with self.subTest(suffix=suffix):
+                sidecar = database.with_name(database.name + suffix)
+                try:
+                    sidecar.symlink_to(outside)
+                except (OSError, NotImplementedError):
+                    self.skipTest("Symlinks are unavailable")
+                try:
+                    with self.assertRaisesRegex(_data.DataError, "outside"):
+                        _data.read_chat(self.root, CHAT)
+                finally:
+                    sidecar.unlink()
+
     def test_invalid_metadata_shapes_are_refused(self):
         for changes, message in (
             ({"version": 3}, "Update the skill"),

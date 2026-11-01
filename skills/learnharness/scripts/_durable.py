@@ -193,6 +193,9 @@ def _read_database(path: Path) -> list[dict[str, Any]]:
 def read_transcript(root: Path, session_id: str) -> list[dict[str, Any]]:
     """The chat's stored record messages, projected from its durable entries."""
     database = safe_path(root, Path("durable") / session_id / "harness.sqlite")
+    relative = database.relative_to(root.resolve())
+    for suffix in ("-wal", "-shm"):
+        safe_path(root, relative.with_name(database.name + suffix))
     if not database.is_file():
         raise DataError(
             f"Session {session_id} has no durable transcript at {database}. "
