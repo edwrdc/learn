@@ -143,6 +143,45 @@ test("an edited message is a ContextEdit over the entry that owns it", async () 
 	assert.deepEqual(entries[1]!.edits?.map((e) => e.target), [entries[0]!.id]);
 });
 
+test("repeated upserts of one message target its original entry, so the newest edit is the visible one", async () => {
+	const chat = chatStore.createChat("edit-twice");
+	const first = newUserMessage("first edit");
+	const second = newUserMessage("second edit");
+	await chatStore.saveMessages(chat.id, [first]);
+	await chatStore.saveMessages(chat.id, [{ ...first, content: "first edit" }]);
+	await chatStore.saveMessages(chat.id, [{ ...first, content: "second edit" }]);
+
+	const record = await chatStore.getChat(chat.id);
+	assert.deepEqual(record!.messages.map((m) => m.content), ["second edit"], "the newest edit is the record");
+	assert.equal(record!.messages[0]!.id, first.id, "the app id is stable across edits");
+	assert.deepEqual(toLlmMessages(record!.messages).map((m) => (m as { content: string }).content), ["second edit"], "the model sees the newest edit too");
+
+	const runtime = await openChatRuntime(chat.id);
+	const entries = await readEntries(runtime);
+	assert.equal(entries.length, 3, "two immutable edit entries over the original");
+	assert.deepEqual(entries[1]!.edits?.map((e) => e.target), [entries[0]!.id]);
+	assert.deepEqual(entries[2]!.edits?.map((e) => e.target), [entries[0]!.id], "the second edit targets the ORIGINAL entry");
+	const { entryOf } = projectTranscript(entries);
+	assert.equal(entryOf.get(first.id), entries[0]!.id, "projected ids point at the original owner");
+
+	const steer = {
+		id: "steer_twice",
+		role: "custom" as const,
+		customType: "subagent-steer" as const,
+		content: "done",
+		display: true,
+		details: { ui: 1 },
+		timestamp: 3,
+	};
+	await chatStore.saveMessages(chat.id, [steer]);
+	await chatStore.saveMessages(chat.id, [{ ...steer, details: { ui: 2 } }]);
+	await chatStore.saveMessages(chat.id, [{ ...steer, details: { ui: 3 } }]);
+	const marker = (await chatStore.getChat(chat.id))!.messages.find((m) => m.id === steer.id) as {
+		details: { ui: number };
+	};
+	assert.deepEqual(marker.details, { ui: 3 }, "marker edits chain on the original marker entry too");
+});
+
 test("metadata (tree, settings, usage logs) lives in the JSON, not the transcript", async () => {
 	const chat = chatStore.createChat("metadata", "practice");
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "x" } });
