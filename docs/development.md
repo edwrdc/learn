@@ -2,7 +2,7 @@
 
 The developer README (split out of the storefront README, 2026-10-10). Everything below is for people working ON LearnHarness, not using it.
 
-A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; the Vercel AI SDK's `UIMessage` protocol end-to-end, LLM engine [pi-ai](docs/pi-engine-swap.md) via OpenRouter), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
+A standalone learning app (web + Electron desktop): a **teacher agent** (Next.js; an app-owned input-event and turn-event SSE protocol, a durable [pi-durable](https://www.npmjs.com/package/@earendil-works/pi-durable) Harness with one SQLite database per chat, LLM engine [pi-ai](docs/pi-engine-swap.md) via OpenRouter), probe→teach lessons with graded quiz/ask interactions, a formal **session plan tree** the teacher authors once (`plan_init`) and whose progress is derived from tagged quiz calls, and a persistent cross-session **knowledge graph** of what the learner knows — the graph is the app's home page.
 
 Not a chat app with a graph bolted on: sessions are probe→teach lessons, the plan tree is a structured, schema-validated object, sessions accumulate into the graph through the extraction pipeline (propositions + reasoning chains — the stored truth; the canvas renders a derived image), and the teacher reaches back into the graph through read-only prober tools on its own judgment so probing compounds across sessions.
 
@@ -60,14 +60,14 @@ flowchart TB
         UI["session UI · question dock · plan panel · graph canvas · activity dock · sidebar"]
     end
 
-    subgraph CLASSROOM["CLASSROOM — session engine (owns data/chats)"]
-        TURN["turn pipeline — handleChatRequest:<br/>liveness · steer claiming · write-ahead persist · stream"]
-        AGENTS["prober → teacher agents<br/>(stateless per-turn, built from the record)"]
-        CHATDATA[("chat records<br/>data/chats/*.json")]
+    subgraph CLASSROOM["CLASSROOM — session engine (owns data/chats metadata + data/durable)"]
+        TURN["turn pipeline — handleChatInput:<br/>liveness · durable admission · turn view · settle"]
+        AGENTS["prober → teacher agents<br/>(durable Harness, one owner per chat)"]
+        CHATDATA[("metadata — data/chats/*.json<br/>transcript — data/durable/&lt;chatId&gt;/harness.sqlite")]
     end
 
     subgraph WORKBENCH["WORKBENCH — background labor (owns data/jobs)"]
-        SUBS["researcher · demo-builder · visual-maker<br/>(pi agents driven to completion)"]
+        SUBS["researcher · demo-builder · visual-maker · PDF · extractor/auditor<br/>(durable child conversations)"]
         WAKE["wake pipeline — per-chat serialized steer delivery,<br/>server-side wake turns, crash recovery"]
     end
 
@@ -82,7 +82,7 @@ flowchart TB
     end
 
     LEARNER -->|"text · graded answers"| UI
-    UI -->|"POST /api/chat + addToolOutput"| TURN
+    UI -->|"POST /api/chat (one input event)"| TURN
     TURN -->|"quiz / ask stream to browser<br/>(client tools, no server execute)"| UI
     TURN --> CHATDATA
     TURN -->|"spawn(job) — fire-and-forget ack"| SUBS
@@ -121,15 +121,14 @@ src/
                                 extraction pipeline (extractor/auditor + merger handoff),
                                 runner (async protocol), native renderers + browser-service helper,
                                 abort registry
-  server/chat-handler.ts       THE turn composition root (liveness · steers · persist · stream)
-  server/turn-service.ts       turn seams: persist · extraction trigger
+  server/chat-handler.ts       THE turn composition root (liveness · durable admission · recovery · settle)
+  server/turn-service.ts       turn seams: answer writes · turn descriptor/settle · plan blocks · usage · extraction trigger
   server/jobs.ts               the wake pipeline: serialized per-chat steer delivery,
                                server-side wake turns, crash recovery
   server/stores.ts              THE storage composition root — the one place adapters wire in
   server/turn-liveness.ts       per-chat turn registry (one turn per chat, ever)
   server/observability.ts       the activity feed (running jobs + extraction, abort)
-  server/pi/                    the engine bridge: record-adapter (record → pi messages)
-                                · ui-stream (pi events → UIMessage SSE)
+  server/pi/                    the durable turn view (durable-turn) · tool-call id hygiene (call-ids)
   server/index.ts               the server barrel (the only server import app/ may use)
   core/contracts/{plan,graph,chat,jobs,probe,models}.ts
                                 the contracts — one file per domain
@@ -145,18 +144,19 @@ electron/                       desktop launcher + security guard (spawns the st
                                 server; 1 IPC channel; LH_DATA_DIR + BYOK env)
 scripts/                        build-server.mjs (packaging guards), import-notes,
                                 backfill-graph, replay-layout, sync-pricing
-data/                           chats/ · graph/ (nodes/chains/sessions/coverage
-                                ledgers + positions/sources/render-settings maps) ·
-                                jobs/ · settings.json — runtime state, git-ignored
+data/                           chats/ (metadata) · durable/ (per-chat SQLite
+                                transcript/runs) · graph/ (nodes/chains/sessions/
+                                coverage ledgers + positions/sources/render-settings
+                                maps) · jobs/ · settings.json — runtime state, git-ignored
 ```
 
 ## Key mechanisms
 
-**Client-side question tools.** `quiz` and `ask_user_question` have no server `execute`: the tool call streams to the browser, the learner answers in the dock, the client grades via `question-core` and returns the verdict with `addToolOutput` — which fires the SDK continuation so the teacher resumes mid-turn. Options are shuffled deterministically (seeded by toolCallId) so server and client renders match. A pending quiz persisted in the chat record is exactly what makes **resume mid-question free**.
+**Question tools pause the run.** `quiz` and `ask_user_question` execute on the server and commit a placeholder result (`details: null`). The patched afterTools stop ends the run and parks the inbox, so no queued steer starts a model call before the learner answers. The client grades in the dock via `question-core`; the answer replaces the placeholder through a ContextEdit, and the hidden continuation input starts the reaction run. Options are shuffled deterministically (seeded by toolCallId) so server and client renders match. A pending quiz persisted in the transcript is exactly what makes **resume mid-question free**.
 
 **The formal plan tree (author-once).** The teacher authors the session's dependency tree with one schema-validated tool — `plan_init`, whose mermaid-subset input is parsed deterministically (line-numbered errors) and validated as a DAG. The tree persists in the chat record; progress is never mutated — `current`/`visited`/upcoming are **derived** from tagged quiz calls in the transcript, and the panel renders that derivation.
 
-**The async sub-agent protocol (ack-and-steer).** `research` / `demo` / `visual` are server-executed tools: the call resolves immediately mid-turn with a fire-and-forget ack and the teacher keeps teaching; a background runner works in parallel (the client polls `/api/activity` and `/api/jobs`). On completion the runner builds a **steer message** — a user-role `UIMessage` whose text part is the model-facing result and whose `data-subagent-artifact` part carries the full result for the client — and the **wake pipeline** delivers it: a per-chat serialized queue waits for the turn to end and no question to be pending, then fires a server-side teacher turn that weaves the result into the lesson. Delivery is exactly-once (deterministic steer ids, delivered-flag checks at every claim point); stalled jobs are recovered on read; aborted jobs deliver an abort steer. The client adopts the wake turn through the same `turnInFlight` machinery as returning mid-stream (busy shimmer, composer gate) and renders steers as artifacts — never a bubble. Sub-agents **verify, never one-shot**: the demo-builder executes its HTML in the app's own Chromium browser-service (system Chrome fallback) before delivery; the visual-maker rasterizes each SVG natively and looks at it (vision-capable model — the `vision` slot in settings).
+**The async sub-agent protocol (ack-and-steer).** `research` / `demo` / `visual` are server-executed tools: the call resolves immediately mid-turn with a fire-and-forget ack and the teacher keeps teaching; a background runner works in parallel (the client polls `/api/activity` and `/api/jobs`). On completion the runner builds a **steer marker** (an `lh.marker` entry whose model-facing text is the result and whose details carry the artifact) and the **wake pipeline** delivers it. A live turn takes the marker into its durable inbox (`whenBusy: steer`) and places it at the next boundary inside the same run. With no live turn, a per-chat serialized queue waits for the turn to end and no question to be pending, then fires a server-side teacher turn carrying every queued marker. A posed question parks the inbox until the learner answers. Delivery is exactly-once (deterministic steer ids, delivered-flag checks at every claim point); stalled jobs are recovered on read; aborted jobs deliver an abort steer. The client adopts the wake turn through the same `turnInFlight` machinery as returning mid-stream (busy shimmer, composer gate) and renders steers as artifacts — never a bubble. Sub-agents **verify, never one-shot**: the demo-builder executes its HTML in the app's own Chromium browser-service (system Chrome fallback) before delivery; the visual-maker rasterizes each SVG natively and looks at it (vision-capable model — the `vision` slot in settings).
 
 **The knowledge graph (two channels, one writer).** The write channel: the extraction pipeline — extractor (LLM: sees the source — the session's teacher prose or a notes chunk — plus its own source's digest (**THE GRAPH SO FAR**: propositions + chains already extracted from this source, ids verbatim — digest-aware redesign, 2026-09-30 evening: the extractor IS the assembler, referencing existing ids instead of restating, leaning on established conclusions as premises); fully trusted; its deliverable is core ideas + reasoning chains: premises that jointly entail a conclusion, submitted as chains and stored as chains — `chains.jsonl` is the truth, edges a derived view; owner redesign + chains-primary, 2026-09-30) → auditor (LLM, an agentic loop that never sees the source: explores the existing graph through `find` / `list_sessions` / `list_propositions` tools and stamps each proposition with an identity verdict — link to an existing node (equivalence bias: paraphrases merge) or create) → merger (`mergeFindings`, deterministic: applies the verdicts, link-appends phrasings/provenance, resolves and dedupes chains — identical arguments merge under one `arg_` id; then the chain-simplification pass strips provably redundant derivations — prefer-fewest-premises + ancestry-cover — checkpoints coverage) → layout settle. A source's batches run strictly in order (each extractor continues the digest of every earlier merge). No quiz outcomes or understanding assessments live in the graph (2026-09-27 cleanup); practice (`/practice`) consumes the graph as feedback-only problem sets and writes nothing back. Triggered when a chat's **uncovered tokens** (message-view fingerprints, `coverage.jsonl`) cross `graph.extractionChunkTokens` (a settings knob, default 8192, floor 500 — read fresh per turn); failure checkpoints nothing, the next trigger re-runs. The same pipeline serves the **notes front door** (`POST /api/graph/import`: any `*.md`/`*.txt` becomes a source; re-imports are idempotent by path hash). The read channel: `GET /api/graph` derives the snapshot from the ledgers — a pure read (`deriveView` rebuilds the lossy image: each chain an implication node `⟹` with premise→implication→conclusion arrows, so two arguments for one conclusion stay two diamonds); the home view is a hand-rolled Canvas 2D renderer (one rAF loop, dirty-flag idle, d3-zoom camera, zoom-gated labels, cluster hulls) over a d3-force layout, with server-persisted render settings and drag-committed positions. Clusters are **birth-session groupings**: a node joins the cluster of the session that birthed it (a chat, or an imported notes file as a file-kind session), derived at read — no embedding pass, no naming pass. The teacher reaches the graph on its own terms through the gated prober tools (`list_sessions` / `list_propositions`, the `agent.graphTools` setting) — there is no automatic context injection.
 
@@ -176,10 +176,14 @@ All deterministic, no LLM, no network (engines are injected — pi-ai's faux pro
 
 ## Lineage
 
-The teaching methodology comes from an Obsidian-based POC (its `knowledge graph design.md` was the original epistemic-model source, since amended — see the amendments table in `docs/vision.md`). The harness was originally built on the pi agent SDK, pivoted to standalone Next.js + the Vercel AI SDK, and later swapped its LLM engine back to pi-ai while keeping the AI SDK's `UIMessage` as the client protocol ([`docs/pi-engine-swap.md`](docs/pi-engine-swap.md)).
+The teaching methodology comes from an Obsidian-based POC (its `knowledge graph design.md` was the original epistemic-model source, since amended — see the amendments table in `docs/vision.md`). The harness was originally built on the pi agent SDK, pivoted to standalone Next.js + the Vercel AI SDK, later swapped its LLM engine back to pi-ai ([`docs/pi-engine-swap.md`](docs/pi-engine-swap.md)), and finally moved the conversation runtime to pi-durable with an app-owned input-event and turn-event SSE protocol.
 
 ## Data
 
 Nothing under `data/` is ever tracked by git. Chats, graph ledgers, jobs, positions, and the settings records are plain files (JSON/JSONL) — inspect them freely; they are the canonical records. The desktop app relocates the whole directory via `LH_DATA_DIR`.
 
-**Schema stamps (2026-10-10):** chat records carry `version` (stamped at the store's write choke point; absence reads as v1 — lazy migration, no mass rewrite), and the graph family (ledgers, sources, render-settings) shares one sidecar `graph/format.json`, created on the family's first write. `positions.json` is deliberately unstamped (rebuildable). A record stamped NEWER than the running build is refused on read — honest refusal for the downgrade scenario: a read-modify-write store never rewrites what it doesn't understand.
+**Schema stamps:** chat metadata carries `version: 2` (stamped at the store's write choke point; absence reads as v1, the legacy shape). The graph family (ledgers, sources, render-settings) shares one sidecar `graph/format.json`, created on the family's first write. `positions.json` is deliberately unstamped (rebuildable). A record stamped NEWER than the running build is refused on read: a read-modify-write store never rewrites what it doesn't understand (the honest downgrade refusal).
+
+**The durable runtime.** Each public chat owns `data/durable/<chatId>/harness.sqlite` (transcript, live runs, background children) plus SQLite's journals/WAL while a run is active. One Harness owns a database per process; close it before deleting a session and never open one chat from two processes. `data/chats/<id>.json` is metadata only. A legacy schema-1 record is imported on first access: the original file is copied byte-for-byte to `data/durable/<chatId>/legacy-chat.json` before the messages become durable entries, and the backup is never deleted automatically. The import queue is process-global so two module instances cannot import twice.
+
+**Backups and upgrades.** Back up the whole `data/` folder while the app is closed, or at least `data/chats/`, `data/durable/`, `data/graph/`, `data/jobs/`, and `data/settings.json`. Metadata alone loses the transcript. `scripts/patch-pi-durable.mjs` patches the exact `@earendil-works/pi-durable@1.4.0` install for the question stop, the input park, and the hook's entry read; it refuses another version or unknown source and is idempotent. `npm ci` applies it through `postinstall`, and a test fails when the patch is absent.
