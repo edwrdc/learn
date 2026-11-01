@@ -44,6 +44,10 @@ export interface ChatStore {
 	/** Persist the full native message list (the record IS the agent
 	 * state — Wave B, owner-approved 2026-09-26). */
 	saveMessages(id: string, messages: LhMessage[]): Promise<void>;
+	/** Bump the record's activity timestamp after an ACCEPTED transcript
+	 *  write (turn, answer, dismissal). Settings, renames and tree edits
+	 *  deliberately do not call it. */
+	touchChat(id: string): Promise<void>;
 	/** Persist the session plan tree (plan tools call this in execute). */
 	saveTree(id: string, tree: PlanTree): Promise<void>;
 	/** Append one usage entry to the record's turn log (the money channel,

@@ -49,13 +49,14 @@ export function takeParkedDismissal(chatId: string): DismissInput | null {
  *  BEFORE the settle events — a client reacting to "turn-settled" reads the
  *  dismissal already in the record. A ChatInputError means the dismissed
  *  thing never materialized — the park is dropped silently. */
-export async function applyParkedDismissal(chatId: string): Promise<void> {
+export async function applyParkedDismissal(chatId: string): Promise<boolean> {
 	const input = takeParkedDismissal(chatId);
-	if (input === null) return;
+	if (input === null) return false;
 	try {
 		await writeDismissal(chatId, input);
+		return true;
 	} catch (err) {
-		if (err instanceof ChatInputError) return;
+		if (err instanceof ChatInputError) return false;
 		throw err;
 	}
 }

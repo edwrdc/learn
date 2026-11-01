@@ -20,7 +20,7 @@
  * fires both).
  */
 import { ChatInputError, parseDismissInput } from "@/src/core";
-import { getChat, isTurnRunning, parkDismissal, writeDismissal } from "@/src/server";
+import { getChat, isTurnRunning, parkDismissal, stores, writeDismissal } from "@/src/server";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -54,6 +54,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 		// answer REPLACES its pose placeholder's result; a problem discard
 		// appends its UI-only marker.
 		await writeDismissal(id, input);
+		await stores.chatStore.touchChat(id);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;

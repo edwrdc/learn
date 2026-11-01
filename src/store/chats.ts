@@ -9,7 +9,7 @@
  * projection over the chat's durable entries, so `getChat` is async: the
  * durable read is the truth, never a second cache.
  *
- * LEGACY IMPORT (owner-approved): a record written before the migration
+ * LEGACY IMPORT: a record written before the migration
  * still carries `messages`. On first access the store copies the original
  * file byte-for-byte into the chat's runtime directory
  * (data/durable/<id>/legacy-chat.json), appends every message as a durable
@@ -209,8 +209,8 @@ async function listChats(): Promise<ChatSummary[]> {
 	for (const name of names) {
 		const record = await readChat(name.slice(0, -5)).catch(() => null);
 		if (!record) continue;
-		// Per-record isolation (Wave B): a record whose projection fails must
-		// not blank the whole sidebar.
+		// Per-record isolation: a record whose projection fails must not blank
+		// the whole sidebar.
 		try {
 			const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
 			out.push({
@@ -233,13 +233,20 @@ async function listChats(): Promise<ChatSummary[]> {
 
 /** Persist the full native message list. The record IS the transcript, so
  *  only the messages the durable store does not hold yet are appended (the
- *  callers pass the whole desired list). SILENT by the events law — see the
- *  SILENCE LAW comment at createChat. */
+ *  callers pass the whole desired list). SILENT by the events law: callers
+ *  emit their own record change. */
 async function saveMessages(id: string, messages: LhMessage[]): Promise<void> {
 	await mutateMeta(id, async (meta) => {
 		await appendMessages(id, messages);
 		return { ...meta, updatedAt: new Date().toISOString() };
 	});
+}
+
+/** Mark conversation activity: `updatedAt` is the sidebar's sort key and the
+ *  displayed "updated" time. The transcript writes themselves go to the
+ *  durable store, so every accepted mutation boundary calls this. */
+async function touchChat(id: string): Promise<void> {
+	await mutateMeta(id, (meta) => ({ ...meta, updatedAt: new Date().toISOString() }));
 }
 
 /** Append one usage entry to the record's turn log — idempotent per turn
@@ -323,6 +330,7 @@ export const chatStore: ChatStore = {
 	getChat,
 	listChats,
 	saveMessages,
+	touchChat,
 	saveTree,
 	saveSettings,
 	renameChat,

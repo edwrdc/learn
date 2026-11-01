@@ -13,7 +13,7 @@
  *                        the durable turn admission + settle descriptor a
  *                        reopened process rebuilds the finish path from.
  *   appendPlanBlocks   — the plan presentation marker, idempotent per
- *                        plan_init call (the old persistTurn slice).
+ *                        plan_init call.
  *   appendRunUsage     — the money channel, from the run's assistant entries
  *                        (aborted attempts excluded).
  *   triggerExtraction  — the graph write channel: fires the extraction
@@ -154,7 +154,7 @@ export interface AnswerWrite {
  * must be a pending question) and resolve how it lands. A durable record
  * committed the pose as the call's result — a placeholder (details: null) —
  * so the answer REPLACES that entry; a legacy record without one appends the
- * result, which is what the old loop did.
+ * result.
  */
 export async function answerWrite(
 	chatId: string,
@@ -180,8 +180,9 @@ export async function applyAnswer(chatId: string, write: AnswerWrite): Promise<v
 
 /** Write a dismissal — the question's tool result, or the practice
  *  problem's UI-only discard marker. No run starts. Emits the record change
- *  so open views refetch. */
-export async function writeDismissal(chatId: string, input: DismissInput): Promise<void> {
+ *  so open views refetch; true means the transcript changed (the caller owns
+ *  the activity timestamp). */
+export async function writeDismissal(chatId: string, input: DismissInput): Promise<boolean> {
 	const messages = await readChatMessages(chatId);
 	const record = { messages: [...messages] };
 	if (input.type === "dismiss-problem") {
@@ -191,11 +192,12 @@ export async function writeDismissal(chatId: string, input: DismissInput): Promi
 		await applyAnswer(chatId, write);
 	}
 	emit("record-changed", { chatId });
+	return true;
 }
 
 /** The plan presentation markers a finished run owes, idempotent per
- *  plan_init call (the old persistTurn emission, now an append: the run's
- *  entries are already committed). The emitted set reads the SETTLED
+ *  plan_init call (the run's entries are already committed). The emitted set
+ *  reads the SETTLED
  *  projection: a settle replayed after a crash must not append a second
  *  block for the same call. */
 export async function appendPlanBlocks(
@@ -208,7 +210,10 @@ export async function appendPlanBlocks(
 		const record = await chatStore.getChat(chatId);
 		if (!record) return;
 		const blocks = planBlocksFor(after, after.slice(before.length), record.tree, after);
-		if (blocks.length > 0) await appendMessages(chatId, blocks);
+		if (blocks.length > 0) {
+			await appendMessages(chatId, blocks);
+			await chatStore.touchChat(chatId);
+		}
 	} catch (err) {
 		console.error(`[chat ${chatId}] plan-block emission failed:`, err);
 	}
