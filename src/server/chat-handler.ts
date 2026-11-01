@@ -19,7 +19,7 @@
  * server-side steers (src/server/jobs.ts).
  */
 
-import { ConversationBusy, LiveDoc } from "@earendil-works/pi-durable";
+import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { createJobRunner, setBackgroundRun } from "../agent/subagents/runner.ts";
@@ -54,7 +54,13 @@ import {
 	appendRunUsage,
 	answerWrite,
 	applyAnswer,
+	claimTurnSettle,
+	markTurnSettled,
+	readTurn,
 	triggerExtraction,
+	writeTurn,
+	type ForegroundTurn,
+	type TurnModel,
 } from "./turn-service.ts";
 import { danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
@@ -80,6 +86,7 @@ import {
 	projectEntries,
 	readEntries,
 	setRuntimeBootstrap,
+	ChatRuntimeInitError,
 	type ChatRuntime,
 } from "../store/durable.ts";
 import { chatPhase, prepareConversation, type ConversationDeps } from "./durable-registry.ts";
@@ -156,7 +163,7 @@ setJobRespawn((jobId) => void jobRunner.runJob(jobId));
  *  and the search seam; the durable background module only stores safe
  *  descriptors. */
 configureBackgroundRuns({
-	resolveEngine: (descriptor) => resolveStoredEngine(descriptor),
+	resolveEngine: (descriptor) => engineForModel(descriptor.model),
 	searchProvider,
 });
 
@@ -165,51 +172,211 @@ configureBackgroundRuns({
 setBackgroundRun((request) => runBackgroundConversation(request));
 setBackgroundRetire((chatId, jobId) => retireBackgroundRun(chatId, jobId));
 
-function resolveStoredEngine(descriptor: RunDescriptor): PiEngine | undefined {
+function engineForModel(model: TurnModel): PiEngine | undefined {
 	syncCustomEndpointProvider();
-	if (descriptor.model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
+	if (model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
 		const endpoint = customEndpointState().endpoint;
 		// A custom endpoint edited to another base URL must not silently take
 		// over a run that captured the old one.
-		if (!endpoint || (descriptor.model.baseUrl && endpoint.baseUrl !== descriptor.model.baseUrl)) return undefined;
+		if (!endpoint || (model.baseUrl && endpoint.baseUrl !== model.baseUrl)) return undefined;
 	}
 	try {
 		return piEngineForSpec({
-			provider: descriptor.model.provider,
-			id: descriptor.model.modelId,
-			thinkingLevel: descriptor.model.thinking as never,
+			provider: model.provider,
+			id: model.modelId,
+			thinkingLevel: model.thinking as never,
 		});
 	} catch (error) {
-		console.info(`[models] cannot restore ${descriptor.model.provider}:${descriptor.model.modelId}:`, error);
+		console.info(`[models] cannot restore ${model.provider}:${model.modelId}:`, error);
 		return undefined;
 	}
 }
 
-/** Reinstall a foreground run interrupted by process death: the phase's tool
- *  registry, prompt and engine binding must exist before the scheduler
- *  resumes its generation. */
-async function resumeForegroundRun(runtime: ChatRuntime): Promise<void> {
+/** Test seam (the researchModelOverride idiom): a recovered turn's engine is
+ *  rebuilt from its stored descriptor, so scripted suites swap a faux engine
+ *  here. Undefined in production. */
+export const foregroundEngineOverride: { current?: PiEngine } = {};
+
+/** A committed app marker is its steer's visibility moment (the delivery
+ *  bookkeeping seam shared by the live turn and a recovered one). */
+function noteTurnEntry(chatId: string, entry: EntryRecord): void {
+	const message = (entry.data as { message?: LhMessage } | undefined)?.message;
+	if (message?.role !== "custom") return;
+	noteSteerVisible(message as SteerMessage);
+	markSteerDelivered(chatId, message.id);
+}
+
+/** Rebuild and reattach a foreground turn that outlived its process. The
+ *  extension (tools, prompt, model/engine) must exist BEFORE the scheduler
+ *  resumes the interrupted generation, and the recovered view owns the same
+ *  finish path as a live turn. Runs from the runtime bootstrap, before
+ *  `harness.resume()`, and THROWS when the run cannot be rebuilt: the open
+ *  fails closed rather than schedule an uninitialized run. */
+async function resumeForegroundTurn(runtime: ChatRuntime): Promise<void> {
+	const turn = await readTurn(runtime);
+	if (!turn || turn.settle === "settled") return;
+	// The committed submission is the admission proof: a descriptor written
+	// just before a failed submit settles nothing.
+	const admitted = await runtime.storage.submissionByRequest(
+		runtime.root.id,
+		turn.requestId,
+		BACKGROUND_CONTEXT,
+	);
+	if (!admitted) return;
 	const live = await runtime.harness.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT);
-	if (!live?.run) return;
-	const record = await stores.chatStore.getChat(runtime.chatId);
-	if (!record) return;
-	const effective = effectiveSettings();
-	const spec = resolveConversationSpec(record.settings, effective.models.strong);
-	if (!spec) return;
-	syncCustomEndpointProvider();
-	let engine: PiEngine;
-	try {
-		engine = piEngineForSpec(spec);
-	} catch {
-		return; // the next request refuses honestly (the conversation has no model)
+	const entries = await readEntries(runtime);
+	// The view boundary is an entry id, not a count: compaction's head marker
+	// makes the active view a suffix of the full history readEntries returns.
+	const replayAfter = turn.baseEntryCount > 0 ? entries[turn.baseEntryCount - 1]?.id : undefined;
+	// A queued submission has not reached the transcript yet: the scheduler's
+	// boundary runs it after resume, so its extension must be installed too.
+	if (live?.run || admitted.status === "queued") {
+		// Fail closed: a run that has not executed must never resume without
+		// its model binding.
+		const engine = foregroundEngineOverride.current ?? engineForModel(turn.model);
+		if (!engine) {
+			throw new Error(
+				`the interrupted turn's model is unavailable (${turn.model.provider}:${turn.model.modelId})`,
+			);
+		}
+		await prepareConversation(
+			runtime,
+			runtime.chatId,
+			projectEntries(entries),
+			undefined,
+			engine,
+			effectiveSettings(),
+			conversationDeps(),
+			{ phase: turn.phase },
+		);
+		providerEventNote(runtime.chatId, "turn", `run resumed (base: ${turn.baseEntryCount} entries)`);
 	}
-	const messages = projectEntries(await readEntries(runtime));
-	await prepareConversation(runtime, runtime.chatId, messages, record.kind, engine, effective, conversationDeps());
+	// A run that FINISHED before its process died is recovered the same way:
+	// its settled submission resolves at once and the handle applies the
+	// settle services without starting anything.
+	beginTurn(runtime.chatId);
+	registerTurn(
+		runtime.chatId,
+		runDurableTurn({
+			runtime,
+			chatId: runtime.chatId,
+			submission: await runtime.harness.submission(admitted.id, BACKGROUND_CONTEXT),
+			replayAfter,
+			onError: (error) => {
+				console.error(`[chat ${runtime.chatId}] recovered turn error:`, error);
+				return "An error occurred.";
+			},
+			onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
+			onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
+		}),
+	);
+	noteTurnStarted(runtime.chatId);
+}
+
+interface LhTurnSettlesGlobal {
+	__lhTurnSettles?: Map<string, Promise<void>>;
+}
+
+/** One settle per turn in this process: a live handle racing a recovery joins
+ *  the first finisher instead of applying the services twice. The durable
+ *  mark covers the process that died mid-settle. */
+function turnSettles(): Map<string, Promise<void>> {
+	const g = globalThis as typeof globalThis & LhTurnSettlesGlobal;
+	return (g.__lhTurnSettles ??= new Map());
+}
+
+/** THE finish path for one admitted turn, shared by its live handle and a
+ *  recovered one: usage, steer reconciliation, plan blocks, extraction, the
+ *  parked dismissal, the durable settle mark, then the lifecycle release. */
+function settleForegroundTurn(runtime: ChatRuntime, chatId: string, turn: ForegroundTurn): Promise<void> {
+	const key = `${chatId}:${turn.turnId}`;
+	const running = turnSettles().get(key);
+	if (running) return running;
+	const settle = settleTurnOnce(runtime, chatId, turn).finally(() => {
+		if (turnSettles().get(key) === settle) turnSettles().delete(key);
+	});
+	turnSettles().set(key, settle);
+	return settle;
+}
+
+async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: ForegroundTurn): Promise<void> {
+	let claimed = false;
+	try {
+		claimed = await claimTurnSettle(runtime, turn.turnId);
+	} catch (error) {
+		console.error(`[chat ${chatId}] turn settle claim failed:`, error);
+	}
+	if (!claimed) return;
+	try {
+		await appendRunUsage(stores.chatStore, chatId, turn.baseEntryCount, turn.turnId, turn.modelId);
+		const entries = await readEntries(runtime);
+		const after = projectEntries(entries);
+		const before = projectEntries(entries.slice(0, turn.baseEntryCount));
+		settleSteers(chatId, after);
+		await appendPlanBlocks(stores.chatStore, chatId, before, after);
+		const effective = effectiveSettings();
+		const record = await stores.chatStore.getChat(chatId);
+		// GRAPH GATE: the write channel dies with the master switch; practice
+		// sessions write nothing (v1: the session is the deliverable).
+		if (record !== null && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+			await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+		}
+		// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
+		// mid-turn was parked by the dismiss route; apply it against the
+		// settled record now.
+		await applyParkedDismissal(chatId);
+		await markTurnSettled(runtime, turn.turnId);
+	} catch (error) {
+		// The mark stays "settling": the next open re-runs these idempotent
+		// services instead of losing them.
+		console.error(`[chat ${chatId}] turn settle failed:`, error);
+	}
+	// LAST: a reader that sees not-in-flight must read the settled record —
+	// the handle leaves only after the services ran.
+	endTurn(chatId);
+	unregisterTurn(chatId);
+	noteTurnSettled(chatId);
+	// Any marker still queued (a steer stranded behind the question stop or
+	// the abort) goes back through the pump's gates.
+	repumpSteers(chatId);
+	// THE SETTLE KICK (owner round 14): if the projection is now over
+	// threshold, the summary starts in the background INSIDE the learner's
+	// reading/answering pause.
+	if (process.env.NODE_ENV !== "test")
+		kickCompaction(async () => {
+			syncCustomEndpointProvider();
+			const fresh = effectiveSettings();
+			const current = await stores.chatStore.getChat(chatId);
+			const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
+			if (!spec) return null;
+			let kickEngine: PiEngine;
+			try {
+				kickEngine = piEngineForSpec(spec);
+			} catch {
+				return null;
+			}
+			const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
+			const freshRecord = await stores.chatStore.getChat(chatId);
+			if (!freshRecord) return null;
+			return {
+				chatStore: stores.chatStore,
+				engine: kickEngine,
+				modelId: kickModelId,
+				kind: chatPhase(freshRecord.messages, freshRecord.kind),
+				thresholdTokens: effectiveThresholdTokens(
+					fresh.compaction?.thresholdTokens,
+					catalogContextLimits().get(kickModelId),
+				),
+				systemPromptTokens: Math.ceil(
+					composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4,
+				),
+			};
+		}, chatId);
 }
 
 setRuntimeBootstrap(async (runtime) => {
 	await resumeBackgroundRuns(runtime);
-	await resumeForegroundRun(runtime);
+	await resumeForegroundTurn(runtime);
 });
 
 /** Test injection for the durable turn: a scripted engine, the tools'
@@ -290,7 +457,18 @@ export async function handleChatInput(
 	input: TurnInput,
 	turn?: ChatTurnInjection,
 ): Promise<Response> {
-	let record = await stores.chatStore.getChat(chatId);
+	let record: Awaited<ReturnType<typeof stores.chatStore.getChat>>;
+	try {
+		record = await stores.chatStore.getChat(chatId);
+	} catch (error) {
+		// Fail-closed runtime open (a previous run could not be restored): the
+		// committed inputs are untouched, so the retry is just another POST.
+		if (error instanceof ChatRuntimeInitError) {
+			console.error(`[chat ${chatId}] turn refused — ${error.message}`, error.cause);
+			return Response.json({ error: error.message, code: "runtime_unavailable" }, { status: 503 });
+		}
+		throw error;
+	}
 	if (!record) {
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
@@ -440,10 +618,32 @@ export async function handleChatInput(
 	const turnUsageId = crypto.randomUUID();
 	const baseEntryCount = (await readEntries(runtime)).length;
 	const baseMessages = projectEntries(await readEntries(runtime));
+	const phase = chatPhase(baseMessages, record.kind);
+	// The durable admission descriptor: everything a later process needs to
+	// rebuild this turn's finish path (see turn-service's ForegroundTurn).
+	// Written BEFORE submit; only a committed submission makes it recoverable.
+	const admission: ForegroundTurn = {
+		turnId: turnUsageId,
+		requestId: `turn:${turnUsageId}`,
+		modelId,
+		model: {
+			provider: engine.model.provider,
+			modelId: engine.model.id,
+			...(engine.level ? { thinking: engine.level } : {}),
+			...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
+		},
+		phase,
+		baseEntryCount,
+		settle: "running",
+	};
 	const deps = conversationDeps(turn);
 	let submission: Awaited<ReturnType<ChatRuntime["root"]["submit"]>>;
 	try {
-		await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, turn?.tools);
+		await writeTurn(runtime, admission);
+		await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, {
+			tools: turn?.tools,
+			phase,
+		});
 		// Debug recorder run marker (owner, 2026-10-04): correlates the
 		// JSONL event stream with the record's turns; no-op unless
 		// LH_PROVIDER_EVENTS=1.
@@ -455,12 +655,14 @@ export async function handleChatInput(
 						type: "input",
 						content: draft.content as never,
 						whenBusy: "reject",
+						requestId: admission.requestId,
 						entry: draft.entry as never,
 					}
 				: {
 						type: "input",
 						content: CONTINUATION_TEXT as never,
 						whenBusy: "reject",
+						requestId: admission.requestId,
 						entry: { kind: CONTINUATION_KIND } as never,
 					},
 			BACKGROUND_CONTEXT,
@@ -482,71 +684,8 @@ export async function handleChatInput(
 			console.error(`[chat ${chatId}] turn error:`, error);
 			return "An error occurred.";
 		},
-		onEntry: (entry) => {
-			const message = (entry.data as { message?: LhMessage } | undefined)?.message;
-			if (message?.role !== "custom") return;
-			noteSteerVisible(message as SteerMessage);
-			markSteerDelivered(chatId, message.id);
-		},
-		onFinish: async () => {
-			// The record is durable throughout the run; these are the settle
-			// services the old onFinish owned.
-			await appendRunUsage(stores.chatStore, chatId, baseEntryCount, turnUsageId, modelId);
-			const after = projectEntries(await readEntries(runtime));
-			settleSteers(chatId, after);
-			await appendPlanBlocks(stores.chatStore, chatId, baseMessages, after);
-			// GRAPH GATE: the write channel dies with the master switch;
-			// practice sessions write nothing (v1: the session is the
-			// deliverable).
-			if (record!.kind !== "practice" && extractionEnabled(effective.graph)) {
-				await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
-			}
-			// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
-			// mid-turn was parked by the dismiss route; apply it against the
-			// settled record now.
-			await applyParkedDismissal(chatId);
-			// LAST: a reader that sees not-in-flight must read the completed
-			// record — endTurn only after the settle services ran.
-			endTurn(chatId);
-			unregisterTurn(chatId);
-			noteTurnSettled(chatId);
-			// Any marker still queued (a steer stranded behind the question
-			// stop or the abort) goes back through the pump's gates.
-			repumpSteers(chatId);
-			// THE SETTLE KICK (owner round 14): if the projection is now over
-			// threshold, the summary starts in the background INSIDE the
-			// learner's reading/answering pause.
-			if (process.env.NODE_ENV !== "test")
-				kickCompaction(async () => {
-					syncCustomEndpointProvider();
-					const fresh = effectiveSettings();
-					const current = await stores.chatStore.getChat(chatId);
-					const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
-					if (!spec) return null;
-					let kickEngine: PiEngine;
-					try {
-						kickEngine = piEngineForSpec(spec);
-					} catch {
-						return null;
-					}
-					const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
-					const freshRecord = await stores.chatStore.getChat(chatId);
-					if (!freshRecord) return null;
-					return {
-						chatStore: stores.chatStore,
-						engine: kickEngine,
-						modelId: kickModelId,
-						kind: chatPhase(freshRecord.messages, freshRecord.kind),
-						thresholdTokens: effectiveThresholdTokens(
-							fresh.compaction?.thresholdTokens,
-							catalogContextLimits().get(kickModelId),
-						),
-						systemPromptTokens: Math.ceil(
-							composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4,
-						),
-					};
-				}, chatId);
-		},
+		onEntry: (entry) => noteTurnEntry(chatId, entry),
+		onFinish: () => settleForegroundTurn(runtime, chatId, admission),
 	});
 	// The turn is now a live background object: register it so any view can
 	// reattach (GET /api/chats/[id]/stream) or remotely abort it

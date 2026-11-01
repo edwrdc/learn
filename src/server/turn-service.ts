@@ -9,6 +9,9 @@
  *                        committed pose placeholder (or a plain append for a
  *                        legacy record that never committed one).
  *   writeDismissal     — the dismissal path: the same write, no run.
+ *   TurnDoc / readTurn / writeTurn / claimTurnSettle / markTurnSettled —
+ *                        the durable turn admission + settle descriptor a
+ *                        reopened process rebuilds the finish path from.
  *   appendPlanBlocks   — the plan presentation marker, idempotent per
  *                        plan_init call (the old persistTurn slice).
  *   appendRunUsage     — the money channel, from the run's assistant entries
@@ -35,7 +38,8 @@ import { emit } from "../core/events.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
-import type { EntryId } from "@earendil-works/pi-durable";
+import { defineDoc, type EntryId, type JsonObject } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	appendEntries,
 	appendMessages,
@@ -44,8 +48,99 @@ import {
 	openChatRuntime,
 	readChatMessages,
 	readEntries,
+	type ChatRuntime,
 } from "../store/durable.ts";
+import type { ChatPhase } from "./durable-registry.ts";
 import type { CallUsage } from "../core/contracts.ts";
+
+/** The safe (secret-free) model selection a turn was admitted under. The
+ *  recovered turn rebuilds its engine from THIS, never from later settings. */
+export interface TurnModel {
+	provider: string;
+	modelId: string;
+	thinking?: string;
+	/** Custom-endpoint snapshot identity (never a credential). */
+	baseUrl?: string;
+}
+
+/** One foreground turn's durable admission + settle descriptor: everything a
+ *  later process needs to rebuild the finish path, with no closure and no
+ *  copy of the mutable record. `settle` is the durable finish mark — a
+ *  process that dies after the run ends but before the services land leaves
+ *  "running"/"settling", and the next open re-runs them (they are idempotent
+ *  by turn/entry id). */
+export interface ForegroundTurn {
+	/** The TurnUsage id: money provenance and the settle identity. */
+	turnId: string;
+	/** The admission's stable request id (`turn:<turnId>`); its committed
+	 *  submission record is the proof the run was admitted. */
+	requestId: string;
+	/** `<provider>:<model>` the run was admitted under (TurnUsage's model). */
+	modelId: string;
+	model: TurnModel;
+	/** The extension identity at admission — the phase must not flip when the
+	 *  interrupted run already committed a probe_done. */
+	phase: ChatPhase;
+	/** Entries committed before the admitted input: the settle slice boundary. */
+	baseEntryCount: number;
+	settle: "running" | "settling" | "settled";
+}
+
+/** The root conversation's descriptor of its current foreground turn. */
+export const TurnDoc = defineDoc<JsonObject>({
+	kind: "lh.turn",
+	version: 1,
+	scope: "conversation",
+	history: "latest",
+	fork: "initial",
+	initial: () => ({
+		turnId: "",
+		requestId: "",
+		modelId: "",
+		model: { provider: "", modelId: "" },
+		phase: "probe",
+		baseEntryCount: 0,
+		settle: "settled",
+	}),
+	checkpointWhen: () => false,
+});
+
+/** The chat's admitted turn, or undefined when it never admitted one. */
+export async function readTurn(runtime: ChatRuntime): Promise<ForegroundTurn | undefined> {
+	const doc = (await runtime.harness.snapshot(TurnDoc, runtime.root.id, BACKGROUND_CONTEXT)) as
+		| JsonObject
+		| undefined;
+	return typeof doc?.turnId === "string" && doc.turnId.length > 0
+		? (doc as unknown as ForegroundTurn)
+		: undefined;
+}
+
+/** Record (or replace) the chat's turn descriptor at admission. */
+export async function writeTurn(runtime: ChatRuntime, turn: ForegroundTurn): Promise<void> {
+	await runtime.root.commit(async (tx) => {
+		Object.assign(await tx.doc(TurnDoc, runtime.root.id), turn);
+	}, BACKGROUND_CONTEXT);
+}
+
+/** Claim the turn's app settle services. False means they already landed (or
+ *  a newer turn owns the root). A finisher that died mid-settle leaves
+ *  "settling", which the next open re-runs. */
+export async function claimTurnSettle(runtime: ChatRuntime, turnId: string): Promise<boolean> {
+	return runtime.root.commit(async (tx) => {
+		const doc = await tx.doc(TurnDoc, runtime.root.id);
+		if (doc.turnId !== turnId || doc.settle === "settled") return false;
+		doc.settle = "settling";
+		return true;
+	}, BACKGROUND_CONTEXT);
+}
+
+/** Mark the turn's services durably applied. */
+export async function markTurnSettled(runtime: ChatRuntime, turnId: string): Promise<void> {
+	await runtime.root.commit(async (tx) => {
+		const doc = await tx.doc(TurnDoc, runtime.root.id);
+		if (doc.turnId === turnId) doc.settle = "settled";
+	}, BACKGROUND_CONTEXT);
+}
 
 /** One answer ready to write: the record message, plus the pose entry it
  *  replaces when the record committed one (the durable shape). */
@@ -100,7 +195,9 @@ export async function writeDismissal(chatId: string, input: DismissInput): Promi
 
 /** The plan presentation markers a finished run owes, idempotent per
  *  plan_init call (the old persistTurn emission, now an append: the run's
- *  entries are already committed). */
+ *  entries are already committed). The emitted set reads the SETTLED
+ *  projection: a settle replayed after a crash must not append a second
+ *  block for the same call. */
 export async function appendPlanBlocks(
 	chatStore: ChatStore,
 	chatId: string,
@@ -110,7 +207,7 @@ export async function appendPlanBlocks(
 	try {
 		const record = await chatStore.getChat(chatId);
 		if (!record) return;
-		const blocks = planBlocksFor(before, after.slice(before.length), record.tree, after);
+		const blocks = planBlocksFor(after, after.slice(before.length), record.tree, after);
 		if (blocks.length > 0) await appendMessages(chatId, blocks);
 	} catch (err) {
 		console.error(`[chat ${chatId}] plan-block emission failed:`, err);

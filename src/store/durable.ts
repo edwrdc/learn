@@ -131,6 +131,20 @@ export function setRuntimeBootstrap(run: RuntimeBootstrap | undefined): void {
 	runtimeBootstrap = run;
 }
 
+/** The chat's committed state could not be restored (a live run whose
+ *  tools/prompt/model could not be rebuilt, or any bootstrap failure). The
+ *  database stays closed and scheduling never starts; the committed inputs
+ *  are untouched and the next open retries the bootstrap. */
+export class ChatRuntimeInitError extends Error {
+	constructor(
+		message: string,
+		readonly cause: unknown,
+	) {
+		super(message);
+		this.name = "ChatRuntimeInitError";
+	}
+}
+
 async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	const dir = durableDir(chatId);
 	fs.mkdirSync(dir, { recursive: true });
@@ -179,7 +193,19 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	try {
 		await runtimeBootstrap?.(runtime);
 	} catch (error) {
-		console.error(`[chat ${chatId}] runtime bootstrap failed:`, error);
+		// FAIL CLOSED: `harness.resume()` below would execute a persisted run
+		// before its tool/model extension exists. Close without resuming; the
+		// committed inputs survive and a later open retries.
+		runtime.closing = true;
+		unbindRunEngine(chatId);
+		await harness.close(BACKGROUND_CONTEXT).catch((closeError) => {
+			console.error(`[chat ${chatId}] close after failed bootstrap:`, closeError);
+		});
+		console.error(`[chat ${chatId}] runtime bootstrap failed — scheduling stays off:`, error);
+		throw new ChatRuntimeInitError(
+			"This session could not be opened: its previous turn could not be restored. Check the model settings and try again.",
+			error,
+		);
 	}
 	// Resume AFTER the bootstrap: a generation interrupted by process death
 	// must find its tools, prompt and engine already installed.

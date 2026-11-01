@@ -212,6 +212,14 @@ function requestFilterHook(cut: { kept: Message; head: Message } | null) {
 	});
 }
 
+/** What the caller may override for one turn: a test-authored tool registry
+ *  (the loop/protocol suites drive narrow tool sets) and the phase a
+ *  RECOVERED run was admitted under (see ChatPhase). */
+export interface PrepareOptions {
+	tools?: Record<string, unknown>;
+	phase?: ChatPhase;
+}
+
 /** Install (or replace) the app extension and configure the conversation for
  *  the coming turn. `messages` is the transcript the turn will run on. */
 export async function prepareConversation(
@@ -222,9 +230,9 @@ export async function prepareConversation(
 	engine: PiEngine,
 	effective: EffectiveSettings,
 	deps: ConversationDeps,
-	toolsOverride?: Record<string, unknown>,
+	options?: PrepareOptions,
 ): Promise<void> {
-	const phase = chatPhase(messages, kind);
+	const phase = options?.phase ?? chatPhase(messages, kind);
 	const active = activeCompactionOf(messages);
 	const kept = active ? keptIndexFor(messages, active) : -1;
 	const keptWire = kept >= 0 ? wireOf(messages[kept]!) : null;
@@ -242,7 +250,7 @@ export async function prepareConversation(
 	runtime.registry.install(
 		defineExtension({
 			name: "lh",
-			tools: toolsOverride ? toRegistrations(toolsOverride) : toolsFor(phase, chatId, deps, effective),
+			tools: options?.tools ? toRegistrations(options.tools) : toolsFor(phase, chatId, deps, effective),
 			hooks: [
 				questionStopHook(chatId),
 				uniqueCallIdsHook(new Set(collectToolCallIds(messages))),

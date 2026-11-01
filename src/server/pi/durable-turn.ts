@@ -24,7 +24,14 @@
  */
 
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
-import type { ConversationView, EntryRecord, LiveState, Submission, ToolSlot } from "@earendil-works/pi-durable";
+import type {
+	ConversationView,
+	EntryId,
+	EntryRecord,
+	LiveState,
+	Submission,
+	ToolSlot,
+} from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ChatRuntime } from "../../store/durable.ts";
 
@@ -67,6 +74,12 @@ export interface DurableTurnSpec {
 	 *  after it (waitForIdle), so a steer racing the run's end still lands
 	 *  on this wire. */
 	submission?: Submission;
+	/** The last entry committed BEFORE the run was admitted. A view of a
+	 *  RECOVERED run starts after it: the client already holds the record's
+	 *  older projection, so replaying the whole chat would duplicate it. An
+	 *  entry id (not a count) survives the active-view head marker compaction
+	 *  writes before admission. */
+	replayAfter?: EntryId;
 
 	/** The canonical settle seam: usage, plan blocks, extraction, parked
 	 *  dismissal. AWAITED before views close, so a reader that sees the
@@ -92,7 +105,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 	let sawAbort = false;
 	let streaming = false;
 	let lastPartial = "";
-	let seenEntries = 0;
+	let seenEntries: number | undefined = spec.replayAfter === undefined ? 0 : undefined;
 	/** Tool calls of the assistant entry whose results have not all landed. */
 	let round: { callIds: string[]; results: ToolResultMessage[] } | null = null;
 	const startedSlots = new Set<string>();
@@ -165,6 +178,10 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 
 	/** Translate newly committed entries into wire events. */
 	const advanceEntries = (entries: readonly EntryRecord[]) => {
+		if (seenEntries === undefined) {
+			const at = entries.findIndex((entry) => entry.id > spec.replayAfter!);
+			seenEntries = at < 0 ? entries.length : at;
+		}
 		for (const entry of entries.slice(seenEntries)) {
 			onEntry?.(entry);
 			// App-authored records (job steers, handoffs, thinking traces,
@@ -261,6 +278,13 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 	let settling: Promise<void> | undefined;
 	const settle = () => {
 		settling ??= (async () => {
+			// A closing runtime hands the run to durable recovery: the next
+			// process owns the settle services, and this one must not bill or
+			// notify a run it cannot finish (nor mask the close as a turn error).
+			if (runtime.closing) {
+				closeAll();
+				return;
+			}
 			// The terminal commit must be on the wire before [DONE]: a view
 			// that attaches late would otherwise miss the final message.
 			const final = await runtime.root.context(BACKGROUND_CONTEXT).catch(() => undefined);
@@ -288,6 +312,12 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 			await settle();
 			await watch.stop().catch(() => undefined);
 		} catch (error) {
+			if (runtime.closing) {
+				// The run stays recoverable from its committed state; the next
+				// process resumes and settles it.
+				closeAll();
+				return;
+			}
 			console.error(`[chat ${chatId}] durable turn view failed:`, error);
 			if (!settled) {
 				send({ type: "error", errorText: onError?.(error) ?? "An error occurred." });
