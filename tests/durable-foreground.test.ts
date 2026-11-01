@@ -734,6 +734,42 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		}
 	});
 
+	for (const failure of ["task checkpoint", "request context"] as const) {
+		it(`a ${failure} read failure stops the provider request`, async () => {
+			const chat = await createChat(`Durable: ${failure} read failure`);
+			const runtime = await openChatRuntime(chat.id);
+			const originalGetTask = runtime.harness.getTask;
+			const originalContext = runtime.root.context;
+			if (failure === "task checkpoint") {
+				runtime.harness.getTask = async () => {
+					throw new Error("forced checkpoint read failure");
+				};
+			} else {
+				runtime.root.context = async (context, options) => {
+					if (options?.at !== undefined) throw new Error("forced context read failure");
+					return originalContext.call(runtime.root, context, options);
+				};
+			}
+			try {
+				const { engine, calls } = scripted([fauxAssistantMessage([fauxText("UNFILTERED_REQUEST_LEAK")])]);
+				const ack = await handleChatRequest(post(chat.id, { type: "text", text: "do not send without provenance" }), {
+					engine,
+				});
+				assert.equal(ack.status, 200);
+				await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the failed request releases the turn");
+				assert.equal(calls.length, 0, "no provider request when provenance cannot be read");
+				assert.equal(
+					JSON.stringify((await chatStore.getChat(chat.id))!.messages).includes("UNFILTERED_REQUEST_LEAK"),
+					false,
+					"no model reply from an unfiltered request",
+				);
+			} finally {
+				runtime.harness.getTask = originalGetTask;
+				runtime.root.context = originalContext;
+			}
+		});
+	}
+
 	it("a failed generation that commits nothing does not re-arm the auto-continuation", async () => {
 		const chat = await createChat("Durable: failure loop");
 		await appendMessages(chat.id, [

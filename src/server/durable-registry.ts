@@ -183,47 +183,50 @@ function uniqueCallIdsHook(used: Set<string>) {
 function requestFilterHook(runtime: ChatRuntime, cut: { kept: Message; head: Message } | null) {
 	return hook(GenerationTask, {
 		beforeRequest: async (request, api, context) => {
-			// The hook carries no request cutoff; the generation checkpoint does.
-			const task = await runtime.harness.getTask(api.taskId, context);
-			const checkpoint = task?.state.checkpoint as { phase?: string; cutoff?: EntryId } | undefined;
-			if (checkpoint?.phase !== "request" || checkpoint.cutoff === undefined) {
-				// A hook throw alone is reported and the request continues; mark the
-				// task aborted so the throw is fatal before the provider call.
+			try {
+				// The hook carries no request cutoff; the generation checkpoint does.
+				const task = await runtime.harness.getTask(api.taskId, context);
+				const checkpoint = task?.state.checkpoint as { phase?: string; cutoff?: EntryId } | undefined;
+				if (checkpoint?.phase !== "request" || checkpoint.cutoff === undefined) {
+					throw new Error(`[chat ${runtime.chatId}] no request checkpoint for task ${api.taskId}`);
+				}
+				const view = await runtime.root.context(context, { at: checkpoint.cutoff });
+				// Tool results are ordered within a round; user messages keep their order.
+				const hidden: boolean[] = [];
+				view.entries.forEach((entry, index) => {
+					for (const message of view.contributions[index] ?? []) {
+						if (message.role === "user") hidden.push(entry.kind === CONTINUATION_KIND);
+					}
+				});
+				let ordinal = 0;
+				const filtered = request.messages.filter((message) =>
+					message.role === "user" ? hidden[ordinal++] !== true : true,
+				);
+				if (cut === null) return { messages: filtered };
+				const markerText = (cut.head.content as Array<{ text?: string }>)[0]?.text;
+				const withoutMarker = filtered.filter(
+					(message) =>
+						!(
+							message.role === "user" &&
+							Array.isArray(message.content) &&
+							message.content.length === 1 &&
+							(message.content[0] as { text?: string }).text === markerText
+						),
+				);
+				const at = withoutMarker.findIndex(
+					(message) => JSON.stringify(message) === JSON.stringify(cut.kept),
+				);
+				if (at < 0) return { messages: withoutMarker };
+				return { messages: [cut.head, ...withoutMarker.slice(at)] };
+			} catch (error) {
+				// Hook errors are non-fatal; abort the generation before rethrowing.
 				const signal = (api as unknown as { signal: AbortSignal }).signal;
 				void runtime.harness.abortTask(api.taskId, context).catch(() => undefined);
 				if (!signal.aborted) {
 					await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
 				}
-				throw new Error(`[chat ${runtime.chatId}] no request checkpoint for task ${api.taskId}`);
+				throw error;
 			}
-			const view = await runtime.root.context(context, { at: checkpoint.cutoff });
-			// Tool results are ordered within a round; user messages keep their order.
-			const hidden: boolean[] = [];
-			view.entries.forEach((entry, index) => {
-				for (const message of view.contributions[index] ?? []) {
-					if (message.role === "user") hidden.push(entry.kind === CONTINUATION_KIND);
-				}
-			});
-			let ordinal = 0;
-			const filtered = request.messages.filter((message) =>
-				message.role === "user" ? hidden[ordinal++] !== true : true,
-			);
-			if (cut === null) return { messages: filtered };
-			const markerText = (cut.head.content as Array<{ text?: string }>)[0]?.text;
-			const withoutMarker = filtered.filter(
-				(message) =>
-					!(
-						message.role === "user" &&
-						Array.isArray(message.content) &&
-						message.content.length === 1 &&
-						(message.content[0] as { text?: string }).text === markerText
-					),
-			);
-			const at = withoutMarker.findIndex(
-				(message) => JSON.stringify(message) === JSON.stringify(cut.kept),
-			);
-			if (at < 0) return { messages: withoutMarker };
-			return { messages: [cut.head, ...withoutMarker.slice(at)] };
 		},
 	});
 }
