@@ -21,8 +21,8 @@ import {
 import packageMetadata from "../../package.json" with { type: "json" };
 import type { ProviderEventObserver } from "./provider-events.ts";
 
-/** App identity is immutable and shared by Models and every native Agent.
- * Agent's default Pi attribution otherwise overrides the Models identity. */
+/** App identity is immutable and shared by Models and the durable Harness.
+ * The Harness's default attribution is pi's, so the app identity overrides it. */
 export const APP_IDENTITY = Object.freeze({
 	userAgent: Object.freeze({ custom: `learnharness/${packageMetadata.version}` }),
 	attribution: Object.freeze({ name: packageMetadata.name, url: packageMetadata.homepage }),
@@ -35,8 +35,8 @@ export const APP_IDENTITY = Object.freeze({
  * (the settings chain's output) and the one builder here wires it to
  * pi-ai's federated catalogs.
  *
- * An "engine" is the model + the stream function the agent loop runs on —
- * the two things a test fake replaces. Production engines resolve the model
+ * An "engine" is the model + the stream function the durable Harness runs on
+ * — the two things a test fake replaces. Production engines resolve the model
  * from pi-ai's static catalogs and stream through the same Models
  * collection.
  */
@@ -301,8 +301,8 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 	return {
 		model,
 		level,
-		// bound streamSimple: the agent loop forwards state.thinkingLevel as
-		// `reasoning` (undefined = off on pi-ai's scale); the clamp above keeps
+		// bound streamSimple: the Harness forwards the configured thinking
+		// level as `reasoning` (undefined = off on pi-ai's scale); the clamp keeps
 		// the pin honest even when config or settings drift off the map.
 		streamFn: (_requestModel, context, options) =>
 			models.streamSimple(model, context, {

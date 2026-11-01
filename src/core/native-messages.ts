@@ -524,10 +524,10 @@ export function toLlmMessages(messages: readonly AppMessage[]): Message[] {
 	// prompt AND the tool declarations at state.messages[0]
 	// (createInitialSystemMessage — "messages declare the provider-visible
 	// loadout"). The record never persists it (the durable projection drops
-	// filters the role), so RECORD-path callers never see it — but the
-	// Agent's convertToLlm DOES. The cut slices the RECORD's history;
-	// when [0] is the chrome it must carry through AHEAD of the
-	// compaction head, exactly as pi's own prepareRequest re-applies
+	// filters the role), so RECORD-path callers never see it — but a native
+	// caller's message list can still lead with it. The cut slices the
+	// RECORD's history; when [0] is the chrome it must carry through AHEAD
+	// of the compaction head, exactly as pi's own prepareRequest re-applies
 	// context.systemPrompt + context.tools around its projection.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
