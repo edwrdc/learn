@@ -86,10 +86,14 @@ export interface ChatRuntime {
  *  Provider retries are OFF — today a provider error rides its message
  *  verbatim to the banner, and silent re-spend is not a behavior change we
  *  are making. Steering drains everything handed over at one boundary (the
- *  app's old steeringMode "all"). */
+ *  app's old steeringMode "all"). Automatic compaction is OFF: the app owns
+ *  the threshold, summary, and cut (src/server/compaction.ts, backed by the
+ *  durable compact child). pi-durable's default (enabled, background at
+ *  32k below the window) would be a second owner and a second bill. */
 function harnessSettings() {
 	return {
 		retry: { enabled: false },
+		compaction: { enabled: false, backgroundTokens: 0 },
 		steeringMode: "all" as const,
 		followUpMode: "all" as const,
 	};
