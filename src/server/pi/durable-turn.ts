@@ -186,8 +186,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 			onEntry?.(entry);
 			// App-authored records (job steers, handoffs, thinking traces,
 			// the learner's composer steer) travel as UPSERTED messages keyed
-			// by their record id, exactly as the old loop's injected
-			// follow-ups did.
+			// by their record id.
 			const marker = (entry.data as { message?: { role?: string } } | undefined)?.message;
 			if (marker && marker.role !== "assistant") {
 				send({ type: "message_start", message: marker as Message });

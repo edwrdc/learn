@@ -117,8 +117,7 @@ async function pdfExtractText(pdfPath: string, pages: string): Promise<string> {
 }
 
 /** The role's tool registrations, rebuilt from the persisted descriptor on a
- *  later process. Declarations, bodies and error text are unchanged from the
- *  old hand-rolled loop; only the execution home moved. */
+ *  later process. */
 export function pdfRoleTools(
 	io: RoleStateIo<PdfRunState>,
 	pdfPath: string,

@@ -204,7 +204,7 @@ async function main() {
 			console.log(`[smoke-server] GET ${route} → 200`);
 		}
 
-		// 3) The durable store: create one throwaway chat and read it back.
+		// The durable store: create one throwaway chat and read it back.
 		// The read opens the packaged runtime and its SQLite file; no model call.
 		const created = await request(url + "/api/chats", "POST", { title: "smoke: packaged durable store" });
 		if (created.status !== 200 || typeof created.body?.id !== "string") {

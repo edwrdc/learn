@@ -3,14 +3,12 @@
  * set the protocol suites drive.
  *
  * The durable runtime builds each turn's tools and prompt itself
- * (src/server/durable-registry.ts); the old per-request Agent factories are
- * gone with pi-agent-core. What stays here is the composition law both
+ * (src/server/durable-registry.ts). This module is the composition law both
  * consumers share: system-prompt.md (the shared base: agent, voice,
  * philosophy, accuracy) + every numeric-prefix fragment in the role's
  * directory (src/agent/prompts/prober/, teacher/, or practice/), in sorted
  * filename order, then the shared/ fragments as a trailing appendix
- * (question tools, learner files, formatting) — the 2026-09-27 reorder: the
- * agent's job and method lead, the mechanics trail. Joined with `---`
+ * (question tools, learner files, formatting). Joined with `---`
  * separators.
  *
  * ONLY numeric-prefix files load — the loader enforces the convention, so

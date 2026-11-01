@@ -20,8 +20,8 @@ import type { PiEngine } from "../models.ts";
  *
  * The loop is a durable conversation (durable-run.ts). The SVG and the last
  * rendered SVG live in the run descriptor; the image-in-the-loop message is
- * appended by the durable after-tools hook AFTER the tool results, exactly
- * like the old hand-rolled loop ordered it. The doctrine gate is the run's
+ * appended by the durable after-tools hook AFTER the tool results. The
+ * doctrine gate is the run's
  * onYield hook: a finish whose current SVG was never rendered renders it,
  * shows the image, and asks the model to look before finishing.
  *

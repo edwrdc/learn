@@ -52,7 +52,7 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
-	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY —
+	/** SCHEMA STAMP: LAZY —
 	 *  existing records stay unstamped; every write stamps the current
 	 *  version. v1 carries `messages`; v2 (pi-durable migration) is
 	 *  metadata-only and reads the transcript from the durable store. A
