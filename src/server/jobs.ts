@@ -280,7 +280,7 @@ export interface AbortOutcome {
  * Four things happen, in order:
  *
  *   1. RECORD the abort intent before touching the runtime: flip the
- *      record to error "Aborted by learner" and set abortRequested, so a
+ *      record to error "Aborted by learner", so a
  *      failed open still leaves a durable cancellation for the next open
  *      (the poll reflects the user's action at once; the user chose
  *      error-with-reason over a distinct cancelled status). finalizeJob
@@ -307,15 +307,17 @@ export function abortJob(jobId: string): AbortOutcome {
 	if (!job) return { ok: false, reason: "not_found" };
 	if (job.status !== "running") return { ok: false, reason: "not_running" };
 
-	const persisted = stores.jobStore.updateJob(jobId, {
-		status: "error",
-		error: "Aborted by learner",
-		activity: "aborted",
-		abortRequested: true,
-	});
-	if (!persisted) return { ok: false, reason: "not_found" };
-
-	const killed = fireJobAbort(jobId); // false when the loop already returned (delivering) or never reattached
+	let killed = false;
+	try {
+		const persisted = stores.jobStore.updateJob(jobId, {
+			status: "error",
+			error: "Aborted by learner",
+			activity: "aborted",
+		});
+		if (!persisted) return { ok: false, reason: "not_found" };
+	} finally {
+		killed = fireJobAbort(jobId);
+	}
 
 	// Drop any queued steers for this job (their deliver() resolves unfired).
 	// HANDED entries (already in a live run's follow-up queue) are past

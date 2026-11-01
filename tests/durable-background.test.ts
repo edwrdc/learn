@@ -324,9 +324,8 @@ describe("durable background restart", () => {
 		assert.equal(abortJob(job.id).ok, true);
 		const aborted = jobStore.getJob(job.id)!;
 		assert.equal(aborted.status, "error", "the record reflects the learner's abort");
-		assert.equal(aborted.abortRequested, true, "the abort intent is durable before any runtime bootstrap");
 		jobStore.updateJob(job.id, { activity: "progress after abort" });
-		assert.equal(jobStore.getJob(job.id)!.abortRequested, true, "a progress update preserves the intent");
+		assert.equal(jobStore.getJob(job.id)!.status, "error", "a progress update preserves the cancellation");
 
 		// The abort's own open must not need the missing model: it aborts the child.
 		const reopened = await openChatRuntime(chat.id);
@@ -358,7 +357,6 @@ describe("durable background restart", () => {
 		const finalLive = await final.harness.snapshot(LiveDoc, conversationId as never, BACKGROUND_CONTEXT);
 		assert.equal((finalLive as { run?: unknown } | undefined)?.run, undefined, "the native child stays dead");
 		assert.equal(jobStore.getJob(job.id)!.status, "error", "the job stays aborted");
-		assert.equal(jobStore.getJob(job.id)!.abortRequested, true, "the persisted intent survives the reopen");
 		researchModelOverride.current = undefined;
 	});
 

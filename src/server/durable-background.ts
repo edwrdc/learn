@@ -984,7 +984,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 		const job = JOB_RUN_KINDS.includes(descriptor.kind)
 			? stores.jobStore.getJob(descriptor.jobId)
 			: null;
-		if (job !== null && (job.abortRequested === true || job.status !== "running")) {
+		if (job !== null && job.status !== "running") {
 			await conversation.abort(BACKGROUND_CONTEXT);
 			await updateIndex(runtime, jobId, { status: "failed" });
 			continue;

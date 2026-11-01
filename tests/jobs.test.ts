@@ -1399,6 +1399,28 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 		assert.equal(jobStore.getJob(job.id)!.status, "error", "terminal after the wake");
 	});
 
+	it("still cancels the live provider when recording an abort fails", async () => {
+		const chat = await chatStore.createChat("Test: abort write failure");
+		trackChat(chat.id);
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-abort-write-failure" });
+		trackJob(job.id);
+		const controller = new AbortController();
+		registerJobAbort(job.id, controller);
+		const originalUpdate = jobStore.updateJob;
+		const failure = new Error("forced abort persistence failure");
+		jobStore.updateJob = (id, patch) => {
+			if (id === job.id) throw failure;
+			return originalUpdate(id, patch);
+		};
+		try {
+			assert.throws(() => abortJob(job.id), (error) => error === failure, "do not acknowledge an unsaved cancellation");
+			assert.equal(controller.signal.aborted, true, "the live provider still receives the cancellation");
+		} finally {
+			jobStore.updateJob = originalUpdate;
+			unregisterJobAbort(job.id);
+		}
+	});
+
 	it("outcome reasons: not_found for unknown, not_running for settled jobs", async () => {
 		assert.deepEqual(abortJob("job_does_not_exist"), { ok: false, reason: "not_found" });
 		const chat = await chatStore.createChat("Test: abort settled job");
