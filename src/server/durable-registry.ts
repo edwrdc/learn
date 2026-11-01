@@ -9,8 +9,7 @@
  * and enabled tools for the coming turn.
  *
  * It runs per turn: settings, the prompt-override switches, and the phase
- * seam are all read fresh, exactly as the old per-request agent
- * construction did. `configure()` writes only what changed.
+ * seam are all read fresh. `configure()` writes only what changed.
  */
 
 import { defineExtension, GenerationTask, hook, type ToolRegistration } from "@earendil-works/pi-durable";
@@ -112,9 +111,15 @@ function toolsFor(
 }
 
 /** The continuation input is bookkeeping: its user message must never reach
- *  the provider (the reaction it starts reads the answer tool result). */
+ *  the provider (the reaction it starts reads the answer tool result). The
+ *  structured content is what the app never writes for a learner message. */
 function isContinuation(message: Message): boolean {
-	return message.role === "user" && message.content === CONTINUATION_TEXT;
+	if (message.role !== "user" || !Array.isArray(message.content)) return false;
+	return (
+		message.content.length === 1 &&
+		(message.content[0] as { type?: string; text?: string }).type === "text" &&
+		(message.content[0] as { text?: string }).text === CONTINUATION_TEXT
+	);
 }
 
 /** The wire form of one record message (what the provider saw for it). */
@@ -162,7 +167,7 @@ function questionStopHook(chatId: string) {
 	});
 }
 
-/** Tool-call id hygiene (the Lacan fix): some providers reset ids per
+/** Tool-call id hygiene: some providers reset ids per
  *  response (`call_0`, `call_1`, …), so a one-call-per-turn session names
  *  every call `call_0`. The app keys the view, the dock, answer routing, and
  *  option shuffles on the id — the collision corrupts all of them at once.
@@ -184,7 +189,7 @@ function uniqueCallIdsHook(used: Set<string>) {
 /** The app's request shaping, at the one boundary durable offers: the hidden
  *  continuation message never reaches the provider, and an active compaction
  *  cut projects [summary] + [messages from the kept boundary onward] — the
- *  same context toLlmMessages gave the old loop. The cut is resolved per turn
+ *  same context the provider receives. The cut is resolved per turn
  *  (the model-facing half of the app's compaction contract); durable-owned
  *  compaction replaces it in the compaction unit. */
 function requestFilterHook(cut: { kept: Message; head: Message } | null) {
@@ -250,17 +255,16 @@ export async function prepareConversation(
 					},
 				}
 			: null;
-	runtime.registry.install(
-		defineExtension({
-			name: "lh",
-			tools: options?.tools ? toRegistrations(options.tools) : toolsFor(phase, chatId, deps, effective),
-			hooks: [
-				questionStopHook(chatId),
-				uniqueCallIdsHook(new Set(collectToolCallIds(messages))),
-				requestFilterHook(cut),
-			],
-		}),
-	);
+	const extension = defineExtension({
+		name: "lh",
+		tools: options?.tools ? toRegistrations(options.tools) : toolsFor(phase, chatId, deps, effective),
+		hooks: [
+			questionStopHook(chatId),
+			uniqueCallIdsHook(new Set(collectToolCallIds(messages))),
+			requestFilterHook(cut),
+		],
+	});
+	runtime.registry.install(extension);
 	const engineKind = phase === "practice" ? "practice" : phase === "probe" ? "prober" : "teacher";
 	// The root conversation's provider session id IS the public chat id
 	// (store/durable.ts init), so binding the chat id binds this turn's
@@ -274,6 +278,9 @@ export async function prepareConversation(
 			// The registry IS the enabled set (the tool toggles already
 			// filtered it); the stored filter stays unset so it never widens.
 			tools: null,
+			// The registry also holds live background children (jobs, extraction,
+			// compaction); the foreground selects only its own extension.
+			extensions: [extension],
 		},
 		BACKGROUND_CONTEXT,
 	);
