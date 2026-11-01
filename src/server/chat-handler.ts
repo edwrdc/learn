@@ -172,12 +172,13 @@ configureBackgroundRuns({
 setBackgroundRun((request) => runBackgroundConversation(request));
 setBackgroundRetire((chatId, jobId) => retireBackgroundRun(chatId, jobId));
 
-function engineForModel(model: TurnModel): PiEngine | undefined {
+/** Rebuild a recovered run's engine from its SAFE snapshot. A custom
+ *  endpoint edited to another base URL must not silently take over a run
+ *  that captured the old one; no credential is ever stored in the snapshot. */
+export function engineForModel(model: TurnModel): PiEngine | undefined {
 	syncCustomEndpointProvider();
 	if (model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
 		const endpoint = customEndpointState().endpoint;
-		// A custom endpoint edited to another base URL must not silently take
-		// over a run that captured the old one.
 		if (!endpoint || (model.baseUrl && endpoint.baseUrl !== model.baseUrl)) return undefined;
 	}
 	try {

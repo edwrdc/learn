@@ -171,6 +171,24 @@ async function waitFor(cond: () => boolean | Promise<boolean>, what: string, tim
 }
 
 describe("custom endpoint E2E", () => {
+	it("a restored run refuses an edited endpoint base URL and its snapshot carries no credential", async () => {
+		const saved = saveLocal({ apiKey: KEY });
+		assert.ok(saved.ok, saved.ok ? "" : saved.error);
+		const { engineForModel } = await import("../src/server/chat-handler.ts");
+		const snapshot = { provider: "custom-endpoint", modelId: MODEL_ID, baseUrl: `${base}/v1` };
+		const engine = engineForModel(snapshot);
+		assert.ok(engine, "the captured endpoint restores");
+		assert.equal(engine!.model.baseUrl, `${base}/v1`);
+		assert.ok(!JSON.stringify(engine!.model).includes(KEY), "the model snapshot carries no credential");
+
+		const moved = saveLocal({ baseUrl: `${base}/v2`, apiKey: KEY });
+		assert.ok(moved.ok, moved.ok ? "" : moved.error);
+		assert.equal(engineForModel(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
+		assert.ok(engineForModel({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
+		setCustomEndpointProvider(null);
+	});
+
+
 	it("setup → discovery → model selection → Responses stream → persisted catalog", async () => {
 		const first = saveLocal({ models: [], apiKey: KEY });
 		assert.ok(first.ok, first.ok ? "" : first.error);
