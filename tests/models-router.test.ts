@@ -133,6 +133,25 @@ describe("the per-session Models router", () => {
 		assert.equal(((await again.result()) as { content: Array<{ text?: string }> }).content[0]?.text, "engine two");
 	});
 
+	it("a binding made by ANOTHER module copy routes this copy's Harness", async () => {
+		// Next dev gives each route its own copy of this module; the Harness
+		// captures the router from the copy that opened the chat while the
+		// POST that binds the turn's engine runs in another copy.
+		const specifier = "../src/agent/models.ts?route-copy=2";
+		const copy = (await import(specifier)) as typeof import("../src/agent/models.ts");
+		const engine = fauxEngine("from copy B");
+		copy.bindRunEngine("session-cross-copy", engine);
+		try {
+			const stream = routedModels().streamSimple(engine.model, userContext("hello") as never, {
+				sessionId: "session-cross-copy",
+			});
+			const text = ((await stream.result()) as { content: Array<{ text?: string }> }).content[0]?.text;
+			assert.equal(text, "from copy B", "copy A's router streamed through copy B's engine");
+		} finally {
+			copy.unbindRunEngine("session-cross-copy");
+		}
+	});
+
 	it("streams a real OpenAI Responses SSE through the bound engine and records RAW provider events", async () => {
 		setCustomEndpointProvider(
 			{

@@ -82,19 +82,33 @@ interface RunBinding {
 	observer?: ProviderEventObserver;
 }
 
-const runBindings = new Map<string, RunBinding>();
+interface LhModelsGlobal {
+	__lhRunBindings?: Map<string, RunBinding>;
+	__lhRoutedModels?: Models;
+}
+
+/** Bindings and the router are process-global: Next dev gives each route its
+ *  own copy of this module, and the Harness captures the router from the
+ *  copy that opened it while a POST in another copy binds the turn's engine.
+ *  A module-local map would lose that binding and fall back to the base
+ *  collection (the cold-page custom-endpoint `no_model`). */
+function modelsGlobal(): LhModelsGlobal {
+	return globalThis as typeof globalThis & LhModelsGlobal;
+}
+
+function runBindings(): Map<string, RunBinding> {
+	return (modelsGlobal().__lhRunBindings ??= new Map());
+}
 
 /** Bind one conversation's provider session id to its captured engine. The
  *  engine's stream function still owns the provider/credential/thinking pin. */
 export function bindRunEngine(sessionId: string, engine: PiEngine, observer?: ProviderEventObserver): void {
-	runBindings.set(sessionId, { engine, observer });
+	runBindings().set(sessionId, { engine, observer });
 }
 
 export function unbindRunEngine(sessionId: string): void {
-	runBindings.delete(sessionId);
+	runBindings().delete(sessionId);
 }
-
-let routed: Models | undefined;
 
 /** The Models collection the durable Harness reads: the process catalog with
  *  per-session engine dispatch. `getModel` prefers a bound engine's captured
@@ -106,14 +120,15 @@ let routed: Models | undefined;
  *  pre-normalization observer). It is forwarded into the engine's streamFn
  *  options — never reconstructed from the normalized event stream. */
 export function routedModels(): Models {
-	if (routed) return routed;
+	if (modelsGlobal().__lhRoutedModels) return modelsGlobal().__lhRoutedModels!;
+	const bindings = runBindings();
 	const base = piModels();
 	const stream = (
 		model: Model<Api>,
 		context: Parameters<StreamFunction>[1],
 		options?: Parameters<StreamFunction>[2],
 	) => {
-		const binding = options?.sessionId ? runBindings.get(options.sessionId) : undefined;
+		const binding = options?.sessionId ? bindings.get(options.sessionId) : undefined;
 		if (!binding) return base.streamSimple(model, context, options);
 		const observer = binding.observer;
 		const upstream = options?.onProviderStreamEvent;
@@ -129,11 +144,11 @@ export function routedModels(): Models {
 					};
 		return binding.engine.streamFn(binding.engine.model, context, forwarded);
 	};
-	routed = new Proxy(base, {
+	const routed = new Proxy(base, {
 		get(target, property) {
 			if (property === "getModel") {
 				return (provider: string, id: string) => {
-					for (const { engine } of runBindings.values()) {
+					for (const { engine } of bindings.values()) {
 						if (engine.model.provider === provider && engine.model.id === id) return engine.model;
 					}
 					return target.getModel(provider, id);
@@ -153,6 +168,7 @@ export function routedModels(): Models {
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 	});
+	modelsGlobal().__lhRoutedModels = routed;
 	return routed;
 }
 
