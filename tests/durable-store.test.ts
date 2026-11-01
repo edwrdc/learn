@@ -242,6 +242,35 @@ test("legacy import is idempotent across retries and a crash between commit and 
 	assert.deepEqual(fs.readFileSync(backup), Buffer.from(JSON.stringify(legacy, null, "\t")), "the backup is the original bytes");
 });
 
+test("the legacy import queue is process-global: two module copies import once", async () => {
+	// Next dev (and any `?route-copy` import) can load chats.ts twice. The
+	// queue and the Harness handle map must be shared, or two simultaneous
+	// first reads both see an empty transcript and append the same messages.
+	const specifier = "../src/store/chats.ts?route-copy=2";
+	const copy = (await import(specifier)) as typeof import("../src/store/chats.ts");
+	assert.notEqual(copy.chatStore, chatStore, "the second module instance is distinct");
+	const chat = chatStore.createChat("module copies");
+	const legacy = {
+		id: chat.id,
+		title: "module copies",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-02T00:00:00.000Z",
+		messages: [{ id: "msg_keep", role: "user", content: "keep", timestamp: 1 }],
+	};
+	fs.writeFileSync(chatFile(chat.id), JSON.stringify(legacy, null, "\t"));
+
+	const [first, second] = await Promise.all([chatStore.getChat(chat.id), copy.chatStore.getChat(chat.id)]);
+	assert.deepEqual(first!.messages, legacy.messages);
+	assert.deepEqual(second!.messages, legacy.messages);
+	const runtime = await openChatRuntime(chat.id);
+	assert.equal((await readEntries(runtime)).length, 1, "imported exactly once across module instances");
+	assert.equal(
+		(JSON.parse(fs.readFileSync(chatFile(chat.id), "utf8")) as { messages?: unknown }).messages,
+		undefined,
+		"the metadata rewrite happened once",
+	);
+});
+
 test("a record stamped newer than this build is refused, never rewritten", async () => {
 	const chat = chatStore.createChat("future");
 	const raw = JSON.parse(fs.readFileSync(chatFile(chat.id), "utf-8")) as Record<string, unknown>;
