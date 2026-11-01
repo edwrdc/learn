@@ -10,9 +10,10 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
  * duplicates corrupted all of them at once: the fold applied the quiz
  * answer to the ASK card, the ask question vanished, the order scrambled.
  *
- * THE LAW: ids are uniquified ONCE, at the wire boundary — this class sits
- * inside runPiTurn, sees every AgentEvent before any view, and applies the
- * same minting at settlement. The client, the persisted record, the dock,
+ * THE LAW: ids are uniquified ONCE, at the wire boundary. This class serves
+ * the legacy pi-agent-core loops (background sub-agents); the durable
+ * foreground applies claimToolCallId in its afterResponse hook (one law,
+ * two seams). The client, the persisted record, the dock,
  * the answer flow, and the next turn's provider context (rebuilt from the
  * record) all see exactly one set of unique ids. Provider context stays
  * internally paired (call and result rewrite together), which the
@@ -60,6 +61,23 @@ export function collectToolCallIds(messages: readonly unknown[]): string[] {
 	return ids;
 }
 
+/** Claim one tool-call id: keep it when unused, otherwise mint `${orig}~n`
+ *  and record the claim. Shared by the per-message uniquifier and the
+ *  durable loop's per-response hook (one law, two seams). */
+export function claimToolCallId(orig: string, seen: Set<string>): string {
+	if (!seen.has(orig)) {
+		seen.add(orig);
+		return orig;
+	}
+	for (let n = 2; ; n++) {
+		const candidate = `${orig}~${n}`;
+		if (!seen.has(candidate)) {
+			seen.add(candidate);
+			return candidate;
+		}
+	}
+}
+
 export class ToolCallIdUniquifier {
 	private readonly seen = new Set<string>();
 	/** assistant message object → its (origId → uniqueId) table. Weak: the
@@ -75,19 +93,8 @@ export class ToolCallIdUniquifier {
 		for (const id of usedIds) this.seen.add(id);
 	}
 
-	/** Keep `orig` if never used; otherwise mint an unused `${orig}~n`. */
 	private claim(orig: string): string {
-		if (!this.seen.has(orig)) {
-			this.seen.add(orig);
-			return orig;
-		}
-		for (let n = 2; ; n++) {
-			const candidate = `${orig}~${n}`;
-			if (!this.seen.has(candidate)) {
-				this.seen.add(candidate);
-				return candidate;
-			}
-		}
+		return claimToolCallId(orig, this.seen);
 	}
 
 	/** Register + rewrite one message's tool-call blocks (idempotent across

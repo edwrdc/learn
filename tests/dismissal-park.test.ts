@@ -94,7 +94,7 @@ describe("the park registry", () => {
 		const off = subscribe((e) => {
 			if (e.type === "record-changed" && e.chatId === chat) emitted++;
 		});
-		await applyParkedDismissal(chatStore, chat);
+		await applyParkedDismissal(chat);
 		off();
 		assert.equal(emitted, 0);
 		assert.equal((await chatStore.getChat(chat))!.messages.length, before);
@@ -115,7 +115,7 @@ describe("applyParkedDismissal — against real records", () => {
 		const off = subscribe((e) => {
 			if (e.type === "record-changed" && e.chatId === chat) emitted++;
 		});
-		await applyParkedDismissal(chatStore, chat);
+		await applyParkedDismissal(chat);
 		off();
 		assert.equal(emitted, 1);
 		// The call is answered now — nothing dangles.
@@ -127,7 +127,7 @@ describe("applyParkedDismissal — against real records", () => {
 	it("applies a parked problem dismissal to the active problem", async () => {
 		const chat = await chatWithActiveProblem();
 		parkDismissal(chat, { type: "dismiss-problem", problemCallId: "call-prob-1" });
-		await applyParkedDismissal(chatStore, chat);
+		await applyParkedDismissal(chat);
 		// The marker freed the slot — no active problem remains.
 		assert.equal(activeProblemOf((await chatStore.getChat(chat))!.messages), null);
 	});
@@ -140,7 +140,7 @@ describe("applyParkedDismissal — against real records", () => {
 		const off = subscribe((e) => {
 			if (e.type === "record-changed" && e.chatId === chat) emitted++;
 		});
-		await applyParkedDismissal(chatStore, chat);
+		await applyParkedDismissal(chat);
 		off();
 		assert.equal(emitted, 0);
 		assert.equal((await chatStore.getChat(chat))!.messages.length, before);
@@ -156,7 +156,7 @@ describe("the dismiss route — the park contract (202)", () => {
 		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
 
 		// Mid-turn: the route cannot validate against stale truth — park.
-		assert.ok(!isTurnRunning(chat));
+		assert.ok(!(await isTurnRunning(chat)));
 		beginTurn(chat);
 		const res = await dismissRoute.POST(
 			new Request(`http://test/api/chats/${chat}/dismiss`, {
@@ -178,7 +178,7 @@ describe("the dismiss route — the park contract (202)", () => {
 		assert.ok(danglingQuestionOf((await chatStore.getChat(chat))!.messages));
 
 		// The settle: persistTurn (done) → applyParkedDismissal → endTurn.
-		await applyParkedDismissal(chatStore, chat);
+		await applyParkedDismissal(chat);
 		endTurn(chat);
 		assert.equal(danglingQuestionOf((await chatStore.getChat(chat))!.messages), null);
 		assert.equal(takeParkedDismissal(chat), null);

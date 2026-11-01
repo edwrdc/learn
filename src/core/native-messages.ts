@@ -93,7 +93,7 @@ declare module "@earendil-works/pi-agent-core" {
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & { id: string };
 
 /** A record message list is assignable to the agent's context — that IS
- *  the replay (ui-stream/chat-handler assign it to initialState.messages). */
+ *  the replay (the turn runner assigns it to the record projection). */
 export function asAgentMessages(messages: readonly LhMessage[]): AgentMessage[] {
 	return messages as unknown as AgentMessage[];
 }
@@ -536,7 +536,7 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 	// pi-agent-core's Agent seeds a SystemMessage carrying the system
 	// prompt AND the tool declarations at state.messages[0]
 	// (createInitialSystemMessage — "messages declare the provider-visible
-	// loadout"). The record never persists it (ui-stream's settleWith
+	// loadout"). The record never persists it (the durable projection drops
 	// filters the role), so RECORD-path callers never see it — but the
 	// Agent's convertToLlm DOES. The cut slices the RECORD's history;
 	// when [0] is the chrome it must carry through AHEAD of the
@@ -597,8 +597,12 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 // ─── native scans (the UIMessage-era pending/phase seams, natively) ──────────
 
 /** The pending-question gate (findPendingToolCall's native twin): the
- *  NEWEST assistant message's FIRST question-tool call with no result in
- *  the tail — one question at a time, the dock's subject. */
+ *  NEWEST assistant message's FIRST question-tool call still awaiting the
+ *  learner — one question at a time, the dock's subject. A call counts as
+ *  answered only through its RESULT; the durable loop commits the pose as
+ *  a placeholder result (the clean "question posed" ack, details: null),
+ *  so an existing result is not an answer by itself. The legacy shape (no
+ *  result at all — records imported mid-question) stays pending. */
 export function danglingQuestionOf(
 	messages: readonly LhMessage[],
 ): { toolCallId: string; tool: string; input: unknown } | null {
@@ -606,12 +610,19 @@ export function danglingQuestionOf(
 		const m = messages[mi]!;
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const assistant = m as AssistantMessage & { id: string };
-		const answered = resultIdsFrom(messages.slice(mi + 1));
+		const results = new Map<string, ToolResultMessage>();
+		for (const tail of messages.slice(mi + 1)) {
+			if ((tail as { role?: string }).role !== "toolResult") continue;
+			const result = tail as ToolResultMessage;
+			results.set(result.toolCallId, result);
+		}
 		for (const block of assistant.content) {
 			if (block.type !== "toolCall") continue;
 			if (!(QUESTION_TOOLS as readonly string[]).includes(block.name)) continue;
-			if (answered.has(block.id)) continue;
-			return { toolCallId: block.id, tool: block.name, input: block.arguments };
+			const result = results.get(block.id);
+			if (result === undefined || (!result.isError && result.details == null)) {
+				return { toolCallId: block.id, tool: block.name, input: block.arguments };
+			}
 		}
 		return null; // the newest assistant message's questions are all answered
 	}

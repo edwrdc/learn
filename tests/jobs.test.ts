@@ -44,7 +44,7 @@ import {
 	type VisualResult,
 	buildProbeHandoffSteer,
 } from "../src/core/contracts.ts";
-import { composeInstructions, createTeacherAgent } from "../src/agent/teacher-agent.ts";
+import { composeInstructions } from "../src/agent/teacher-agent.ts";
 import { createTeacherTools } from "../src/agent/tools.ts";
 import { webTools } from "../src/agent/tools/web.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
@@ -53,18 +53,15 @@ import {
 	abortJob,
 	deliverJobResult,
 	noteSteerVisible,
-	reconcileUserSteers,
 	recoverStaleJobs,
-	registerLiveAgent,
 	setJobRespawn,
 	setTurnRunner,
 	settleSteers,
 	steerLiveChat,
-	unregisterLiveAgent,
 } from "../src/server/jobs.ts";
 import { registerJobAbort, unregisterJobAbort } from "../src/agent/subagents/aborts.ts";
 import { beginTurn, endTurn } from "../src/server/turn-liveness.ts";
-import { persistTurn } from "../src/server/turn-service.ts";
+import { answerWrite, applyAnswer } from "../src/server/turn-service.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { jobStore } from "../src/store/jobs.ts";
 import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src/agent/subagents/runner.ts";
@@ -74,7 +71,7 @@ import type { SearchProvider } from "../src/core/search.ts";
 import { PATHS } from "../config.ts";
 import { projectView as projectNative } from "../src/core/view.ts";
 import { subscribe } from "../src/core/events.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import { danglingQuestionOf, type LhMessage } from "../src/core/native-messages.ts";
 import type { SteerInput, TurnInput } from "../src/core/input-events.ts";
 
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -490,16 +487,12 @@ describe("dispatch (async protocol §2)", () => {
 		const search = stubSearch();
 		const testRunner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
 		const engine = researchCallingTeacher();
-		const tools = createTeacherTools({
-			chatId: chat.id,
-			chatStore,
-			jobStore,
-			spawn: (job, input) => void testRunner.runJob(job.id, input),
-		});
-		// The handler hands the factory the native build options — the
-		// record IS the agent state (Wave B: no adapter conversion).
-		const agent: Parameters<typeof handleChatRequest>[1] = (opts) =>
-			createTeacherAgent(undefined, { engine, tools, messages: opts.messages });
+		// The job tools' spawn seam is the test runner; the rest of the turn
+		// (engine, prompt, tools) is the real composition.
+		const agent: Parameters<typeof handleChatRequest>[1] = {
+			engine,
+			deps: { spawn: (job, input) => void testRunner.runJob(job.id, input) },
+		};
 
 		researchModelOverride.current = researcherModel();
 		const body = await drainTurn(post(chat.id, { type: "text", text: "teach me graph rendering" }), agent);
@@ -1080,300 +1073,56 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 
 // ─── continuation coalescing (the delivery-starvation fix) ───────────────────
 
-describe("Wave C: live steering handoff + settlement reconciliation", () => {
-	/** A minimal stand-in for pi's Agent — the pump touches only steer(). */
-	function fakeAgent(): { handed: SteerMessage[]; agent: unknown } {
-		const handed: SteerMessage[] = [];
-		return { handed, agent: { steer: (m: SteerMessage) => handed.push(m) } };
-	}
-
-	it("hands queued markers to the LIVE run (pi steering queue) — no wake fires, the registry waits", async () => {
-		const { chatId, jobId, steer } = await setup();
-		const { handed, agent } = fakeAgent();
-		let fired = 0;
-		setTurnRunner(async () => {
-			fired++;
-			return 200;
-		});
-
-		// A live turn is streaming (turn registry + live agent registered).
-		assert.ok(beginTurn(chatId));
-		registerLiveAgent(chatId, agent as never);
-
-		const delivery = deliverJobResult(steer); // floats — resolves at settlement
-		await waitFor(() => handed.length === 1, 8000, "marker handed to the live agent");
-		await delay(1200);
-		assert.equal(fired, 0, "no wake while the run is live");
-		assert.equal(jobStore.getJob(jobId)!.status, "running", "job flips only at delivery");
-
-		// Settlement: the run persisted the injected marker.
-		unregisterLiveAgent(chatId);
-		settleSteers(chatId, [steer as never]);
-		await delivery;
-		assert.equal(jobStore.getJob(jobId)!.status, "done", "delivery resolves at settlement");
-		assert.equal(fired, 0, "never needed a wake");
-		endTurn(chatId);
-	});
-
-	it("a handed marker the run never injected (stopper exit / missed poll) strands at settlement — the idle wake delivers it", async () => {
-		const { chatId, jobId, steer } = await setup();
-		const { handed, agent } = fakeAgent();
-		let fired = 0;
-		setTurnRunner(async () => {
-			fired++;
-			return 200;
-		});
-
-		assert.ok(beginTurn(chatId));
-		registerLiveAgent(chatId, agent as never);
-
-		const delivery = deliverJobResult(steer);
-		await waitFor(() => handed.length === 1, 8000, "handed");
-		// The run settles WITHOUT the marker (question stopper exited before
-		// the follow-up poll) — reconcile against the persisted truth.
-		unregisterLiveAgent(chatId);
-		settleSteers(chatId, []);
-		endTurn(chatId);
-
-		// The marker returned to pending — the pump's idle wake delivers it.
-		await delivery;
-		assert.equal(fired, 1, "the stranded marker rode the idle wake");
-		assert.equal(jobStore.getJob(jobId)!.status, "done");
-	});
-
-	it("a probe-handoff NEVER rides a live run — it waits the turn out and wakes", async () => {
-		const chat = await chatStore.createChat("Test: handoff never live");
-		trackChat(chat.id);
-		await chatStore.saveMessages(chat.id, nativeToolMessages("teach me calc", "probe_done", "call-pd", { ok: true }));
-		const handoff = buildProbeHandoffSteer(chat.id);
-		const { handed, agent } = fakeAgent();
-		const fired: SteerMessage[][] = [];
-		setTurnRunner(async (_cid, input) => {
-			fired.push((input as SteerInput).steers as SteerMessage[]);
-			return 200;
-		});
-
-		assert.ok(beginTurn(chat.id));
-		registerLiveAgent(chat.id, agent as never);
-
-		const delivery = deliverJobResult(handoff);
-		await delay(1200);
-		assert.equal(handed.length, 0, "the handoff was NOT handed to the live agent");
-		assert.equal(fired.length, 0, "no wake while the prober's turn streams");
-
-		// The prober's turn settles — now the handoff wakes the TEACHER.
-		unregisterLiveAgent(chat.id);
-		settleSteers(chat.id, []);
-		endTurn(chat.id);
-		await delivery;
-		assert.equal(fired.length, 1);
-		assert.equal(fired[0]![0]!.id, handoff.id, "the handoff rode the wake");
-	});
-
-	it("registerLiveAgent immediately steers pending markers into the NEW run (the parked-behind-quiz path)", async () => {
-		const { chatId, jobId, steer } = await setup();
-		const { handed, agent } = fakeAgent();
-		let fired = 0;
-		setTurnRunner(async () => {
-			fired++;
-			return 200;
-		});
-
-		// A dangling question has the pump parked in waitForIdle: the
-		// marker is pending but no live run exists to take it.
-		await chatStore.saveMessages(chatId, [
-			...nativeToolMessages("teach me", "probe_done", "call-q", { ok: true }),
-			{
-				id: "a-q",
-				role: "assistant",
-				content: [{ type: "toolCall", id: "quiz-call", name: "quiz", arguments: { question: "q", choices: ["a", "b"] } as never }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "toolUse",
-				timestamp: 1,
-			} as never,
-		]);
-		const delivery = deliverJobResult(steer);
-		await delay(300); // let the pump park behind the dangling question
-		assert.equal(handed.length, 0, "nothing to hand to — no live agent");
-
-		// The learner answers: the handler registers the answer run's agent
-		// BEFORE runPiTurn, so the marker is steered into it synchronously —
-		// it rides the run's START steering poll (first LLM call).
-		assert.ok(beginTurn(chatId));
-		registerLiveAgent(chatId, agent as never);
-		assert.equal(handed.length, 1, "registration itself steered the marker in");
-		assert.equal(handed[0]!.id, steer.id);
-
-		// The answer run persisted the marker — the parked pump's wake
-		// re-check resolves it without ever firing a turn.
-		unregisterLiveAgent(chatId);
-		settleSteers(chatId, [steer as never]);
-		endTurn(chatId);
-		await delivery;
-		assert.equal(fired, 0, "the parked wake never fired — the run delivered");
-		assert.equal(jobStore.getJob(jobId)!.status, "done");
-	});
-
-	it("noteSteerVisible flips the job at the visibility seam — before any settle (owner ruling 2026-09-26)", async () => {
-		// The dock fix: the marker reaching the learner's view (wire
-		// message_end / write-ahead persist) flips the job NOW — the
-		// delivering turn may keep teaching for minutes. Idempotent with
-		// the settle-path finalize.
-		const { chatId, jobId, steer } = await setup();
-		assert.equal(jobStore.getJob(jobId)!.status, "running");
-		noteSteerVisible(steer);
-		assert.equal(jobStore.getJob(jobId)!.status, "done", "flipped at the seam, no turn settled");
-		noteSteerVisible(steer); // the settle-path flip re-runs — no-op
-		assert.equal(jobStore.getJob(jobId)!.status, "done");
-		// A probe-handoff (no jobId) is a harmless no-op.
-		const handoff = buildProbeHandoffSteer(chatId);
-		noteSteerVisible(handoff);
-	});
-
-	it("the idle wake carries EVERY pending marker in ONE turn", async () => {
-		const { chatId, steer } = await setup();
-		const job2 = jobStore.createJob({ kind: "research", chatId, toolCallId: "call-2" });
-		trackJob(job2.id);
-		const result: ResearchResult = { brief: "Second result.", sources: [] };
-		jobStore.updateJob(job2.id, { result });
-		const steer2 = buildSubagentSteer(job2, result);
-
-		const fired: SteerMessage[][] = [];
-		setTurnRunner(async (_cid, input) => {
-			fired.push((input as SteerInput).steers as SteerMessage[]);
-			return 200;
-		});
-
-		await Promise.all([deliverJobResult(steer), deliverJobResult(steer2)]);
-		assert.equal(fired.length, 1, "one wake for the whole queue");
-		assert.equal(fired[0]!.length, 2, "both markers ride the same turn");
-		const ids = fired[0]!.map((s) => s.id).sort();
-		assert.deepEqual(ids, [steer.id, steer2.id].sort());
-	});
-});
-
-
-	it("fails the job (error status) when the wake turn errors unrecoverably", async () => {
-		const { jobId, steer } = await setup();
-		setTurnRunner(async () => 500);
-
-		await deliverJobResult(steer).then(
-			() => assert.fail("expected delivery to reject"),
-			() => undefined,
-		);
-		const errored = jobStore.getJob(jobId)!;
-		assert.equal(errored.status, "error");
-		assert.match(errored.error ?? "", /status 500/);
-	});
-});
+// ─── persist id hygiene (the duplicate-empty-key bug) ────────────────────────
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ─── persist id hygiene (the duplicate-empty-key bug) ────────────────────────
+// ─── durable record projection (the foreground settle services) ──────────────
 
-describe("persistTurn (native history, Wave B)", () => {
-	it("stamps EMPTY ids (pi minted no id) at the canonical write and preserves existing ones", async () => {
-		const chat = await chatStore.createChat("Test: persist stamps ids");
+describe("durable turn record", () => {
+	it("a question pose lands as the call's placeholder result — the answer replaces it, never duplicates it", async () => {
+		const chat = await chatStore.createChat("Test: durable answer write");
 		trackChat(chat.id);
-		const stamped = await persistTurn(chatStore, chat.id, 0, [
-			{ id: "", role: "user", content: "wake turn", timestamp: 1 } as never,
-			{
-				id: "msg_kept",
-				role: "assistant",
-				content: [{ type: "text", text: "hi" }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "stop",
-				timestamp: 1,
-			} as never,
-		], false);
-		assert.notEqual(stamped[0]!.id, "", "empty id replaced");
-		assert.match(stamped[0]!.id, /^msg_/);
-		assert.equal(stamped[1]!.id, "msg_kept", "server-authored id untouched");
-		const record = (await chatStore.getChat(chat.id))!;
-		assert.equal(record.messages.length, 2, "both messages persisted");
-		assert.ok(record.messages.every((m) => m.id && m.id.length > 0), "no empty ids survive persist");
-	});
+		const assistant = {
+			id: "msg_a1",
+			role: "assistant",
+			content: [{ type: "toolCall", id: "q1", name: "quiz", arguments: { question: "q?" } }],
+			api: "openai-completions",
+			provider: "openrouter",
+			model: "test",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			stopReason: "toolUse",
+			timestamp: 1,
+		} as never;
+		const placeholder = {
+			id: "msg_pose",
+			role: "toolResult",
+			toolCallId: "q1",
+			toolName: "quiz",
+			content: [{ type: "text", text: "Question posed" }],
+			details: null,
+			isError: false,
+			timestamp: 1,
+		} as never;
+		await chatStore.saveMessages(chat.id, [assistant, placeholder]);
 
-	it("baseCount slices the turn's own messages (the agent's state is append-only across turns)", async () => {
-		const chat = await chatStore.createChat("Test: persist slices the turn tail");
-		trackChat(chat.id);
-		await chatStore.saveMessages(chat.id, [
-			{ id: "base_1", role: "user", content: "first", timestamp: 1 } as never,
-		]);
-		// The agent's state at onFinish: the base record + the turn's OWN new
-		// messages (Wave B: onFinish receives the full native history — the
-		// slice keeps persist append-only).
-		const state = [
-			{ id: "base_1", role: "user", content: "first", timestamp: 1 } as never,
-			{
-				id: "",
-				role: "assistant",
-				content: [{ type: "text", text: "wake turn" }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "stop",
-				timestamp: 1,
-			} as never,
-		];
-		const stamped = await persistTurn(chatStore, chat.id, 1, state, false);
-		assert.equal(stamped.length, 1, "only the turn's new tail persists");
 		const record = (await chatStore.getChat(chat.id))!;
-		assert.equal(record.messages.length, 2, "the base record is untouched — append-only");
-		assert.match(record.messages[1]!.id, /^msg_/);
-	});
+		const pending = danglingQuestionOf(record.messages);
+		assert.equal(pending?.toolCallId, "q1", "the pose placeholder is pending, not an answer");
 
-	it("drops clean question placeholders, keeps errored ones (fork 1: the record ends at the unanswered call)", async () => {
-		const chat = await chatStore.createChat("Test: persist placeholder filtering");
-		trackChat(chat.id);
-		const stamped = await persistTurn(chatStore, chat.id, 0, [
-			{
-				id: "",
-				role: "assistant",
-				content: [{ type: "toolCall", id: "q1", name: "quiz", arguments: { question: "q?" } as never }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "toolUse",
-				timestamp: 1,
-			} as never,
-			// The loop's synthetic "question posed" result — never a fact.
-			{
-				id: "",
-				role: "toolResult",
-				toolCallId: "q1",
-				toolName: "quiz",
-				content: [{ type: "text", text: "question posed" }],
-				details: "question posed",
-				isError: false,
-				timestamp: 1,
-			} as never,
-			// An ERRORED authoring call DOES persist — the model's retry context.
-			{
-				id: "",
-				role: "toolResult",
-				toolCallId: "q1",
-				toolName: "quiz",
-				content: [{ type: "text", text: "bad options" }],
-				details: "bad options",
-				isError: true,
-				timestamp: 1,
-			} as never,
-		], false);
-		assert.equal(stamped.length, 2, "the clean placeholder is filtered, the errored result stays");
-		const record = (await chatStore.getChat(chat.id))!;
-		assert.equal(record.messages.length, 2);
-		assert.equal((record.messages[1] as { isError: boolean }).isError, true);
+		const write = await answerWrite(chat.id, record, "q1", { kind: "quiz", dismissed: false } as never);
+		assert.ok(write.replace !== undefined, "the durable record replaces the pose entry");
+		await applyAnswer(chat.id, write);
+
+		const after = (await chatStore.getChat(chat.id))!;
+		const results = after.messages.filter(
+			(m) => (m as { role?: string }).role === "toolResult" && (m as { toolCallId?: string }).toolCallId === "q1",
+		);
+		assert.equal(results.length, 1, "exactly one result for the call");
+		assert.equal((results[0] as { id?: string }).id, write.message.id, "the answer is the visible result");
+		assert.equal(danglingQuestionOf(after.messages), null, "nothing pending after the answer");
 	});
 });
 
@@ -1816,58 +1565,15 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 	});
 });
 
-// ─── composer steering (owner arc 2026-10-03): the user-steer registry ──────
+// ─── composer steering: no live turn is an honest refusal ───────────────────
 
-describe("composer steering: steerLiveChat + the deliver-or-requeue lifecycle", () => {
-	/** A minimal stand-in for pi's Agent — only steer() is touched. */
-	function fakeAgent(): { handed: unknown[]; agent: unknown } {
-		const handed: unknown[] = [];
-		return { handed, agent: { steer: (m: unknown) => handed.push(m) } };
-	}
-
-	it("no live turn → false, nothing parked (the client falls back to a plain send)", async () => {
+describe("steerLiveChat", () => {
+	it("no live turn → false; the client falls back to a plain text send", async () => {
 		const chatId = await chatStore.createChat("steer: idle").id;
 		const msg = { id: "steer_x1", role: "user", content: "hold on", timestamp: 1 };
-		assert.equal(steerLiveChat(chatId, msg as never), false);
-		const { handed, agent } = fakeAgent();
-		registerLiveAgent(chatId, agent as never); // a later run hands NOTHING
-		assert.equal(handed.length, 0, "nothing was parked by the refused steer");
-		unregisterLiveAgent(chatId);
+		assert.equal(await steerLiveChat(chatId, msg as never), false);
+		const record = (await chatStore.getChat(chatId))!;
+		assert.equal(record.messages.length, 0, "the refused steer wrote nothing");
 	});
-
-	it("live agent → steered AND parked (the stranding safety net)", async () => {
-		const chatId = await chatStore.createChat("steer: live").id;
-		const msg = { id: "steer_x2", role: "user", content: "also cover Venus", timestamp: 1 };
-		const { handed, agent } = fakeAgent();
-		registerLiveAgent(chatId, agent as never);
-		assert.equal(steerLiveChat(chatId, msg as never), true);
-		assert.equal(handed.length, 1, "handed to the live agent's steering queue");
-		// Re-registering the SAME agent never re-hands (double-handoff guard).
-		registerLiveAgent(chatId, agent as never);
-		assert.equal(handed.length, 1);
-		unregisterLiveAgent(chatId);
-	});
-
-	it("settlement reconciliation: delivered ids drop, stranded ones ride the NEXT run", async () => {
-		const chatId = await chatStore.createChat("steer: reconcile").id;
-		const delivered = { id: "steer_d1", role: "user", content: "delivered", timestamp: 1 };
-		const stranded = { id: "steer_s1", role: "user", content: "stranded behind a question", timestamp: 2 };
-		const { handed, agent } = fakeAgent();
-		registerLiveAgent(chatId, agent as never);
-		assert.equal(steerLiveChat(chatId, delivered as never), true);
-		assert.equal(steerLiveChat(chatId, stranded as never), true);
-
-		// Settlement: the run persisted ONLY the delivered one (the stranded
-		// copy died with the agent — question termination / abort).
-		unregisterLiveAgent(chatId);
-		reconcileUserSteers(chatId, [delivered] as never);
-
-		// The chat's next run (the answer turn) picks up the stranded steer.
-		const next = fakeAgent();
-		registerLiveAgent(chatId, next.agent as never);
-		assert.equal(next.handed.length, 1, "exactly the stranded steer rides the next run");
-		assert.deepEqual((next.handed[0] as { id: string }).id, "steer_s1");
-		unregisterLiveAgent(chatId);
-		reconcileUserSteers(chatId, [stranded, delivered] as never); // cleanup
-	});
+});
 });

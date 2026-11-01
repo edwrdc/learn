@@ -17,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 	return Response.json({
 		...chat,
 		messages: chat.messages,
-		turnInFlight: isTurnRunning(id),
+		turnInFlight: await isTurnRunning(id),
 		compacting: compactionInFlight(id),
 		coverage: await sessionCoverage(id),
 	});

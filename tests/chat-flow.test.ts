@@ -25,10 +25,10 @@ import {
 	fauxToolCall,
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
-import { createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import { createTeacherTools } from "../src/agent/tools.ts";
+import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
 import { handleChatInput, handleChatRequest } from "../src/server/chat-handler.ts";
-import { effectiveSettings } from "../src/server/stores.ts";
+import { effectiveSettings, stores } from "../src/server/stores.ts";
 import { isTurnRunning } from "../src/server/turn-liveness.ts";
 import { deliverJobResult, setTurnRunner } from "../src/server/jobs.ts";
 import { buildSubagentSteer } from "../src/core/contracts.ts";
@@ -100,8 +100,11 @@ function defaultLesson(calls: string[][]): FauxResponseStep[] {
  *  off the record it is about to run — the factory tests inject. Wave B: the
  *  handler hands the factory the NATIVE build options (the record IS the
  *  agent state — no adapter conversion). */
-function agentFactory(engine: PiEngine): Parameters<typeof handleChatRequest>[1] {
-	return (opts) => createTeacherAgent(undefined, { engine, messages: opts.messages });
+function agentFactory(
+	engine: PiEngine,
+	tools: Record<string, unknown> = bareQuestionTools(),
+): Parameters<typeof handleChatRequest>[1] {
+	return { engine, tools };
 }
 
 /** The graded answer a client sends for a quiz (the shared grading seam). */
@@ -281,9 +284,10 @@ describe("teacher chat flow (scripted model)", () => {
 		await drainTurn(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine));
 
 		const saved1 = (await chatStore.getChat(chat.id))!;
-		// Native record: user + assistant (fork 1 — the clean question's
-		// placeholder result never persists, so the record ends at the call).
-		assert.equal(saved1.messages.length, 2, "user message + assistant response persisted");
+		// Native record: user + assistant + the posed question's committed
+		// placeholder result (the answer replaces that entry — never a second,
+		// non-adjacent result).
+		assert.equal(saved1.messages.length, 3, "user + assistant + pose result persisted");
 		const assistantMsg = saved1.messages[1]!;
 		assert.equal(assistantMsg.role, "assistant");
 
@@ -363,7 +367,7 @@ describe("teacher chat flow (scripted model)", () => {
 		// A text event with no text: refused at the parse boundary.
 		const res = await handleChatRequest(post(chat.id, { type: "text" }), agentFactory(scriptedTeacher(defaultLesson).engine));
 		assert.equal(res.status, 400, "malformed input is a clean 400");
-		assert.equal(isTurnRunning(chat.id), false, "the refusal never registered a turn");
+		assert.equal(await isTurnRunning(chat.id), false, "the refusal never registered a turn");
 
 		// An ANSWER with no dangling question call: the orphan-400 discipline
 		// (the server owns the record — it validates the target call).
@@ -372,7 +376,7 @@ describe("teacher chat flow (scripted model)", () => {
 			agentFactory(scriptedTeacher(defaultLesson).engine),
 		);
 		assert.equal(res2.status, 400, "an answer with no pending question call is refused");
-		assert.equal(isTurnRunning(chat.id), false);
+		assert.equal(await isTurnRunning(chat.id), false);
 
 		// And the chat is NOT locked: the next (valid) turn is accepted.
 		const ok = await handleChatRequest(
@@ -530,7 +534,8 @@ describe("teacher chat flow (scripted model)", () => {
 		await new Promise((r) => setTimeout(r, 150));
 		release2();
 		await drain(await res);
-		await delivery; // resolves at settleSteers (the run persisted the marker)
+		await delivery; // resolves when the marker's entry commits
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the run settles");
 		assert.equal(jobFlippedMidTurn, "done", "the job flipped at the marker's message_end — WHILE the turn still streamed");
 
 		// Record shape: the marker sits BETWEEN completed turn units — after
@@ -637,12 +642,12 @@ describe("teacher chat flow (scripted model)", () => {
 		await reader.read();
 		await reader.cancel();
 		// The turn is STILL a running background object — no view killed it.
-		assert.equal(isTurnRunning(chat.id), true, "cancel detached the view only — the turn runs on");
+		assert.equal(await isTurnRunning(chat.id), true, "cancel detached the view only — the turn runs on");
 		assert.ok(runningTurn(chat.id), "the running-turn registry still holds the handle");
 
 		// It runs to FULL completion with nobody watching, then settles alone.
 		release();
-		await waitFor(() => !isTurnRunning(chat.id), 8000, "turn settle after view cancel");
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "turn settle after view cancel");
 		const saved = (await chatStore.getChat(chat.id))!;
 		assert.equal(saved.messages.length, 2, "complete turn persisted — not a partial");
 		assert.equal(runningTurn(chat.id), undefined, "handle unregistered at settle");
@@ -852,7 +857,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		createdChats.push(chat.id);
 
 		const res1 = await handleChatRequest(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine)); // acked; the turn runs as a background object (Diet B: no stream to hold)
-		assert.equal(isTurnRunning(chat.id), true, "turn registered as in flight");
+		assert.equal(await isTurnRunning(chat.id), true, "turn registered as in flight");
 		const view1 = drainRunning(chat.id); // a live view — the turn would run on with none
 
 		// A stale client (remount racing a live turn) tries to start a second turn.
@@ -860,7 +865,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		assert.equal(res2.status, 409, "concurrent turn rejected — last-writer-wins persist would clobber it");
 
 		await view1; // finish → onFinish → endTurn
-		assert.equal(isTurnRunning(chat.id), false, "registry cleared at finish");
+		assert.equal(await isTurnRunning(chat.id), false, "registry cleared at finish");
 
 		const res3 = await handleChatRequest(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine));
 		assert.equal(res3.status, 200, "the next turn is accepted after the previous finished");
@@ -894,7 +899,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		// history; the projection still renders ONE assistant group.
 		assert.equal(saved2.messages.length, 4, "full turn persisted as usual at finish");
 		assert.equal(projectView(saved2.messages).length, 2, "the projection groups the answered quiz + reaction");
-		assert.equal(isTurnRunning(chat.id), false, "registry cleared at finish");
+		assert.equal(await isTurnRunning(chat.id), false, "registry cleared at finish");
 	});
 });
 
@@ -952,7 +957,7 @@ describe("the BYOK turn gate (no factory floor — owner, 2026-09-22)", () => {
 
 		// Either way: no phantom liveness, nothing durable from a refused turn.
 		if (expectRefusal) {
-			assert.equal(isTurnRunning(chat.id), false, "the refusal never registers a live turn");
+			assert.equal(await isTurnRunning(chat.id), false, "the refusal never registers a live turn");
 			const saved = (await chatStore.getChat(chat.id))!;
 			assert.equal(saved.messages.length, 0, "no write-ahead persist before the gate");
 		}
@@ -991,7 +996,7 @@ describe("the key-presence turn gate (provider-key interlude, 2026-09-25)", () =
 			assert.equal(body.provider, "together", "the envelope names whose key is gone");
 			assert.deepEqual(body.slots, ["strong"], "the conversation tier is the affected slot");
 			assert.equal(body.error, "No Together key is set — add one in Settings → Keys", "the human line names the provider");
-			assert.equal(isTurnRunning(chat.id), false, "the refusal never registers a live turn");
+			assert.equal(await isTurnRunning(chat.id), false, "the refusal never registers a live turn");
 			assert.equal((await chatStore.getChat(chat.id))!.messages.length, 0, "no write-ahead persist before the gate");
 		} finally {
 			if (saved !== undefined) process.env.TOGETHER_API_KEY = saved;
@@ -1034,10 +1039,10 @@ describe("background-turn runner (owner ruling 2026-09-25: every turn is a serve
 		// browser's 6-per-origin connections for the turn's whole life.)
 		const body = JSON.parse(await res.text());
 		assert.deepEqual(body, { ok: true }, "the ack is a tiny JSON envelope");
-		assert.equal(isTurnRunning(chat.id), true, "the turn runs on with its response closed");
+		assert.equal(await isTurnRunning(chat.id), true, "the turn runs on with its response closed");
 
 		release();
-		await waitFor(() => !isTurnRunning(chat.id), 8000, "turn settle");
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "turn settle");
 	});
 
 	it("subscribe mid-turn: a second view gets the FULL replay, then live, same dialect", async () => {
@@ -1118,7 +1123,7 @@ describe("background-turn runner (owner ruling 2026-09-25: every turn is a serve
 		assert.ok(JSON.stringify(record.messages).includes(long), "persistTurn wrote the settled message in full");
 	});
 
-	it("remote abort: any client can stop a running turn; the partial persists; subscribers close cleanly", async () => {
+	it("remote abort: any client can stop a running turn; the input stays durable; subscribers close cleanly", async () => {
 		const engine = abortableTeacher();
 		const chat = await createConfiguredChat("Test: remote abort");
 		createdChats.push(chat.id);
@@ -1135,9 +1140,17 @@ describe("background-turn runner (owner ruling 2026-09-25: every turn is a serve
 		const text = await viewText;
 		assert.ok(text.endsWith("data: [DONE]\n\n"), "subscriber closes cleanly at the aborted settle");
 
-		await waitFor(() => !isTurnRunning(chat.id), 8000, "aborted turn settle");
+		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "aborted turn settle");
 		const saved = (await chatStore.getChat(chat.id))!;
-		assert.ok(saved.messages.length >= 2, "the partial transcript persisted via the usual settle path");
+		// The learner's input committed at admission; a provider that never
+		// produced a partial leaves no assistant to keep (the run's own
+		// committed transcript is the partial, when there is one — pinned in
+		// tests/durable-foreground.test.ts).
+		assert.ok(saved.messages.length >= 1, "the input survived the abort");
+		assert.ok(
+			saved.messages.every((m) => (m as { role?: string }).role !== "assistant"),
+			"no assistant entry was invented for an aborted request",
+		);
 		assert.equal(runningTurn(chat.id), undefined, "handle unregistered after the aborted settle");
 
 		// Honest 409 semantics: there is nothing left to abort.
@@ -1189,7 +1202,7 @@ describe("background-turn runner (owner ruling 2026-09-25: every turn is a serve
 			const text = await views.get(chat.id)!;
 			assert.ok(text.includes("Gated reply."), `chat ${chat.id} view replayed its own turn`);
 			assert.ok(text.endsWith("data: [DONE]\n\n"), `chat ${chat.id} view closed at settle`);
-			await waitFor(() => !isTurnRunning(chat.id), 8000, `chat ${chat.id} settle`);
+			await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, `chat ${chat.id} settle`);
 			assert.equal((await chatStore.getChat(chat.id))!.messages.length, 2, `chat ${chat.id} persisted its full turn`);
 		}
 	});
@@ -1227,9 +1240,7 @@ it("explain tool call persists as a pending part; the free-text answer reveals t
 	);
 	assert.ok(tools.explain && !tools.quiz, "explain armed, quiz dropped — one quizzing tool");
 
-	const factory: Parameters<typeof handleChatRequest>[1] = (opts) =>
-		createTeacherAgent(undefined, { engine, messages: opts.messages, tools });
-	await drainTurn(post(chat.id, { type: "text", text: "teach me the solar system" }), factory);
+	await drainTurn(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine, tools));
 
 	const saved1 = (await chatStore.getChat(chat.id))!;
 	const savedContent1 = (saved1.messages[1] as { content: unknown }).content as Array<{ type: string; name?: string }>;
@@ -1256,7 +1267,7 @@ it("explain tool call persists as a pending part; the free-text answer reveals t
 	const answer = buildAnswer(qd, { text: "It stays near the Sun." });
 	assert.equal(answer.correct, undefined, "no client grading — the model grades");
 
-	await drainTurn(post(chat.id, { type: "answer", toolCallId: "call-1", answer }), factory);
+	await drainTurn(post(chat.id, { type: "answer", toolCallId: "call-1", answer }), agentFactory(engine, tools));
 
 	const saved2 = (await chatStore.getChat(chat.id))!;
 	const view2 = projectView(saved2.messages);
@@ -1270,7 +1281,11 @@ it("explain tool call persists as a pending part; the free-text answer reveals t
 	// the call's tool result) — his text AND the commitment snapshot ride it.
 	const seen = calls[1]!.join("\n");
 	assert.match(seen, /It stays near the Sun\./);
-	assert.match(seen, /committed/);
+	// The tool result rides as the compact answer JSON. The COMMITMENT is
+	// record/UI data (details), not model input — the old /committed/ pin
+	// was matching the system prompt, which now travels as conversation
+	// instructions rather than a message.
+	assert.ok(seen.includes(String.raw`{\"kind\":\"explain\",\"text\":\"It stays near the Sun.\"}`), "the answer JSON reaches the model");
 	assert.match(seen, /small angular separation/);
 	assert.ok(!/"explanation"/.test(seen), "the answer record carries no explanation field");
 	assert.equal(danglingQuestionOf(saved2.messages), null, "no pending question remains");
@@ -1297,7 +1312,7 @@ describe("the silent dismissal (A2)", () => {
 		assert.equal(tail.role, "toolResult");
 		assert.equal(tail.details?.dismissed, true, "the record's dismissal is the details payload");
 		assert.equal(calls.length, 1, "NO second engine call — the dismissal woke nothing");
-		assert.equal(isTurnRunning(chat.id), false);
+		assert.equal(await isTurnRunning(chat.id), false);
 		assert.equal(endsInDismissal(saved.messages), true, "the session sits dismissal-paused");
 
 		// The next plain message is THE wake — the model sees the skipped

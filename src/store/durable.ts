@@ -28,10 +28,10 @@ import {
 	type EntryDraft,
 	type EntryId,
 	type EntryRecord,
-	type RegistryReader,
+	type Registry,
 	type Storage,
-	type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import type { Models } from "@earendil-works/pi-ai";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../../config.ts";
@@ -73,6 +73,13 @@ export interface ChatRuntime {
 	readonly storage: Storage;
 	readonly harness: Harness;
 	readonly root: Conversation;
+	/** The app's registry: the composition root installs the turn's extension
+	 *  (tools, prompt sections, hooks) here, so a runtime opened by a
+	 *  read-only path still runs tools once a turn starts. */
+	readonly registry: Registry;
+	/** The Models bridge for the coming turn (see engineModels). A turn
+	 *  installs its engine here; the Harness reads it at each request. */
+	useModels(models: Models): void;
 	/** Serializes app-originated entry appends (the old synchronous store's
 	 *  ordering guarantee, now that every write is async). */
 	queue: Promise<unknown>;
@@ -90,15 +97,6 @@ function harnessSettings() {
 		steeringMode: "all" as const,
 		followUpMode: "all" as const,
 	};
-}
-
-/** Per-chat registry factory. The server composition root installs the app
- *  extension (tools, prompt sections, hooks) here; a bare read-only open
- *  (tests, listing) runs with the built-in tasks only. */
-let registryFactory: (chatId: string) => RegistryReader<ToolRegistration> = () => createRegistry();
-
-export function setChatRegistryFactory(factory: (chatId: string) => RegistryReader<ToolRegistration>): void {
-	registryFactory = factory;
 }
 
 /** Where a chat's runtime files live. */
@@ -129,14 +127,18 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	const dir = durableDir(chatId);
 	fs.mkdirSync(dir, { recursive: true });
 	const storage = await openNodeSqliteStorage(path.join(dir, "harness.sqlite"));
+	const registry = createRegistry();
+	// Mutable behind a getter: HarnessOptions captures the reader, a turn's
+	// engine swap must reach the next request.
+	const models: { current: Models } = { current: piModels() };
 	let harness: Harness;
 	try {
 		harness = await Harness.open(
 			storage,
 			{
-				models: () => piModels(),
+				models: () => models.current,
 				identity: APP_IDENTITY,
-				registry: registryFactory(chatId),
+				registry,
 				settings: () => harnessSettings(),
 				onReport: (error, info) => {
 					// A failed Session is the loud one; task faults are per-task noise.
@@ -157,7 +159,19 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 			(await tx.doc(ProviderDoc, id)).sessionId = chatId;
 		},
 	});
-	return { chatId, dir, storage, harness, root, queue: Promise.resolve(), closing: false };
+	return {
+		chatId,
+		dir,
+		storage,
+		harness,
+		root,
+		registry,
+		useModels: (next) => {
+			models.current = next;
+		},
+		queue: Promise.resolve(),
+		closing: false,
+	};
 }
 
 /** The chat's runtime, opening it on first use. One owner per database:
@@ -277,6 +291,9 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 	const messages: LhMessage[] = [];
 	const entryOf = new Map<string, EntryId>();
 	const push = (message: unknown, entry: EntryRecord, index: number) => {
+		// The system prompt is request chrome, never transcript: the old
+		// settle dropped it, and the record's shape must not change.
+		if ((message as { role?: string }).role === "system") return;
 		const id = messageId(entry, index);
 		messages.push({ ...(message as object), id } as LhMessage);
 		entryOf.set(id, entry.id);

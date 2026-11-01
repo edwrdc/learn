@@ -30,6 +30,7 @@ import { createPracticeAgent } from "../src/agent/teacher-agent.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
 import { runningTurn } from "../src/server/turn-runs.ts";
 import { chatStore } from "../src/store/chats.ts";
+import { graphStore } from "../src/store/graph.ts";
 import { activeProblemOf, needsContinuation } from "../src/core/index.ts";
 import { PATHS } from "../config.ts";
 import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
@@ -71,6 +72,18 @@ after(() => {
 async function createPracticeChat(title: string) {
 	const chat = await chatStore.createChat(title, "practice");
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+	// The pose's target validates against the WHOLE graph (owner round 9), so
+	// the scripted lessons need the proposition they target to exist — the
+	// real composition always passes the graph; the old test factory skipped
+	// validation by omitting it.
+	graphStore.appendNode({
+		id: "group-order",
+		name: "Group order",
+		statement: "Every finite group of prime order is cyclic.",
+		aliases: [],
+		createdAt: new Date().toISOString(),
+		provenance: [],
+	});
 	createdChats.push(chat.id);
 	return chat;
 }
@@ -106,9 +119,9 @@ async function drainTurn(req: Request, factory: Parameters<typeof handleChatRequ
 	return new Response(handle.subscribe()).text();
 }
 
-/** The practice agent factory (the handler's kind branch, test-shaped). */
-function practiceFactory(chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] {
-	return (opts) => createPracticeAgent({ chatId, chatStore }, { engine, messages: opts.messages });
+/** The scripted engine the handler runs the practice turn on. */
+function practiceFactory(_chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] {
+	return { engine };
 }
 
 /** Each step records the prompt it received — the transcript the model

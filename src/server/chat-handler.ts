@@ -1,28 +1,39 @@
-import type { Usage } from "@earendil-works/pi-ai";
-import {
-	createPracticeAgent,
-	createProberAgent,
-	createTeacherAgent,
-	type AgentBuildOptions,
-	type TeachingAgent,
-} from "../agent/teacher-agent.ts";
+/**
+ * One chat turn over the DURABLE record (pi-durable foreground runtime).
+ * Framework-free (plain Request/Response) so tests drive it directly.
+ *
+ * THE INPUT-EVENTS CONTRACT is unchanged: POST /api/chat carries
+ * {chatId, input} — one explicit event, never a client transcript. This
+ * module is the TURN COMPOSITION ROOT: it turns the event into durable
+ * transcript writes, configures the conversation for the turn (model,
+ * prompt, tool set), submits the input that starts the durable run, and
+ * hands the run's view to the SSE layer.
+ *
+ * Answers are effective tool results: the learner's answer REPLACES the
+ * posed question's committed placeholder result through a ContextEdit, and
+ * a hidden continuation input (dropped from every provider request by the
+ * request hook) starts the reaction run. A dismissal writes the same
+ * replacement and starts nothing.
+ *
+ * The same composition serves client requests and the wake pipeline's
+ * server-side steers (src/server/jobs.ts).
+ */
+
+import { ConversationBusy } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
+	markSteerDelivered,
 	noteSteerVisible,
-	reconcileUserSteers,
-	registerLiveAgent,
+	repumpSteers,
 	setJobRespawn,
 	setTurnRunner,
 	settleSteers,
-	steerLiveChat,
-	unregisterLiveAgent,
 } from "./jobs.ts";
-import { runPiTurn } from "./pi/ui-stream.ts";
-import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
@@ -30,23 +41,26 @@ import { providerKeyPresent } from "./keys.ts";
 import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../core/custom-endpoint.ts";
 import {
 	extractionEnabled,
-	graphToolsEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
 } from "../core/settings-resolution.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope, type ProviderKeyMissing } from "../core/settings.ts";
-import { beginTurn, endTurn } from "./turn-liveness.ts";
+import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
+import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
-import { registerTurn, unregisterTurn } from "./turn-runs.ts";
-import { persistTurn, triggerExtraction } from "./turn-service.ts";
-import { hasProbeDone, danglingQuestionOf } from "../core/native-messages.ts";
+import { registerTurn, settledTurnResponse, unregisterTurn } from "./turn-runs.ts";
+import {
+	appendPlanBlocks,
+	appendRunUsage,
+	answerWrite,
+	applyAnswer,
+	triggerExtraction,
+} from "./turn-service.ts";
+import { danglingQuestionOf } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
 import { syncCustomEndpointProvider, customEndpointKeyPresent } from "./custom-endpoint.ts";
 import { emit } from "../core/events.ts";
-import { settledTurnResponse } from "./turn-runs.ts";
-import { asAgentMessages } from "../core/native-messages.ts";
 import {
 	ChatInputError,
 	inputAppends,
@@ -54,26 +68,20 @@ import {
 	type TurnInput,
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
-import type {CallUsage, SteerMessage} from "../core/contracts.ts";
-
-/**
- * One chat turn over the server-owned native record. Framework-free (plain
- * Request/Response) so tests can drive it directly with a scripted faux
- * engine — the Next route handler in app/api/chat is a one-line wrapper.
- *
- * THE INPUT-EVENTS CONTRACT (Wave B, owner ruling 2026-09-26): POST /api/chat
- * carries {chatId, input} — one explicit event (text / answer / verdict /
- * continue), never a client transcript. The server owns the record; this
- * module is the TURN COMPOSITION ROOT: it turns the event into native
- * record appends (core/input-events.ts), builds the agent from the record
- * (the record IS the agent state — state.messages = record.messages,
- * continue()), and runs the turn as a background object (pi/ui-stream.ts).
- * Wake-pipeline steers ride the same composition (TurnInput's steer kind).
- *
- * THE SAME COMPOSITION serves both entry points: client requests and the
- * wake pipeline's server-side steers (src/server/jobs.ts) — one code path
- * for write-ahead persistence, turn liveness, and the turn services.
- */
+import type { SteerMessage } from "../core/contracts.ts";
+import type { LhMessage } from "../core/native-messages.ts";
+import {
+	CONTINUATION_KIND,
+	CONTINUATION_TEXT,
+	appendMessages,
+	modelTextOf,
+	openChatRuntime,
+	projectEntries,
+	readEntries,
+	type ChatRuntime,
+} from "../store/durable.ts";
+import { chatPhase, prepareConversation, type ConversationDeps } from "./durable-registry.ts";
+import { runDurableTurn } from "./pi/durable-turn.ts";
 
 const jobRunner = createJobRunner({
 	chatStore: stores.chatStore,
@@ -83,8 +91,7 @@ const jobRunner = createJobRunner({
 	// override → slot → NOTHING — read FRESH per job (a settings PUT
 	// between dispatch and spawn lands); an empty chain flows through as
 	// undefined and the runner refuses the spawn honestly.
-	engineFor: (role) =>
-		resolveEngine(role),
+	engineFor: (role) => resolveEngine(role),
 	// Key-presence gate (provider-key interlude, 2026-09-25): the runner
 	// reads the resolved engine's provider and asks THIS check (the agent
 	// layer may not read the key store); a missing key refuses the spawn
@@ -93,8 +100,6 @@ const jobRunner = createJobRunner({
 		providerHasKey(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 	// Search port wave (2026-09-20): the researcher's web_search runs on the
 	// injected port — resolved FRESH per job (key rotations land immediately).
-	// null = honestly unavailable; the dispatch-level drop (below) uses the
-	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:
@@ -102,31 +107,20 @@ const jobRunner = createJobRunner({
  *  (/api/graph/import) hit the same single-flight registry. */
 export const extraction = createExtractionPipeline({
 	...stores,
-	// BYOK (owner, 2026-09-22): the extraction stages resolve the chain —
-	// role override → slot → NOTHING — read FRESH per stage call; an empty
-	// chain flows through as undefined and the pipeline refuses the run
-	// with the typed ModelsNotConfiguredError. Direct test values still win.
-	engineFor: (role) =>
-		resolveEngine(role),
-	// Key-presence gate (provider-key interlude, 2026-09-25): same check
-	// the job runner gets — a stage engine whose provider key is gone
-	// refuses BEFORE any batch runs (the typed throw), never mid-run.
+	engineFor: (role) => resolveEngine(role),
 	providerKeyMissing: (provider, tier) =>
 		providerHasKey(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 });
 
-
 // Wake-pipeline wiring (contracts.ts "THE ASYNC PROTOCOL" §4): the pipeline
 // delivers its steers through THIS composition root (one event: the steer
-// marker, appended natively under the turn claim), and crash recovery
+// markers, appended natively under the turn claim), and crash recovery
 // re-spawns orphaned sub-agent loops through THIS runner.
 setTurnRunner(async (chatId, input) => {
 	const res = await handleChatInput(chatId, input);
-	// Drive the stream to completion server-side — nobody else will read it,
-	// and onFinish (persist, extraction, endTurn) only runs when it drains.
-	await res.arrayBuffer().catch(() => undefined);
 	return res.status;
 });
+
 function providerHasKey(provider: string): boolean {
 	return provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customEndpointKeyPresent() : providerKeyPresent(provider);
 }
@@ -149,11 +143,18 @@ function resolveEngine(role: ModelRole): PiEngine | undefined {
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
 
+/** Test injection for the durable turn: a scripted engine, the tools'
+ *  composition seams (a job runner whose spawn/deliver a test owns), or a
+ *  test-authored tool registry (the loop/protocol suites drive narrow tool
+ *  sets; the composition root still installs them through the one adapter). */
+export interface ChatTurnInjection {
+	engine?: PiEngine;
+	deps?: Partial<ConversationDeps>;
+	tools?: Record<string, unknown>;
+}
+
 /** The route-facing entry: parse {chatId, input} and run one turn. */
-export async function handleChatRequest(
-	req: Request,
-	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
-): Promise<Response> {
+export async function handleChatRequest(req: Request, turn?: ChatTurnInjection): Promise<Response> {
 	let body: { chatId?: unknown; input?: unknown };
 	try {
 		body = await req.json();
@@ -171,18 +172,54 @@ export async function handleChatRequest(
 		}
 		throw err;
 	}
-	return handleChatInput(chatId, input, buildAgent);
+	return handleChatInput(chatId, input, turn);
 }
 
-/**
- * The turn composition: one input event → native record appends → one
- * agent turn as a background object. Also the wake pipeline's entry
- * (TurnInput's steer kind appends the marker under the same claim).
- */
+/** The tools' seams (the composition root's wiring). */
+function conversationDeps(turn?: ChatTurnInjection): ConversationDeps {
+	return {
+		chatStore: stores.chatStore,
+		graphStore: stores.graphStore,
+		jobStore: stores.jobStore,
+		spawn: (job, jobInput) => void jobRunner.runJob(job.id, jobInput),
+		deliver: (steer) => void deliverJobResult(steer as SteerMessage),
+		searchAvailable,
+		graphNodes: () => stores.graphStore.readNodes().map((node) => ({ id: node.id, name: node.name })),
+		...turn?.deps,
+	};
+}
+
+/** The submission an input places: the message's model text is the input
+ *  content; the record keeps the app shape in entry data. */
+function submissionOf(message: LhMessage): {
+	content: string;
+	entry: { kind: string; data: unknown };
+} {
+	if (message.role === "custom") {
+		return {
+			content: modelTextOf(message) ?? "",
+			entry: { kind: "lh.marker", data: { message } },
+		};
+	}
+	return {
+		content: typeof message.content === "string" ? message.content : "",
+		entry: { kind: "lh.user", data: { id: message.id } },
+	};
+}
+
+/** A record message that can start a run as the submitted input (a user
+ *  turn or a model-facing marker). Tool results and assistants cannot. */
+function startsInput(message: LhMessage | undefined): message is LhMessage {
+	if (!message) return false;
+	if (message.role === "custom") return modelTextOf(message) !== null;
+	return message.role === "user";
+}
+
+/** The turn composition: one input event → durable writes → one durable run. */
 export async function handleChatInput(
 	chatId: string,
 	input: TurnInput,
-	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	turn?: ChatTurnInjection,
 ): Promise<Response> {
 	let record = await stores.chatStore.getChat(chatId);
 	if (!record) {
@@ -194,9 +231,6 @@ export async function handleChatInput(
 	// slot — and there is no factory floor; when both are empty the turn
 	// refuses honestly with the machine-readable 503 envelope (new sessions
 	// and continuing ones alike — wake-pipeline turns ride this same path).
-	// Placement is deliberate: BEFORE beginTurn (no liveness effects), the
-	// write-ahead persist (nothing durable changes), and every downstream
-	// resolution (jobs/extraction gate per-need on their own tiers).
 	const effective = effectiveSettings();
 	const conversation = resolveConversationSpec(record.settings, effective.models.strong);
 	if (!conversation) {
@@ -209,30 +243,20 @@ export async function handleChatInput(
 	// pinned model is not enough — its PROVIDER's key must be present, or
 	// the turn dies mid-stream masked to a generic error. Truth is env-first
 	// (providerKeyPresent reads what pi-ai would read at request time), so
-	// an env-shadowed key passes. Same placement discipline as the models
-	// gate: BEFORE beginTurn (no liveness effects) and the write-ahead
-	// persist (nothing durable changes); wake-pipeline turns ride the same
-	// path. The affected tier is strong — the conversation chain's own tier
-	// (a chat.model override still resolves through it).
+	// an env-shadowed key passes.
 	if (!providerHasKey(conversation.provider)) {
 		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
 		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
 		return Response.json(envelope, { status: 503 });
 	}
 
-	// THE COMPACTION GATE (owner round 14, 2026-10-05 — the structural
-	// ruling: NOTHING model-facing for this chat interleaves with a
-	// running compaction): await any in-flight compaction (the settle
-	// kick usually finished inside the learner's answer pause), and if
-	// the record is STILL over threshold, compact synchronously — this
-	// request waits. Skipped under tests (the extraction precedent);
-	// placement mirrors the BYOK/key gates — BEFORE appends and
-	// beginTurn, no liveness effects — and the record re-reads after
-	// because compaction appends the marker.
+	// The engine is the app's one provider adapter (models.ts): production
+	// resolves the chat's spec (the custom endpoint's provider + credential
+	// snapshot is captured here), tests inject a scripted engine.
 	syncCustomEndpointProvider();
-	let conversationEngine: PiEngine;
+	let engine: PiEngine;
 	try {
-		conversationEngine = piEngineForSpec(conversation);
+		engine = turn?.engine ?? piEngineForSpec(conversation);
 	} catch (error) {
 		console.error(`[chat ${chatId}] model unavailable:`, error);
 		return Response.json(
@@ -243,36 +267,39 @@ export async function handleChatInput(
 			{ status: 503 },
 		);
 	}
-	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
+
+	const runtime = await openChatRuntime(chatId);
+	const phaseBeforeTurn = chatPhase(record.messages, record.kind);
+	const modelId = `${engine.model.provider}:${engine.model.id}`;
+
+	// THE COMPACTION GATE (owner round 14, 2026-10-05): NOTHING model-facing
+	// for this chat interleaves with a running compaction — await the settle
+	// kick's summary, compact synchronously if still over threshold. The
+	// record re-reads after because compaction appends the marker.
 	await ensureCompacted(
 		{
 			chatStore: stores.chatStore,
-			engine: conversationEngine,
-			modelId: modelIdForCompaction,
-			kind: record.kind === "practice" ? "practice" : hasProbeDone(record.messages) ? "teach" : "probe",
+			engine,
+			modelId,
+			kind: phaseBeforeTurn,
 			thresholdTokens: effectiveThresholdTokens(
 				effective.compaction?.thresholdTokens,
-				catalogContextLimits().get(modelIdForCompaction),
+				catalogContextLimits().get(modelId),
 			),
 			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
 		},
 		chatId,
 	);
-	const compactedRecord = await stores.chatStore.getChat(chatId);
-	if (compactedRecord) record = compactedRecord;
+	record = (await stores.chatStore.getChat(chatId)) ?? record;
 
 	// The input's native appends (pure; the honest 400 for an answer with no
-	// pending question call). Computed BEFORE beginTurn so a refused input
-	// leaves no liveness effects; read against the CURRENT record. Wave C:
-	// the idle wake carries EVERY queued marker (steerDelivered filters a
-	// re-fire of an already-landed one) - with claimSteers gone, this wake
-	// input is the only steer appender; in-run delivery rides pi's own
-	// follow-up queue and never builds an input event at all.
-	let appends;
+	// pending question call). Wave C: the idle wake carries EVERY queued
+	// marker (steerDelivered filters a re-fire of an already-landed one).
+	let appends: LhMessage[];
 	try {
 		appends =
 			input.type === "steers"
-				? input.steers.filter((s) => !steerDelivered(record.messages, s.id))
+				? input.steers.filter((steer) => !steerDelivered(record!.messages, steer.id))
 				: inputAppends(record, input);
 	} catch (err) {
 		if (err instanceof ChatInputError) {
@@ -281,325 +308,189 @@ export async function handleChatInput(
 		throw err;
 	}
 
+	// A wake whose every marker already landed delivers NOTHING — no
+	// continuation, no model call, no spend (the pump's dedupe races the
+	// transcript append, so this is reachable).
+	if (input.type === "steers" && appends.length === 0) return settledTurnResponse();
+
 	// THE PARALLEL-QUESTION GATE (owner, 2026-10-03 — the deepseek parallel
-	// batch incident): an answer that leaves a SIBLING question dangling
-	// defers its wake. The dock advances to the next question (the client's
-	// optimistic result + record-changed carry the view); the LAST answer
-	// fires the one reaction turn with every result ADJACENT to its calling
-	// assistant message — the provider shape law (a tool result appended
-	// after an intervening assistant message is rejected, which stranded
-	// the sibling question permanently pre-fix). Nothing else can generate
-	// while a question dangles (job wakes wait, continuation folds refuse,
-	// the composer gates), so adjacency holds by construction.
-	if (input.type === "answer" && danglingQuestionOf([...record.messages, ...appends]) !== null) {
-		const merged = [...record.messages, ...appends];
-		await stores.chatStore.saveMessages(chatId, merged);
+	// batch incident): an answer that leaves a SIBLING question pending
+	// defers its wake. The dock advances to the next question (the answer
+	// write + record-changed carry the view); the LAST answer fires the one
+	// reaction turn with every result ADJACENT to its calling assistant
+	// message — the provider shape law. Nothing else can generate while a
+	// question dangles (job wakes wait, continuation folds refuse, the
+	// composer gates), so adjacency holds by construction.
+	if (input.type === "answer" && danglingQuestionOf([...record.messages, appends[0]!]) !== null) {
+		try {
+			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
+			await applyAnswer(chatId, write);
+		} catch (err) {
+			if (err instanceof ChatInputError) {
+				return Response.json({ error: err.message }, { status: 400 });
+			}
+			throw err;
+		}
 		emit("record-changed", { chatId });
-		return settledTurnResponse(); // the cheap terminal — no beginTurn, no turn
+		return settledTurnResponse(); // the cheap terminal — no run
 	}
 
-	// One turn per chat, ever. A second request while a turn runs means a
-	// stale/remounted client raced a live one — letting it through would
-	// double-run the teacher and clobber the first turn's persist.
+	// One turn per chat, ever (this process). A second request while a turn
+	// runs means a stale/remounted client raced a live one; the submit below
+	// is the durable half of the same law (ConversationBusy → 409).
 	if (!beginTurn(chatId)) {
 		console.info(`[chat ${chatId}] turn already in flight — request rejected`);
 		return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
 	}
 
-	// Write-ahead persistence: the input's native appends go on disk BEFORE
-	// the turn starts - the learner's answer is durable the instant the
-	// request arrives, and any remount, second tab, or server crash reads
-	// truth instead of the pre-answer record. (Wave C: the wake's markers
-	// ride this same write-ahead - the pump de-queued them at fire, so this
-	// is the ONLY copy ever appended.)
-	const merged = [...record.messages, ...appends];
+	// WRITE-AHEAD: everything the event appends lands before the run starts.
+	// The LAST append that can start a run is placed by the input submission
+	// itself (it is the turn's own entry); an answer is a ContextEdit over
+	// the pose placeholder and the hidden continuation starts the reaction.
+	let tail: LhMessage | undefined;
 	try {
-		await stores.chatStore.saveMessages(chatId, merged);
+		if (input.type === "answer") {
+			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
+			await applyAnswer(chatId, write);
+		} else {
+			tail = startsInput(appends[appends.length - 1]) ? appends[appends.length - 1] : undefined;
+			await appendMessages(chatId, tail ? appends.slice(0, -1) : appends);
+		}
 		// Dock fix (owner ruling 2026-09-26): persisted markers are visible
 		// in the record — flip their jobs now (the wake's steers ride this
 		// write-ahead; the delivering turn may run for minutes).
 		for (const appended of appends) {
-			if ((appended as { role?: string }).role === "custom") noteSteerVisible(appended as SteerMessage);
+			if (appended.role === "custom") noteSteerVisible(appended as SteerMessage);
 		}
 	} catch (err) {
+		endTurn(chatId);
 		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
+		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
 	}
 
-	// MONEY CHANNEL (wave 4): one collector per request, fed by the agent's
-	// message_end events. Every model call's usage lands in the chat record's
-	// append-only turns log at onFinish — idempotent per turn id.
 	const turnUsageId = crypto.randomUUID();
-	const steps: CallUsage[] = [];
-	const collectUsage = (usage: Usage) => {
-		steps.push({
-			inputTokens: usage.input,
-			outputTokens: usage.output,
-			cacheReadTokens: usage.cacheRead,
-			cacheWriteTokens: usage.cacheWrite,
-			// Optional in pi's Usage — persisted as 0, never dropped.
-			reasoningTokens: usage.reasoning ?? 0,
-		});
-	};
-
-	// AGENT CONSTRUCTION BRANCH (docs/probe-teach-split.md §2): the transcript
-	// is the seam — a probe_done call in the record means the probe is
-	// concluded: build the TEACHER (planning + the full toolset). Otherwise
-	// the session is still probing: build the PROBER (quiz/ask + probe_done).
-	// Both share this whole composition (write-ahead persist, liveness,
-	// steers, usage, extraction) — only the agent differs.
-	const teaching = hasProbeDone(merged);
-	// BYOK (owner, 2026-09-22): the conversation chain was resolved by the
-	// turn gate above (chat.model override → strong slot → refused) — the
-	// engine build is pure from here; thinking levels clamp natively.
-	// (Built once above the compaction gate; reused verbatim.)
-	const engine = conversationEngine;
-	// Provider-qualified stamp (model slots wave): matches the price table's
-	// provider:id keys.
-	const modelId = `${engine.model.provider}:${engine.model.id}`;
-	// Tests inject a factory: the agent is stateless per turn, so each
-	// request builds a fresh one off the record — the factory mirrors that
-	// seam exactly. Wave B: the record IS the agent state (native messages;
-	// the record's id field strips at the wire in toLlmMessages).
-	// CROSS-STREAM SEAM (P2 reconciliation, 2026-09-19): `toolToggles`
-	// rides the build opts as the user-level DELTA map (absent key =
-	// enabled). The definitive toggleable set is TOGGLEABLE_TOOLS — the
-	// sub-agent JOB tools (research/demo/visual/pdf; adjudicated with the
-	// user: quiz/ask/fs/plan/probe_done are always-on).
-	const agentOpts: AgentBuildOptions = {
-		engine,
-		messages: asAgentMessages(merged),
-		onUsage: collectUsage,
-		toolToggles: effective.agent.tools,
-		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
-		// LH_PROVIDER_EVENTS=1 (provider-events.ts); no-op otherwise.
-		chatId,
-		// The prompt-override switches (P2, 2026-09-19): same resolution
-		// point as the tool delta — the agent layer composes the system
-		// prompt fresh per turn, swapping in any enabled override segments.
-		promptSwitches: effective.agent.prompts,
-	};
-	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
-	// session builds the practitioner from turn 1 — no prober→teacher
-	// split, no plan/question/job tools; the whole registry is
-	// problem + conclude. buildAgent stays honored (the test seam is
-	// uniform across kinds).
-	const constructed: TeachingAgent = buildAgent
-		? buildAgent({ ...agentOpts, teaching })
-		: record.kind === "practice"
-			? createPracticeAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						// TARGET VALIDATION (owner round 9): the practice tools read the
-						// WHOLE graph fresh per pose — targets validate against every
-						// proposition, not just the session's picks (pickless sessions
-						// and future graph-tools poses stay valid).
-						graphNodes: () => stores.graphStore.readNodes(),
-						// THE RARELY-NEEDED SET (owner round 10): research + pdf jobs
-						// (same runner/gating as the teacher's — research honestly
-						// absent when no engine is live) and the map readers behind
-						// the SAME settings gate as the prober's.
-						jobs: {
-							chatId,
-							jobStore: stores.jobStore,
-							spawn: (job, input) => void jobRunner.runJob(job.id, input),
-							searchAvailable,
-						},
-						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
-					},
-					agentOpts,
-				)
-			: teaching
-			? createTeacherAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						// The registry drop's signal (2026-09-20): no live engine
-						// = no research tool in the teacher's registry.
-						searchAvailable,
-					},
-					agentOpts,
-				)
-			: createProberAgent(
-					{
-						chatId,
-						chatStore: stores.chatStore,
-						deliver: (steer) => void deliverJobResult(steer),
-						// Fix wave (2026-09-20): the prober carries research + pdf
-						// dispatch (owner ruling — phase-omnipresent), so its ctx
-						// needs the same job wiring as the teacher's.
-						jobStore: stores.jobStore,
-						spawn: (job, input) => void jobRunner.runJob(job.id, input),
-						searchAvailable,
-						// The map reader (wave 7): the prober reads the learner's
-						// knowledge graph through tools when the gate opens —
-						// graph master switch AND the agent.graphTools toggle.
-						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
-					},
-					agentOpts,
-				);
-
-	// A test-injected agent gets no usage collector (tests assert the
-	// transcript, not the money channel); when it's ours, usage flows through
-	// the factory's subscription (wired above via onUsage).
+	const baseEntryCount = (await readEntries(runtime)).length;
+	const baseMessages = projectEntries(await readEntries(runtime));
+	const deps = conversationDeps(turn);
+	let submission: Awaited<ReturnType<ChatRuntime["root"]["submit"]>>;
 	try {
-		// THE TURN AS A BACKGROUND OBJECT (owner ruling, 2026-09-25):
-		// runPiTurn executes decoupled from this response — the POST stream
-		// is just the FIRST subscriber (a view). A client disconnect can no
-		// longer abort the turn; the remote kill is the abort channel, and
-		// late views reattach via GET /api/chats/[id]/stream.
-		// Wave C (owner correction, 2026-09-26 — steering): register the live
-		// agent BEFORE runPiTurn — the loop's start steering-poll drains the
-		// queue SYNCHRONOUSLY inside that call, so a later registration would
-		// miss it. Registration also steers any pending registry markers into
-		// this run: a marker parked behind a just-answered quiz rides THIS
-		// run's first LLM call (the native replacement for continuation
-		// coalescing). Settlement still cannot beat the flow below: it needs
-		// a streamed response, which never happens inside the constructor.
-		registerLiveAgent(chatId, constructed);
+		await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, turn?.tools);
 		// Debug recorder run marker (owner, 2026-10-04): correlates the
 		// JSONL event stream with the record's turns; no-op unless
 		// LH_PROVIDER_EVENTS=1.
-		providerEventNote(chatId, "turn", `run start (base: ${merged.length} messages)`);
-		const handle = runPiTurn({
-			agent: constructed,
-			// The coalescing window seam (COMPACTION LAW, 2026-10-09): tests
-			// tighten it via LH_UPDATE_FLUSH_MS; production rides the 100ms
-			// default in ui-stream.
-			...(process.env.LH_UPDATE_FLUSH_MS ? { updateFlushMs: Number(process.env.LH_UPDATE_FLUSH_MS) } : {}),
-			// THE LACAN FIX (2026-10-04): seed the uniquifier with every
-			// tool-call id the record already holds — a provider that resets
-			// ids per response (DeepSeek) then gets fresh unique ids for this
-			// turn's calls at the wire boundary, on the wire, in the record,
-			// and in the next turn's context alike.
-			usedToolCallIds: new Set(collectToolCallIds(merged)),
-			// Stream-level failures are provider/transport internals — masked,
-			// like the SDK defaults. Tool-input validation messages never
-			// route through here: they ride the error-result path and reach the
-			// transcript directly (the retry context the model saw).
-			onError: (error) => {
-				console.error(`[chat ${chatId}] turn error:`, error);
-				return "An error occurred.";
-			},
-			onFinish: async (turnMessages, isAborted) => {
-				// Wave B: the record write is the agent's own final state —
-				// the new messages are the slice past the merged base.
-				const stamped = await persistTurn(stores.chatStore, chatId, merged.length, turnMessages, isAborted);
-				// usage log append (idempotent per turn id) — the stats bar
-				// refolds this on the client after the turn settles. The
-				// provenance message is the turn's FIRST new assistant message.
-				const response = stamped.find((m) => (m as { role?: string }).role === "assistant");
-				if (response && steps.length > 0) {
-					await stores.chatStore.appendTurnUsage(chatId, {
-						id: turnUsageId,
-						messageId: response.id,
-						at: new Date().toISOString(),
-						model: modelId,
-						steps,
-					});
-				}
-				// GRAPH GATE (settings-storage wave, 2026-09-19): the write channel —
-				// extraction, its auditor — dies with the master switch.
-				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
-				// no extraction, no graph, no coverage (v1: the session itself
-				// is the deliverable).
-				if (record.kind !== "practice" && extractionEnabled(effective.graph)) {
-					// Fresh per-turn read of the graph section's chunk budget
-					// (extraction-UX redesign, 2026-09-24): the trigger compares
-					// against it and the pipeline's batches share it.
-					await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
-				}
-				// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
-				// mid-turn was parked by the dismiss route (202); now that
-				// persistTurn has landed the turn's messages, apply it against
-				// real truth — BEFORE endTurn, so "turn-settled" guarantees a
-				// subsequent fetch reads the dismissal already in the record
-				// (the same ordering law as persistTurn itself).
-				await applyParkedDismissal(stores.chatStore, chatId);
-				// LAST: a poller that sees not-in-flight must read an already-persisted
-				// record — endTurn only after persistTurn has done its job.
-				endTurn(chatId);
-				// And only then does the turn stop being a running object
-				// (background-turn wave, 2026-09-25): a reattach that finds
-				// nothing must find the persisted record current — the same
-				// ordering rule as endTurn.
-				unregisterTurn(chatId);
-				// Wave C steer settlement: the live agent is dead (no more
-				// followUp handoffs) - reconcile the steer registry against
-				// what this run actually persisted (in-run injections
-				// resolve; stranded markers return to pending), then let
-				// the pump take any stragglers down the idle wake.
-				unregisterLiveAgent(chatId);
-				settleSteers(chatId, stamped);
-				// Composer steers (2026-10-03): delivered ids dropped, stranded
-				// ones stay parked for the chat's next run (the registry is the
-				// stranding safety net — the agent's undrained copy died above).
-				reconcileUserSteers(chatId, stamped);
-				// THE SETTLE KICK (owner round 14): the turn settled — if the
-				// projection is now over threshold, the summary starts in the
-				// background, INSIDE the learner's reading/answering pause
-				// (question/problem poses end runs, so this moment is always a
-				// between-runs window). The next turn's ensureCompacted gate
-				// awaits whatever this leaves running; a lost engine or a
-				// beneath-threshold record is a silent no-op. Skipped under
-				// tests (the extraction precedent — scripted chats are
-				// fixtures; the service itself is pinned directly).
-				if (process.env.NODE_ENV !== "test")
-					kickCompaction(async () => {
-						syncCustomEndpointProvider();
-						const fresh = effectiveSettings();
-						const current = await stores.chatStore.getChat(chatId);
-						const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
-						if (!spec) return null;
-						let kickEngine: PiEngine;
-						try {
-							kickEngine = piEngineForSpec(spec);
-						} catch {
-							return null;
-						}
-						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
-						const freshRecord = await stores.chatStore.getChat(chatId);
-						if (!freshRecord) return null;
-						return {
-							chatStore: stores.chatStore,
-							engine: kickEngine,
-							modelId: kickModelId,
-							kind: freshRecord.kind === "practice" ? "practice" : hasProbeDone(freshRecord.messages) ? "teach" : "probe",
-							thresholdTokens: effectiveThresholdTokens(
-								fresh.compaction?.thresholdTokens,
-								catalogContextLimits().get(kickModelId),
-							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
-						};
-					}, chatId);
-			},
-		});
-		// The turn is now a live background object: register it so any view
-		// can reattach (GET /api/chats/[id]/stream) or remotely abort it
-		// (POST /api/activity/abort, kind "turn"). Registration after the
-		// runPiTurn call is race-free: the agent loop only ticks in later
-		// microtasks, so settle (and thus unregister) cannot beat us here.
-		registerTurn(chatId, handle);
-		// CONNECTION DIET B (owner, 2026-10-10 — the parallel-session freeze
-		// postmortem): the POST no longer holds the turn's SSE stream open for
-		// its whole duration. It acknowledges acceptance and CLOSES; the
-		// submitter attaches through GET /api/chats/[id]/stream — the same
-		// universal reattach wire a returning visitor uses. The browser's
-		// 6-connections-per-origin pool is the scarce resource: a submission
-		// must cost zero permanently-held slots beyond the one live view. The
-		// turn itself is a server-side process (ruling 2026-09-25) — it never
-		// needed this connection, only a view did.
-		return Response.json({ ok: true });
+		providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
+		const draft = tail ? submissionOf(tail) : undefined;
+		submission = await runtime.root.submit(
+			draft
+				? {
+						type: "input",
+						content: draft.content as never,
+						whenBusy: "reject",
+						entry: draft.entry as never,
+					}
+				: {
+						type: "input",
+						content: CONTINUATION_TEXT as never,
+						whenBusy: "reject",
+						entry: { kind: CONTINUATION_KIND } as never,
+					},
+			BACKGROUND_CONTEXT,
+		);
 	} catch (err) {
-		// The stream never started, so no onFinish will fire — clear the registry
-		// or a malformed request would lock the chat until the TTL eviction.
 		endTurn(chatId);
-		// Wave C: the live-agent registration (if it happened) dies with the
-		// turn here too - nothing was handed (the loop never ticked).
-		unregisterLiveAgent(chatId);
+		if (err instanceof ConversationBusy) {
+			return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
+		}
 		console.error(`[chat ${chatId}] turn failed to start:`, err);
 		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
 	}
+
+	const handle = runDurableTurn({
+		runtime,
+		chatId,
+		submission,
+		onError: (error) => {
+			console.error(`[chat ${chatId}] turn error:`, error);
+			return "An error occurred.";
+		},
+		onEntry: (entry) => {
+			const message = (entry.data as { message?: LhMessage } | undefined)?.message;
+			if (message?.role !== "custom") return;
+			noteSteerVisible(message as SteerMessage);
+			markSteerDelivered(chatId, message.id);
+		},
+		onFinish: async () => {
+			// The record is durable throughout the run; these are the settle
+			// services the old onFinish owned.
+			await appendRunUsage(stores.chatStore, chatId, baseEntryCount, turnUsageId, modelId);
+			const after = projectEntries(await readEntries(runtime));
+			settleSteers(chatId, after);
+			await appendPlanBlocks(stores.chatStore, chatId, baseMessages, after);
+			// GRAPH GATE: the write channel dies with the master switch;
+			// practice sessions write nothing (v1: the session is the
+			// deliverable).
+			if (record!.kind !== "practice" && extractionEnabled(effective.graph)) {
+				await triggerExtraction(stores, extraction, chatId, effective.graph.extractionChunkTokens);
+			}
+			// PARKED DISMISSAL (owner, 2026-10-04): a dismissal that arrived
+			// mid-turn was parked by the dismiss route; apply it against the
+			// settled record now.
+			await applyParkedDismissal(chatId);
+			// LAST: a reader that sees not-in-flight must read the completed
+			// record — endTurn only after the settle services ran.
+			endTurn(chatId);
+			unregisterTurn(chatId);
+			noteTurnSettled(chatId);
+			// Any marker still queued (a steer stranded behind the question
+			// stop or the abort) goes back through the pump's gates.
+			repumpSteers(chatId);
+			// THE SETTLE KICK (owner round 14): if the projection is now over
+			// threshold, the summary starts in the background INSIDE the
+			// learner's reading/answering pause.
+			if (process.env.NODE_ENV !== "test")
+				kickCompaction(async () => {
+					syncCustomEndpointProvider();
+					const fresh = effectiveSettings();
+					const current = await stores.chatStore.getChat(chatId);
+					const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
+					if (!spec) return null;
+					let kickEngine: PiEngine;
+					try {
+						kickEngine = piEngineForSpec(spec);
+					} catch {
+						return null;
+					}
+					const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
+					const freshRecord = await stores.chatStore.getChat(chatId);
+					if (!freshRecord) return null;
+					return {
+						chatStore: stores.chatStore,
+						engine: kickEngine,
+						modelId: kickModelId,
+						kind: chatPhase(freshRecord.messages, freshRecord.kind),
+						thresholdTokens: effectiveThresholdTokens(
+							fresh.compaction?.thresholdTokens,
+							catalogContextLimits().get(kickModelId),
+						),
+						systemPromptTokens: Math.ceil(
+							composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4,
+						),
+					};
+				}, chatId);
+		},
+	});
+	// The turn is now a live background object: register it so any view can
+	// reattach (GET /api/chats/[id]/stream) or remotely abort it
+	// (POST /api/activity/abort, kind "turn").
+	registerTurn(chatId, handle);
+	noteTurnStarted(chatId);
+	// A submission that faults after admission must never go unobserved: the
+	// view's wait settles on the same scope, but the error is logged here.
+	void submission.wait(BACKGROUND_CONTEXT).catch((error) => {
+		console.error(`[chat ${chatId}] submission failed:`, error);
+	});
+	// CONNECTION DIET B (owner, 2026-10-10): the POST acknowledges acceptance
+	// and closes; the turn runs server-side and every view attaches through
+	// GET /api/chats/[id]/stream.
+	return Response.json({ ok: true });
 }

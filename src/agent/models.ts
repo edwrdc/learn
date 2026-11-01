@@ -1,9 +1,11 @@
 import {
 	clampThinkingLevel,
+	createAssistantMessageEventStream,
 	createModels,
 	createProvider,
 	getSupportedThinkingLevels,
 	type Api,
+	type AssistantMessageEventStream,
 	type Model,
 	type Models,
 	type Provider,
@@ -19,6 +21,7 @@ import {
 	type CustomEndpointConfig,
 } from "../core/custom-endpoint.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
+import type { ProviderEventObserver } from "./provider-events.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
  * Agent's default Pi attribution otherwise overrides the Models identity. */
@@ -66,6 +69,62 @@ export function piModels() {
 		for (const provider of builtinProviders()) collection.setProvider(provider);
 	}
 	return collection;
+}
+
+/** One engine as a pi-ai Models collection, for hosts (the durable Harness)
+ *  that resolve a model ref through Models and stream through it. The engine
+ *  is the app's ONE provider adapter: its streamFn already pins the custom
+ *  endpoint's provider and credential snapshot and the thinking level, so a
+ *  turn's provider behavior is identical whichever loop drives it.
+ *
+ *  Only getModel/getModels/streamSimple are the engine's; every other member
+ *  delegates to the process catalog (creation tools read it). The observer
+ *  is the raw-wire recorder seam: it sees every parsed provider event before
+ *  the harness normalizes it, the same layer onProviderStreamEvent covered. */
+export function engineModels(engine: PiEngine, observer?: ProviderEventObserver): Models {
+	const base = piModels();
+	const observe = (stream: AssistantMessageEventStream): AssistantMessageEventStream => {
+		if (!observer) return stream;
+		const out = createAssistantMessageEventStream();
+		void (async () => {
+			try {
+				for await (const event of stream) {
+					observer(
+						event,
+						"partial" in event
+							? event.partial
+							: event.type === "done"
+								? event.message
+								: event.error,
+					);
+					out.push(event);
+				}
+				out.end(await stream.result());
+			} catch (error) {
+				console.error(`[models] ${engine.model.provider}:${engine.model.id} stream observer failed:`, error);
+				out.end(await stream.result().catch(() => undefined));
+			}
+		})();
+		return out;
+	};
+	return new Proxy(base, {
+		get(target, property) {
+			if (property === "getModel") {
+				return (provider: string, id: string) =>
+					provider === engine.model.provider && id === engine.model.id ? engine.model : undefined;
+			}
+			if (property === "getModels") {
+				return (provider?: string) =>
+					provider === undefined || provider === engine.model.provider ? [engine.model] : [];
+			}
+			if (property === "streamSimple") {
+				return (model: Model<Api>, context: Parameters<StreamFunction>[1], options?: Parameters<StreamFunction>[2]) =>
+					observe(engine.streamFn(model, context, options));
+			}
+			const value = Reflect.get(target, property, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }
 
 /** OpenRouter API key (BYOK); tests never read this — they inject engines. */

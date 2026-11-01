@@ -11,11 +11,13 @@ import type { ChatListItem } from "@/src/core";
  *  (a running spinner per row would double-signal them), so busy means
  *  exactly "a teach turn is in flight". */
 export async function GET() {
-	const chats: ChatListItem[] = (await listChats()).map((c) => ({
-		...c,
-		busy: isTurnRunning(c.id),
-		compacting: compactionInFlight(c.id),
-	}));
+	const chats: ChatListItem[] = await Promise.all(
+		(await listChats()).map(async (c) => ({
+			...c,
+			busy: await isTurnRunning(c.id),
+			compacting: compactionInFlight(c.id),
+		})),
+	);
 	return Response.json({ chats });
 }
 

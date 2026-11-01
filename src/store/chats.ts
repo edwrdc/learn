@@ -279,18 +279,23 @@ async function renameChat(id: string, title: string): Promise<ChatRecord> {
  *  unknown. The graph-ledger purge and job cleanup are the caller's
  *  choreography (core/graph-deletion.ts + the DELETE route). */
 async function deleteChat(id: string): Promise<boolean> {
-	const file = chatFile(id);
-	const hadRecord = fs.existsSync(file);
-	const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
-	try {
-		await closeChatRuntime(id);
-		removeChatRuntimeFiles(id);
-		if (hadRecord) fs.unlinkSync(file);
-		if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
-		return hadRecord || hadRuntime;
-	} catch {
-		return false;
-	}
+	// The metadata queue owns the whole removal: a mutation that arrives
+	// afterwards re-reads the (now absent) file inside the same lock and
+	// refuses, instead of rewriting metadata over a deleted runtime.
+	return withMetaLock(id, async () => {
+		const file = chatFile(id);
+		const hadRecord = fs.existsSync(file);
+		const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
+		try {
+			await closeChatRuntime(id);
+			removeChatRuntimeFiles(id);
+			if (hadRecord) fs.unlinkSync(file);
+			if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
+			return hadRecord || hadRuntime;
+		} catch {
+			return false;
+		}
+	});
 }
 
 /** Persist the session plan tree (plan tools call this in execute).

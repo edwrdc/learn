@@ -156,7 +156,7 @@ function isImageResult(v: unknown): v is ImageFileResult {
  * Map a tool body's return to the native AgentToolResult — the parity the
  * old toPiTool tail owned: string results pass verbatim to the model,
  * objects as JSON; `details` carries the RAW value (the record's tool part
- * output reads it, ui-stream), and image results become native content
+ * output reads it, the turn view), and image results become native content
  * parts with details ?? null.
  */
 export function toToolResult(result: unknown): AgentToolResult<unknown> {

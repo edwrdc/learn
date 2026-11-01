@@ -1,74 +1,83 @@
 /**
- * Server-side turn liveness: which chats currently have a teacher turn in
- * flight. The missing half of "sessions keep running in the background" —
- * together with the write-ahead persist in chat-handler, a returning client
- * can tell "the teacher is mid-turn — don't resurrect, don't start anything"
- * apart from "the record IS current".
+ * Turn liveness for the durable foreground runtime.
  *
- * Lives on globalThis, NOT a module-level Map: Next dev compiles each route
- * as its own entry, so a module-level singleton is a DIFFERENT instance in
- * the page render, GET /api/chats/[id], and POST /api/chat — the page would
- * read an empty registry while the chat route holds the live turn (the bug:
- * returning mid-turn showed the 409 banner instead of the busy state).
- * globalThis spans module instances within the process; it is the standard
- * Next.js singleton channel (same reason Prisma clients live there).
+ * TWO FACTS, ONE AUTHORITY EACH:
  *
- * Still ephemeral BY DESIGN: a process restart clears it, so there are no
- * stale flags to clean up — a crashed turn recovers via the write-ahead
- * record + mount continuation on the next visit. The TTL is a leak guard for
- * the pathological case where onFinish never fires (it runs even on aborts);
- * chat turns are minutes at most, so 30 minutes is far on the safe side.
+ *  - BUSY (what every reader asks — the session list, the chat page, the
+ *    abort gate, the delete gate, the dismiss route) is the COMMITTED run
+ *    state: a conversation's `pi.live.run` is written by the same commit
+ *    that admits the input and cleared by the commit that ends the run.
+ *    Nothing in memory can disagree with it, and a process restart cannot
+ *    leave a stale flag behind. Reads go through an open runtime only —
+ *    a chat nobody has opened cannot be running in this process.
+ *
+ *  - THE REQUEST MUTEX (writes): two POSTs arriving in one process must not
+ *    both write-ahead and then race the durable admission. `beginTurn`
+ *    claims the chat before the write-ahead; `endTurn` releases it at
+ *    settle. `submit({whenBusy:"reject"})` is the durable half of the same
+ *    law (ConversationBusy → 409), so a lost mutex is never silent.
+ *
+ * Events stay here because the client's notify-then-fetch contract rides
+ * them: `turn-started` once the run is admitted, `turn-settled` only after
+ * the settle services made the record current.
  */
 
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { LiveDoc } from "@earendil-works/pi-durable";
 import { emit } from "../core/events.ts";
+import { peekChatRuntime } from "../store/durable.ts";
 
 interface LhGlobal {
-	__lhTurnRegistry?: Map<string, number>;
+	__lhTurnClaims?: Map<string, number>;
 }
 
-function registry(): Map<string, number> {
+function claims(): Map<string, number> {
 	const g = globalThis as typeof globalThis & LhGlobal;
-	return (g.__lhTurnRegistry ??= new Map<string, number>());
+	return (g.__lhTurnClaims ??= new Map<string, number>());
 }
 
-const inFlight = registry();
+/** A claim older than this is a leak guard for a pathological turn whose
+ *  settle never fired. Real turns are minutes at most. */
 const MAX_TURN_MS = 30 * 60_000;
 
-/**
- * Mark a turn as starting. Returns false if one is already running for the
- * chat — the caller rejects the request (only one turn may own a chat).
- * Announces "turn-started" AFTER the registry write: a listener that reads
- * isTurnRunning or fetches the record sees consistent truth. The rejected
- * double-begin (the 409 path) stays silent — no turn began.
- */
+/** Claim the chat for the coming turn. Returns false when this process
+ *  already owns a turn for it. */
 export function beginTurn(chatId: string): boolean {
-	if (isTurnRunning(chatId)) return false;
-	inFlight.set(chatId, Date.now());
-	emit("turn-started", { chatId });
+	const map = claims();
+	const since = map.get(chatId);
+	if (since !== undefined && Date.now() - since <= MAX_TURN_MS) return false;
+	map.set(chatId, Date.now());
 	return true;
 }
 
-/**
- * Mark the chat's turn as finished (runs in onFinish, aborted or not —
- * AFTER persistTurn, so "turn-settled" guarantees a subsequent fetch reads
- * durable truth). Emits only when an entry was actually present: a
- * defensive no-op endTurn must not fire a spurious settle.
- */
+/** Release the claim at settle (or on a failed start). */
 export function endTurn(chatId: string): void {
-	if (inFlight.delete(chatId)) emit("turn-settled", { chatId });
+	claims().delete(chatId);
 }
 
-/** True while the chat's turn is in flight; lazily evicts stale entries.
- * The eviction path is DELIBERATELY event-free: it is a leak guard for a
- * turn whose onFinish never fired (itself pathological), it runs lazily
- * from a read, and emitting from a read is a side-effect smell. Silence
- * here is a choice, not an oversight. */
-export function isTurnRunning(chatId: string): boolean {
-	const since = inFlight.get(chatId);
-	if (since === undefined) return false;
-	if (Date.now() - since > MAX_TURN_MS) {
-		inFlight.delete(chatId);
-		return false;
-	}
-	return true;
+/** Is a turn running for this chat? THE reader contract: the committed run
+ *  state of the chat's durable conversation. */
+export async function isTurnRunning(chatId: string): Promise<boolean> {
+	const since = claims().get(chatId);
+	if (since !== undefined && Date.now() - since <= MAX_TURN_MS) return true;
+	const pending = peekChatRuntime(chatId);
+	if (!pending) return false;
+	const runtime = await pending.catch(() => undefined);
+	if (!runtime || runtime.closing) return false;
+	const live = await runtime.harness
+		.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT)
+		.catch(() => undefined);
+	return live?.run !== undefined;
+}
+
+/** Announce an admitted run (after the durable commit, so a listener that
+ *  attaches reads a live conversation). */
+export function noteTurnStarted(chatId: string): void {
+	emit("turn-started", { chatId });
+}
+
+/** Announce a settled run — called LAST, after usage, plan blocks,
+ *  extraction, and parked dismissals made the record current. */
+export function noteTurnSettled(chatId: string): void {
+	emit("turn-settled", { chatId });
 }

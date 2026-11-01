@@ -1,85 +1,163 @@
 /**
  * The chat-turn services — one named, error-contained seam per turn
  * responsibility, extracted from the chat-handler so it composes instead of
- * implementing. Each takes its dependencies explicitly (storage ports, the
- * job runner) — no module here imports an adapter.
+ * implementing. Each takes its dependencies explicitly (storage ports)
+ * — no module here imports an adapter.
  *
- *   persistTurn        — the canonical state write (Wave B: native history;
- *                        id stamping, placeholder filtering, plan-block
- *                        emission, abort-partial persistence)
+ *   answerWrite / applyAnswer — the learner's graded answer as the posed
+ *                        question's EFFECTIVE result: a ContextEdit over the
+ *                        committed pose placeholder (or a plain append for a
+ *                        legacy record that never committed one).
+ *   writeDismissal     — the dismissal path: the same write, no run.
+ *   appendPlanBlocks   — the plan presentation marker, idempotent per
+ *                        plan_init call (the old persistTurn slice).
+ *   appendRunUsage     — the money channel, from the run's assistant entries
+ *                        (aborted attempts excluded).
  *   triggerExtraction  — the graph write channel: fires the extraction
  *                        pipeline (the sole graph writer) once a chat
- *                        crosses the token-budget threshold.
+ *                        crosses the token-budget batch threshold.
  *
  * Logs are the minimal-observability baseline: one line per failure, tagged
  * [chat <id>] — structured logging lands behind these seams later.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMessage } from "../core/native-messages.ts";
-import { newMessageId } from "../core/native-messages.ts";
-import { QUESTION_TOOLS } from "../core/pending.ts";
+import type { QuestionAnswerData } from "../core/question-core.ts";
+import {
+	ChatInputError,
+	dismissAppends,
+	inputAppends,
+	type DismissInput,
+} from "../core/input-events.ts";
 import { planBlocksFor } from "../core/plan-blocks.ts";
 import { coverageOf } from "../core/coverage.ts";
+import { emit } from "../core/events.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
+import type { EntryId } from "@earendil-works/pi-durable";
+import {
+	appendEntries,
+	appendMessages,
+	editDraftFor,
+	findToolResultEntry,
+	openChatRuntime,
+	readChatMessages,
+	readEntries,
+} from "../store/durable.ts";
+import type { CallUsage } from "../core/contracts.ts";
+
+/** One answer ready to write: the record message, plus the pose entry it
+ *  replaces when the record committed one (the durable shape). */
+export interface AnswerWrite {
+	message: LhMessage;
+	replace?: EntryId;
+}
 
 /**
- * The canonical state write (Wave B, owner-approved 2026-09-26): append the
- * turn's own messages — the agent loop's native history, provider/model/
- * usage/thinkingSignature stamped by pi itself. Persists even when aborted
- * — the partial transcript (including a pending question's unanswered
- * call) is what makes resume work.
- *
- * - Id stamping: pi messages carry no id; the record's identity needs one
- *   per message (client keys, append-only adoption, the continuation
- *   seam). Minted here, at the single canonical write.
- * - Placeholder filtering: a cleanly-posed question's synthetic
- *   "question posed" result is an in-memory loop device (Wave A's
- *   terminate) — NEVER persisted (fork 1: the record ends at the
- *   unanswered call; the learner's answer arrives as the real tool
- *   result). Errored question calls DO persist — the model's retry
- *   context.
- * - Plan blocks: one frozen snapshot per successful plan_init call,
- *   idempotent (persist replays are safe).
- *
- * Returns the stamped new messages (usage provenance reads them).
+ * Validate an answer against the record (the orphan-400 discipline: the call
+ * must be a pending question) and resolve how it lands. A durable record
+ * committed the pose as the call's result — a placeholder (details: null) —
+ * so the answer REPLACES that entry; a legacy record without one appends the
+ * result, which is what the old loop did.
  */
-export async function persistTurn(
+export async function answerWrite(
+	chatId: string,
+	record: { messages: readonly LhMessage[] },
+	toolCallId: string,
+	answer: QuestionAnswerData,
+): Promise<AnswerWrite> {
+	const appended = inputAppends({ messages: [...record.messages] }, { type: "answer", toolCallId, answer });
+	const message = appended[0]!;
+	const runtime = await openChatRuntime(chatId);
+	const placeholder = await findToolResultEntry(runtime, toolCallId);
+	return placeholder ? { message, replace: placeholder.id } : { message };
+}
+
+/** Land an answer write (see answerWrite). */
+export async function applyAnswer(chatId: string, write: AnswerWrite): Promise<void> {
+	if (write.replace !== undefined) {
+		await appendEntries(chatId, [editDraftFor(write.replace, write.message)]);
+		return;
+	}
+	await appendMessages(chatId, [write.message]);
+}
+
+/** Write a dismissal — the question's tool result, or the practice
+ *  problem's UI-only discard marker. No run starts. Emits the record change
+ *  so open views refetch. */
+export async function writeDismissal(chatId: string, input: DismissInput): Promise<void> {
+	const messages = await readChatMessages(chatId);
+	const record = { messages: [...messages] };
+	if (input.type === "dismiss-problem") {
+		await appendMessages(chatId, dismissAppends(record, input));
+	} else {
+		const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
+		await applyAnswer(chatId, write);
+	}
+	emit("record-changed", { chatId });
+}
+
+/** The plan presentation markers a finished run owes, idempotent per
+ *  plan_init call (the old persistTurn emission, now an append: the run's
+ *  entries are already committed). */
+export async function appendPlanBlocks(
 	chatStore: ChatStore,
 	chatId: string,
-	baseCount: number,
-	turnMessages: readonly AgentMessage[],
-	isAborted: boolean,
-): Promise<LhMessage[]> {
+	before: readonly LhMessage[],
+	after: readonly LhMessage[],
+): Promise<void> {
 	try {
 		const record = await chatStore.getChat(chatId);
-		if (!record) return [];
-		const stamped: LhMessage[] = [];
-		for (const m of turnMessages.slice(baseCount)) {
-			const message = m as LhMessage;
-			// The placeholder question result: loop device, never a record fact.
-			if (
-				(message as { role?: string }).role === "toolResult" &&
-				(QUESTION_TOOLS as readonly string[]).includes((message as ToolResultMessage).toolName) &&
-				!(message as ToolResultMessage).isError
-			) {
-				continue;
-			}
-			stamped.push(message.id ? message : ({ ...message, id: newMessageId() } as LhMessage));
-		}
-		const tree = record.tree;
-		const blocks = planBlocksFor(record.messages, stamped, tree, [
-			...record.messages,
-			...stamped,
-		]);
-		await chatStore.saveMessages(chatId, [...record.messages, ...stamped, ...blocks]);
-		return stamped;
+		if (!record) return;
+		const blocks = planBlocksFor(before, after.slice(before.length), record.tree, after);
+		if (blocks.length > 0) await appendMessages(chatId, blocks);
 	} catch (err) {
-		console.error(`[chat ${chatId}] persist failed:`, err, { isAborted });
-		return [];
+		console.error(`[chat ${chatId}] plan-block emission failed:`, err);
+	}
+}
+
+/** The money channel for one run: one TurnUsage built from the assistant
+ *  entries the run committed, keyed to the first one (provenance). A
+ *  cancelled attempt is not a billed step — partial/estimated usage on an
+ *  aborted message is not money spent, the app's long-standing rule. */
+export async function appendRunUsage(
+	chatStore: ChatStore,
+	chatId: string,
+	baseEntryCount: number,
+	turnUsageId: string,
+	model: string,
+): Promise<void> {
+	try {
+		const runtime = await openChatRuntime(chatId);
+		const entries = (await readEntries(runtime)).slice(baseEntryCount);
+		const steps: CallUsage[] = [];
+		let messageId: string | undefined;
+		for (const entry of entries) {
+			const message = entry.model?.[0] as
+				| { role?: string; stopReason?: string; usage?: Record<string, number | undefined> }
+				| undefined;
+			if (message?.role !== "assistant") continue;
+			messageId ??= (entry.data as { id?: string } | undefined)?.id ?? `e${entry.id}`;
+			if (message.stopReason === "aborted" || !message.usage) continue;
+			steps.push({
+				inputTokens: message.usage.input ?? 0,
+				outputTokens: message.usage.output ?? 0,
+				cacheReadTokens: message.usage.cacheRead ?? 0,
+				cacheWriteTokens: message.usage.cacheWrite ?? 0,
+				reasoningTokens: message.usage.reasoning ?? 0,
+			});
+		}
+		if (!messageId || steps.length === 0) return;
+		await chatStore.appendTurnUsage(chatId, {
+			id: turnUsageId,
+			messageId,
+			at: new Date().toISOString(),
+			model,
+			steps,
+		});
+	} catch (err) {
+		console.error(`[chat ${chatId}] turn usage append failed:`, err);
 	}
 }
 
@@ -89,9 +167,7 @@ export async function persistTurn(
  * chat's UNCOVERED transcript tokens reach the chunk budget
  * (vision-extraction-coverage.md, 2026-09-15). Coverage reads through the
  * projection (the record is native history; the extraction view stays
- * client-shaped until Wave D). Fire-and-forget — never blocks the turn;
- * failures are logged by the pipeline and leave coverage untouched, so the
- * next trigger (or the manual extract button) re-runs what's left.
+ * client-shaped).
  *
  * Deliberately isolated in this one seam — the pipeline is
  * trigger-agnostic. Skipped under tests: scripted chats are fixtures, not

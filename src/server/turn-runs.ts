@@ -26,7 +26,7 @@
  * write-ahead record + liveness TTL recovery cover the next mount.
  */
 
-import type { PiTurnHandle } from "./pi/ui-stream.ts";
+import type { PiTurnHandle } from "./pi/durable-turn.ts";
 
 interface LhTurnRunsGlobal {
 	__lhTurnRuns?: Map<string, PiTurnHandle>;
@@ -37,8 +37,8 @@ function runs(): Map<string, PiTurnHandle> {
 	return (g.__lhTurnRuns ??= new Map<string, PiTurnHandle>());
 }
 
-/** Register the chat's running turn (chat-handler, right after the turn
- *  starts). One per chat by construction — the 409 guard. */
+/** Register the chat's running turn (chat-handler, right after the durable
+ *  admission). One per chat by construction — the claim guard. */
 export function registerTurn(chatId: string, handle: PiTurnHandle): void {
 	runs().set(chatId, handle);
 }

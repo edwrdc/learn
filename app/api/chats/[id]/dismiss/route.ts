@@ -19,8 +19,8 @@
  * ESC-discard now doubles as the turn abort's bookkeeper (the client
  * fires both).
  */
-import { ChatInputError, dismissAppends, emit, parseDismissInput } from "@/src/core";
-import { getChat, isTurnRunning, parkDismissal, stores } from "@/src/server";
+import { ChatInputError, parseDismissInput } from "@/src/core";
+import { getChat, isTurnRunning, parkDismissal, writeDismissal } from "@/src/server";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -44,22 +44,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 	// record if the dismissed question/problem really is pending there.
 	// The dismissing client has also aborted the turn — this 202 is the
 	// "noted, will land" contract.
-	if (isTurnRunning(id)) {
+	if (await isTurnRunning(id)) {
 		parkDismissal(id, input);
 		return Response.json({ ok: true, parked: true }, { status: 202 });
 	}
 
-	let appends;
 	try {
-		appends = dismissAppends(chat, input);
+		// Turn-less: the record is the only state that moves. The question's
+		// answer REPLACES its pose placeholder's result; a problem discard
+		// appends its UI-only marker.
+		await writeDismissal(id, input);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;
 	}
-
-	// Write-ahead, turn-less: the record is the only state that moves.
-	const merged = [...chat.messages, ...appends];
-	await stores.chatStore.saveMessages(id, merged);
-	emit("record-changed", { chatId: id });
 	return Response.json({ ok: true });
 }

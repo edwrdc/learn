@@ -33,7 +33,7 @@ export default async function ChatPage({
 			initialPrompt={prompt}
 			// A teacher turn that outlived its client: the remounted view must
 			// attach (busy shimmer + poll), never resurrect the stale record.
-			initiallyInFlight={isTurnRunning(chat.id)}
+			initiallyInFlight={await isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
 		/>
 	);

@@ -69,7 +69,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	if (!(await stores.chatStore.getChat(chatId))) {
 		return { ok: false, status: 404, code: "not_found", error: "No such session" };
 	}
-	if (isTurnRunning(chatId)) {
+	if (await isTurnRunning(chatId)) {
 		return {
 			ok: false,
 			status: 409,

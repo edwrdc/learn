@@ -943,20 +943,17 @@ describe("demo/visual job runners", () => {
 						input: { type: "text", text: "teach me compounding" },
 					}),
 				}),
-				// The handler hands the factory the native build options
-				// (messages are the merged record; the record IS the agent
-				// state — no adapter conversion).
-				(opts) =>
-					createTeacherAgent(undefined, {
-						engine: teacher,
-						messages: opts.messages,
-						tools: createTeacherTools({
-							chatId: chat.id,
-							chatStore,
-							jobStore,
-							spawn: (job, input) => void runner.runJob(job.id, input),
-						}),
+				// The demo tools with the test runner's spawn seam (the
+				// scripted lesson drives the demo/write_demo/run_demo calls).
+				{
+					engine: teacher,
+					tools: createTeacherTools({
+						chatId: chat.id,
+						chatStore,
+						jobStore,
+						spawn: (job, input) => void runner.runJob(job.id, input),
 					}),
+				},
 			);
 			if (ack.status !== 200) assert.fail(`expected 200 ack, got ${ack.status}: ${await ack.text()}`);
 			await drainRunning(chat.id);
