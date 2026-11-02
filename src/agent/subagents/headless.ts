@@ -479,8 +479,10 @@ async function renderPdfPages(
 	// that used to run in the Chrome shim tab; only the canvas host changed
 	// (Skia in-process instead of a DOM canvas). Text-side pdf tools never
 	// needed a browser; now renders don't either.
-	const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-	const { createCanvas } = await import("@napi-rs/canvas");
+	const [pdfjs, { createCanvas }] = await Promise.all([
+		import("pdfjs-dist/legacy/build/pdf.mjs"),
+		import("@napi-rs/canvas"),
+	]);
 	const data = new Uint8Array(fs.readFileSync(path.resolve(pdfPath)));
 	// Standard-font data as a directory path (live-smoke finding 2026-09-19:
 	// without it pdfjs renders non-embedded standard fonts via fallback);

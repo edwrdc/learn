@@ -53,18 +53,24 @@ export const lsTool: AppTool<typeof lsInput> = {
 		const effectiveLimit = input.limit ?? DEFAULT_LIMIT;
 		const lines: string[] = [];
 		let entryLimitReached = false;
-		for (const entry of entries) {
-			if (lines.length >= effectiveLimit) {
+		let index = 0;
+		while (index < entries.length) {
+			const need = effectiveLimit - lines.length;
+			if (need <= 0) {
 				entryLimitReached = true;
 				break;
 			}
-			const fullPath = path.join(dirPath, entry);
-			try {
-				const entryStat = await fs.stat(fullPath);
+			// Only successful stats consume the limit.
+			const batch = entries.slice(index, index + Math.min(3, need));
+			const stats = await Promise.all(
+				batch.map((entry) => fs.stat(path.join(dirPath, entry)).catch(() => null)),
+			);
+			for (const [i, entry] of batch.entries()) {
+				const entryStat = stats[i];
+				if (!entryStat) continue; // pi: skip entries it cannot stat
 				lines.push(entryStat.isDirectory() ? `${entry}/` : entry);
-			} catch {
-				// pi: skip entries it cannot stat
 			}
+			index += batch.length;
 		}
 
 		const { content, truncated } = capOutput(lines);

@@ -206,26 +206,29 @@ async function listChats(): Promise<ChatSummary[]> {
 		return [];
 	}
 	const out: ChatSummary[] = [];
-	for (const name of names) {
-		const record = await readChat(name.slice(0, -5)).catch(() => null);
-		if (!record) continue;
-		// Per-record isolation: a record whose projection fails must not blank
-		// the whole sidebar.
-		try {
-			const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
-			out.push({
-				...summary,
-				// Normalized kind: absent record field reads as teach.
-				kind: summary.kind ?? "teach",
-				messageCount: messages.length,
-				// Record-derived status for the session picker: phase from the
-				// transcript's explicit events, pending question/problem from the
-				// native dangling-call scans.
-				phase: phaseAt3Lh(messages),
-				pendingQuestion: danglingQuestionOf(messages) !== null,
-			} as ChatSummary);
-		} catch (err) {
-			console.error(`[chat ${record.id}] summary projection failed:`, err);
+	for (let i = 0; i < names.length; i += 3) {
+		const batch = names.slice(i, i + 3);
+		const records = await Promise.all(batch.map((name) => readChat(name.slice(0, -5)).catch(() => null)));
+		for (const record of records) {
+			if (!record) continue;
+			// Per-record isolation: a record whose projection fails must not blank
+			// the whole sidebar.
+			try {
+				const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
+				out.push({
+					...summary,
+					// Normalized kind: absent record field reads as teach.
+					kind: summary.kind ?? "teach",
+					messageCount: messages.length,
+					// Record-derived status for the session picker: phase from the
+					// transcript's explicit events, pending question/problem from the
+					// native dangling-call scans.
+					phase: phaseAt3Lh(messages),
+					pendingQuestion: danglingQuestionOf(messages) !== null,
+				} as ChatSummary);
+			} catch (err) {
+				console.error(`[chat ${record.id}] summary projection failed:`, err);
+			}
 		}
 	}
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

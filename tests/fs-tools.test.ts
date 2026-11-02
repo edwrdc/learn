@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { createHook } from "node:async_hooks";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -36,6 +37,10 @@ async function runText(tool: AppTool<any>, params: unknown, signal?: AbortSignal
 	const first = result.content[0];
 	assert.ok(first !== undefined && first.type === "text", "first content part is text");
 	return (first as { type: "text"; text: string }).text;
+}
+
+function outputLines(text: string): string[] {
+	return text.split("\n").filter((line) => line !== "" && !line.startsWith("["));
 }
 
 async function setup(): Promise<string> {
@@ -102,6 +107,78 @@ describe("ls (pi port)", () => {
 	it("honors the entry limit with pi's truncation notice", async () => {
 		const out = await runText(lsTool, { path: FIXTURE, limit: 2 });
 		assert.match(out, /\[Truncated: 2 entries limit\]/);
+	});
+
+	it("follows symlinked directories, skips dangling links, and never lets a failed stat consume the limit", async () => {
+		const base = await fs.mkdtemp(path.join(os.tmpdir(), "lh-ls-links-"));
+		try {
+			await fs.mkdir(path.join(base, "target"));
+			const root = path.join(base, "listing");
+			await fs.mkdir(root);
+			await fs.symlink(path.join(base, "missing"), path.join(root, "a-dangling"));
+			await fs.symlink(path.join(base, "target"), path.join(root, "b-dirlink"));
+			await fs.writeFile(path.join(root, "c-file.txt"), "x");
+
+			assert.deepEqual(outputLines(await runText(lsTool, { path: root })), ["b-dirlink/", "c-file.txt"]);
+
+			const limited = await runText(lsTool, { path: root, limit: 2 });
+			assert.deepEqual(outputLines(limited), ["b-dirlink/", "c-file.txt"], "the dangling link did not consume a slot");
+			assert.ok(!limited.includes("[Truncated"), "no entry remains past two successes");
+		} finally {
+			await fs.rm(base, { recursive: true, force: true });
+		}
+	});
+
+	it("notices the entry limit only when an entry remains past an exactly full limit", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "lh-ls-exact-"));
+		try {
+			for (const name of ["a.txt", "b.txt", "c.txt"]) await fs.writeFile(path.join(root, name), "x");
+
+			const exact = await runText(lsTool, { path: root, limit: 3 });
+			assert.deepEqual(outputLines(exact), ["a.txt", "b.txt", "c.txt"]);
+			assert.ok(!exact.includes("[Truncated"), "an exactly full limit is not truncation");
+
+			const short = await runText(lsTool, { path: root, limit: 2 });
+			assert.deepEqual(outputLines(short), ["a.txt", "b.txt"]);
+			assert.match(short, /\[Truncated: 2 entries limit\]/);
+
+			assert.equal(await runText(lsTool, { path: root, limit: 0 }), "Directory is empty");
+			assert.equal(await runText(lsTool, { path: root, limit: -1 }), "Directory is empty");
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps at most three stat requests in flight", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "lh-ls-batch-"));
+		const tracked = new Set<number>();
+		let inFlight = 0;
+		let peak = 0;
+		const hook = createHook({
+			init(id, type) {
+				if (type !== "FSREQPROMISE") return;
+				tracked.add(id);
+				inFlight++;
+				peak = Math.max(peak, inFlight);
+			},
+			after(id) {
+				if (!tracked.delete(id)) return;
+				inFlight--;
+			},
+		});
+		try {
+			for (const name of ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"]) await fs.writeFile(path.join(root, name), "x");
+			hook.enable();
+			try {
+				const out = await runText(lsTool, { path: root, limit: 5 });
+				assert.deepEqual(outputLines(out), ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"]);
+			} finally {
+				hook.disable();
+			}
+			assert.equal(peak, 3, "three stat requests overlap, and a fourth never starts");
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("missing path and non-directory throw (the model sees the error)", async () => {

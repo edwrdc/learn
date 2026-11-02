@@ -534,16 +534,21 @@ export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
 	for (const chats of nodeChats.values()) {
 		for (const id of chats) sourceIds.add(id);
 	}
+	const ids = [...sourceIds];
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
-	for (const id of sourceIds) {
-		const chat = await deps.chatStore.getChat(id);
-		if (chat) {
-			sessions[id] = chat.title;
-			continue;
-		}
-		const source = deps.graphStore.readSources().find((s) => s.id === id);
-		if (source) fileSources[id] = source.filePath;
+	for (let i = 0; i < ids.length; i += 3) {
+		const batch = ids.slice(i, i + 3);
+		const records = await Promise.all(batch.map((id) => deps.chatStore.getChat(id)));
+		batch.forEach((id, index) => {
+			const chat = records[index];
+			if (chat) {
+				sessions[id] = chat.title;
+				return;
+			}
+			const source = deps.graphStore.readSources().find((s) => s.id === id);
+			if (source) fileSources[id] = source.filePath;
+		});
 	}
 
 	const nodeSessions: Record<string, string[]> = {};

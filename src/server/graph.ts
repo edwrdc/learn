@@ -31,9 +31,13 @@ export async function graphView(): Promise<GraphSnapshot> {
 export async function graphCosts(): Promise<GraphCostSummary> {
 	const summaries = await stores.chatStore.listChats();
 	const chats: Array<{ title: string; extractions: NonNullable<ChatRecord["extractions"]> }> = [];
-	for (const summary of summaries) {
-		const record = await stores.chatStore.getChat(summary.id);
-		if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
+	for (let i = 0; i < summaries.length; i += 3) {
+		const batch = summaries.slice(i, i + 3);
+		const records = await Promise.all(batch.map((summary) => stores.chatStore.getChat(summary.id)));
+		batch.forEach((summary, index) => {
+			const record = records[index];
+			if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
+		});
 	}
 	const sources = stores.graphStore
 		.readSources()

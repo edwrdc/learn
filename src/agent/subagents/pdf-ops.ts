@@ -53,8 +53,8 @@ export function standardFontsDir(): string {
 }
 
 async function openDocument(filePath: string) {
-	const pdfjs = await loadPdfjs();
-	const data = new Uint8Array(await fs.readFile(filePath));
+	const [pdfjs, bytes] = await Promise.all([loadPdfjs(), fs.readFile(filePath)]);
+	const data = new Uint8Array(bytes);
 	// The legacy build in plain node runs on a main-thread fake worker (no
 	// workerSrc needed); teardown is the loading task's destroy().
 	// verbosity 0 = errors only — scanned PDFs (JBIG2 XObjects) otherwise

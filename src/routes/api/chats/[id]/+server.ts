@@ -15,12 +15,13 @@ export async function GET({ params }: RequestEvent) {
 	// agent history, served VERBATIM — the client derives its view
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
+	const [turnInFlight, coverage] = await Promise.all([isTurnRunning(id), sessionCoverage(id)]);
 	return Response.json({
 		...chat,
 		messages: chat.messages,
-		turnInFlight: await isTurnRunning(id),
+		turnInFlight,
 		compacting: compactionInFlight(id),
-		coverage: await sessionCoverage(id),
+		coverage,
 	});
 }
 
