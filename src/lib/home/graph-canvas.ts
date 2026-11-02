@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * The hand-rolled single-canvas graph renderer (decided 2026-09-13 after
@@ -18,7 +17,7 @@
  * "Optimizing canvas", web.dev canvas performance):
  *   - The renderer is a DUMB DRAW FUNCTION over plain data: nodes with
  *     world-space positions, edges, clusters, colors, settings. Layout
- *     (forceAtlas2) and filtering happen OUTSIDE, in the React component;
+ *     (forceAtlas2) and filtering happen OUTSIDE, in GraphView.svelte;
  *     this module never computes a position.
  *   - ONE canvas, ONE requestAnimationFrame loop with a dirty flag. Input
  *     and DOM events only mutate state and mark dirty; the loop draws at
