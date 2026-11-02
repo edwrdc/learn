@@ -318,8 +318,10 @@ async function main() {
 			.filter((file) => fs.statSync(path.join(serverDir, file)).isFile());
 		const pdfChunk = chunks.find((file) => fs.readFileSync(path.join(serverDir, file), "utf8").includes('"standard_fonts"'));
 		assert.ok(pdfChunk, "the bundled pdf-ops module is present");
-		const fontsDir = path.resolve(path.dirname(path.join(serverDir, pdfChunk)), "..", "..", "..", "node_modules", "pdfjs-dist", "standard_fonts");
-		assert.equal(path.dirname(fontsDir), path.join(standalone, "node_modules", "pdfjs-dist"), "standard_fonts resolves inside the payload");
+		// Mirrors the app: Node's lookup from the bundled chunk, not a fixed walk.
+		const pdfManifest = createRequire(path.join(serverDir, pdfChunk)).resolve("pdfjs-dist/package.json");
+		const fontsDir = path.join(path.dirname(pdfManifest), "standard_fonts");
+		assert.ok(fontsDir.startsWith(standalone + path.sep), "standard_fonts resolves inside the payload");
 		assert.ok(fs.existsSync(path.join(fontsDir, "FoxitFixed.pfb")), "the packaged PDF standard fonts are present");
 		for (const native of ["@napi-rs/canvas", "@resvg/resvg-js"]) {
 			assert.ok(fs.existsSync(path.join(standalone, "node_modules", native, "package.json")), `${native} ships in the payload`);

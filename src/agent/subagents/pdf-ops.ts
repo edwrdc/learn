@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
 /**
  * PDF plumbing for the pdf-reader sub-agent — sources v0 (2026-09): Node
@@ -47,9 +47,13 @@ async function loadPdfjs() {
  *  warns and falls back on non-embedded standard fonts — Helvetica, Times…).
  *  The node side takes a plain filesystem path, shared by text and rendering.
  *  pdfjs checks endsWith("/") even on Windows: use a literal trailing slash,
- *  NOT path.sep ("\\" on Windows). Node fs accepts this path on every OS. */
+ *  NOT path.sep ("\\" on Windows). Node fs accepts this path on every OS.
+ *  Resolved through Node's own lookup, not a relative walk from this file:
+ *  the packaged chunk depth differs per platform and a walk escaped the
+ *  payload on Windows (found 2026-11-02 by the packaged carrier smoke). */
 export function standardFontsDir(): string {
-	return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "node_modules", "pdfjs-dist", "standard_fonts") + "/";
+	const manifest = createRequire(import.meta.url).resolve("pdfjs-dist/package.json");
+	return path.join(path.dirname(manifest), "standard_fonts") + "/";
 }
 
 async function openDocument(filePath: string) {
