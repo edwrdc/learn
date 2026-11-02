@@ -589,7 +589,7 @@ export function seededRandom(seed: string): () => number {
 /**
  * Fisher–Yates with an injectable RNG. Pass `seededRandom(toolCallId)` in
  * rendered components: Math.random() shuffles differently on server vs client
- * and breaks hydration (React #418). A per-toolCallId seed keeps the order
+ * and breaks hydration. A per-toolCallId seed keeps the order
  * stable across reloads while still varying it per question.
  */
 export function shuffleOptions(options: QuizOption[], rand: () => number = Math.random): QuizOption[] {

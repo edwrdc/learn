@@ -1,13 +1,13 @@
 /**
- * THE CORE PUBLIC API — the only module the shell (app/, components/) may
- * import. Everything exported here is browser-safe: pure logic + types,
- * no node builtins, no fs, no network.
+ * THE CORE PUBLIC API — UI domain imports use this barrel.
+ * Clients use its pure projections and contracts. Shared modules also expose
+ * server-only hashing helpers; the client Vite crypto shim throws if called.
  *
  * Server-side surfaces (chat streaming, store reads) live behind
  * src/server's barrel instead — the import law (eslint.config.mjs):
  *
- *   components/**  →  "@/src/core"        (this barrel, ONLY)
- *   app/**         →  "@/src/core" + "@/src/server"
+ *   src/lib/** and route components → "@/src/core"
+ *   server route handlers and loads → "@/src/core" + "@/src/server"
  *
  * Server-only core modules (core/graph.ts emission/derivation) are pure
  * but need storage ports passed in by a server caller, so they are
