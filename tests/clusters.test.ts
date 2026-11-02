@@ -7,7 +7,7 @@
 import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 import { MIN_CLUSTER_SIZE } from "../src/core/clusters.ts";
-import { clusterHue } from "../components/cluster-geometry.ts";
+import { clusterHue } from "../src/lib/home/cluster-geometry.ts";
 
 describe("MIN_CLUSTER_SIZE", () => {
 	test("is 3 (the render threshold — below this, no hull)", () => {

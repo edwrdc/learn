@@ -12,6 +12,7 @@
 
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 import {
 	createFauxCore,
 	fauxAssistantMessage,
@@ -156,14 +157,16 @@ async function answer(chatId: string, engine: PiEngine, tool: AppTool, toolCallI
 }
 
 async function queueUserSteer(chatId: string, id: string, text: string): Promise<void> {
-	const steerRoute = await import("../app/api/chats/[id]/steer/route.ts");
+	const steerRoute = await import("../src/routes/api/chats/[id]/steer/+server.ts");
 	const res = await steerRoute.POST(
-		new Request(`http://test/api/chats/${chatId}/steer`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { type: "steer", id, text } }),
-		}),
-		{ params: Promise.resolve({ id: chatId }) },
+		routeEvent(
+			new Request(`http://test/api/chats/${chatId}/steer`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ input: { type: "steer", id, text } }),
+			}),
+			{ id: chatId },
+		),
 	);
 	assert.equal(res.status, 200, `steer route: ${await res.text()}`);
 }
@@ -315,20 +318,22 @@ describe("durable question pause with queued work", { concurrency: false }, () =
 		questions.release();
 		await waitFor(async () => !(await isTurnRunning(chat.id)), 8000, "the question run settles");
 
-		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
+		const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 		const res = await dismissRoute.POST(
-			new Request(`http://test/api/chats/${chat.id}/dismiss`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					input: {
-						type: "dismiss",
-						toolCallId: "q1",
-						answer: { ...gradedAnswer([]), dontKnow: true, dismissed: true },
-					},
+			routeEvent(
+				new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						input: {
+							type: "dismiss",
+							toolCallId: "q1",
+							answer: { ...gradedAnswer([]), dontKnow: true, dismissed: true },
+						},
+					}),
 				}),
-			}),
-			{ params: Promise.resolve({ id: chat.id }) },
+				{ id: chat.id },
+			),
 		);
 		assert.equal(res.status, 200, `dismiss route: ${await res.text()}`);
 		assert.equal(calls.length, 1, "dismissal wakes no model call");

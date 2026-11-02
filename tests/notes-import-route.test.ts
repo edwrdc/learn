@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, it } from "node:test";
-import { POST } from "../app/api/graph/import/route.ts";
+import { POST } from "../src/routes/api/graph/import/+server.ts";
+import { routeEvent } from "./support-route-event.ts";
 import { extraction } from "../src/server/index.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../src/core/settings.ts";
 import { createExtractionPipeline, NotesImportError } from "../src/agent/subagents/extraction.ts";
@@ -32,7 +33,7 @@ it("route keeps three-worker batching, request positions and mixed per-file outc
 		} finally { active--; }
 	};
 	const names = ["slow.md", "same.md", "same.md", "failed", "partial", "aborted", "busy", "models.md", "key.md", "unknown.md"];
-	const response = await POST(request(names));
+	const response = await POST(routeEvent(request(names)));
 	assert.equal(response.status, 200);
 	const { results } = await response.json();
 	assert.equal(peak, 3);
@@ -85,7 +86,7 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 	extraction.importNotes = pipeline.importNotes;
 	const names = ["1.md", "1.1.md", "1 notes.md", "1.1 notes.md"];
 	for (let pass = 0; pass < 2; pass++) {
-		const response = await POST(request(names));
+		const response = await POST(routeEvent(request(names)));
 		const { results } = await response.json();
 		assert.equal(results.length, 4);
 		assert.ok(results.every((r: { ok: boolean; outcome: string }) => r.ok && r.outcome === "completed"));
@@ -97,7 +98,7 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 });
 
 it("route returns 400 without files", async () => {
-	const response = await POST(request([]));
+	const response = await POST(routeEvent(request([])));
 	assert.equal(response.status, 400);
 	assert.deepEqual(await response.json(), { results: [], error: "no files" });
 });

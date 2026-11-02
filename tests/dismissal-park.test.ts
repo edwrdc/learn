@@ -17,6 +17,7 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-dismissal-park-"));
@@ -184,24 +185,26 @@ describe("the dismiss route — the park contract (202)", () => {
 		const chat = await chatWithDanglingQuiz("route");
 		const pending = danglingQuestionOf((await chatStore.getChat(chat))!.messages);
 		assert.ok(pending);
-		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
+		const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 
 		// Mid-turn: the route cannot validate against stale truth — park.
 		assert.ok(!(await isTurnRunning(chat)));
 		beginTurn(chat);
 		const res = await dismissRoute.POST(
-			new Request(`http://test/api/chats/${chat}/dismiss`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					input: {
-						type: "dismiss",
-						toolCallId: pending!.toolCallId,
-						answer: dismissedAnswer("quiz", "What is a cyclic group?"),
-					},
+			routeEvent(
+				new Request(`http://test/api/chats/${chat}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						input: {
+							type: "dismiss",
+							toolCallId: pending!.toolCallId,
+							answer: dismissedAnswer("quiz", "What is a cyclic group?"),
+						},
+					}),
 				}),
-			}),
-			{ params: Promise.resolve({ id: chat }) },
+				{ id: chat },
+			),
 		);
 		assert.equal(res.status, 202);
 		assert.deepEqual(await res.json(), { ok: true, parked: true });
@@ -217,16 +220,18 @@ describe("the dismiss route — the park contract (202)", () => {
 
 	it("still refuses honestly (400) with no turn and nothing dangling", async () => {
 		const chat = await chatStore.createChat("park: nothing dangling").id;
-		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
+		const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 		const res = await dismissRoute.POST(
-			new Request(`http://test/api/chats/${chat}/dismiss`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					input: { type: "dismiss", toolCallId: "call-nowhere", answer: dismissedAnswer("quiz", "?") },
+			routeEvent(
+				new Request(`http://test/api/chats/${chat}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						input: { type: "dismiss", toolCallId: "call-nowhere", answer: dismissedAnswer("quiz", "?") },
+					}),
 				}),
-			}),
-			{ params: Promise.resolve({ id: chat }) },
+				{ id: chat },
+			),
 		);
 		assert.equal(res.status, 400);
 	});

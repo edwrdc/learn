@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 import {
 	createFauxCore,
 	fauxAssistantMessage,
@@ -46,7 +47,7 @@ import {
 } from "../src/core/native-messages.ts";
 import { prepareConversation } from "../src/server/durable-registry.ts";
 import { effectiveSettings, stores } from "../src/server/stores.ts";
-import { POST as dismissPOST } from "../app/api/chats/[id]/dismiss/route.ts";
+import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+server.ts";
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
 import { projectView } from "../src/core/view.ts";
 import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
@@ -513,14 +514,16 @@ describe("durable foreground turn", { concurrency: false }, () => {
 
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		const dismissAck = await dismissPOST(
-			new Request(`http://test/api/chats/${chat.id}/dismiss`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					input: { type: "dismiss", toolCallId: "q-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+			routeEvent(
+				new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						input: { type: "dismiss", toolCallId: "q-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+					}),
 				}),
-			}),
-			{ params: Promise.resolve({ id: chat.id }) },
+				{ id: chat.id },
+			),
 		);
 		assert.equal(dismissAck.status, 200);
 		const afterDismiss = (await chatStore.getChat(chat.id))!.updatedAt;
@@ -561,14 +564,16 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			assert.equal(answered.length, 1, "the answer is committed once");
 
 			const dismissAck = await dismissPOST(
-				new Request(`http://test/api/chats/${chat.id}/dismiss`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						input: { type: "dismiss", toolCallId: "q-touch-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+				routeEvent(
+					new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							input: { type: "dismiss", toolCallId: "q-touch-b", answer: { ...gradedAnswer(["Venus"]), dismissed: true } },
+						}),
 					}),
-				}),
-				{ params: Promise.resolve({ id: chat.id }) },
+					{ id: chat.id },
+				),
 			);
 			assert.equal(dismissAck.status, 200, "the committed dismissal acknowledges success");
 			const dismissed = (await chatStore.getChat(chat.id))!.messages.filter(

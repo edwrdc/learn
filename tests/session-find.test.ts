@@ -6,15 +6,13 @@
  * scroll lifecycle itself is browser-verified (SessionFind on the live
  * page), not re-implemented here.
  */
-import React from "react";
-(globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { findSessionTextMatches, stepSessionMatch } from "../src/core/session-find.ts";
-import { sessionFindRanges, sessionRangeIdentity, sameSessionRange } from "../components/session-find-dom.ts";
-import { clearSessionFindHighlights, injectFindStyles, sessionFindHasForegroundLayer } from "../components/session-find.tsx";
+import { sessionFindRanges, sessionRangeIdentity, sameSessionRange } from "../src/lib/chat/session-find-dom.ts";
+import { clearSessionFindHighlights, injectFindStyles, sessionFindHasForegroundLayer } from "../src/lib/chat/session-find.ts";
 
 const dom = parseHTML("<html><head><style></style></head><body></body></html>");
 (globalThis as Record<string, unknown>).window = dom.window;

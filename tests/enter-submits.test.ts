@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 import { describe, it } from "node:test";
-import { buttonKeepsNativeEnter } from "../components/enter-submits.ts";
-import { blurAfterPointerClick } from "../components/focus-hygiene.ts";
+import { buttonKeepsNativeEnter } from "../src/lib/chat/enter-submits.ts";
+import { blurAfterPointerClick } from "../src/lib/chat/enter-submits.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
 
@@ -66,7 +66,7 @@ describe("blurAfterPointerClick (focus hygiene)", () => {
 		b.blur = () => {
 			blurred = true;
 		};
-		blurAfterPointerClick({ detail: 1, currentTarget: b });
+		blurAfterPointerClick({ detail: 1, currentTarget: b } as unknown as MouseEvent);
 		assert.equal(blurred, true);
 	});
 
@@ -76,7 +76,7 @@ describe("blurAfterPointerClick (focus hygiene)", () => {
 		b.blur = () => {
 			blurred = true;
 		};
-		blurAfterPointerClick({ detail: 0, currentTarget: b });
+		blurAfterPointerClick({ detail: 0, currentTarget: b } as unknown as MouseEvent);
 		assert.equal(blurred, false);
 	});
 });

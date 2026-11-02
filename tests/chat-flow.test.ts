@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 import {
 	createFauxCore,
 	fauxAssistantMessage,
@@ -44,8 +45,8 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
 // store imports already resolved under).
-const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
-const steerRoute = await import("../app/api/chats/[id]/steer/route.ts");
+const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
+const steerRoute = await import("../src/routes/api/chats/[id]/steer/+server.ts");
 import { PATHS } from "../config.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
@@ -230,14 +231,16 @@ function post(chatId: string, input: unknown): Request {
  *  pins drive it too). */
 function dismissPost(chatId: string, toolCallId: string, kind: "quiz" | "ask" | "explain" = "quiz"): Promise<Response> {
 	return dismissRoute.POST(
-		new Request(`http://test/api/chats/${chatId}/dismiss`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				input: { type: "dismiss", toolCallId, answer: dismissedAnswer(kind, kind === "ask" ? "Next topic?" : QUIZ_INPUT.question) },
+		routeEvent(
+			new Request(`http://test/api/chats/${chatId}/dismiss`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					input: { type: "dismiss", toolCallId, answer: dismissedAnswer(kind, kind === "ask" ? "Next topic?" : QUIZ_INPUT.question) },
+				}),
 			}),
-		}),
-		{ params: Promise.resolve({ id: chatId }) },
+			{ id: chatId },
+		),
 	);
 }
 
@@ -1508,12 +1511,14 @@ describe("parallel rounds: the LAST resolution decides the wake (owner ruling 20
 describe("composer steering: POST /api/chats/[id]/steer", () => {
 	const steerPost = (chatId: string, body: unknown): Promise<Response> =>
 		steerRoute.POST(
-			new Request(`http://test/api/chats/${chatId}/steer`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			}),
-			{ params: Promise.resolve({ id: chatId }) },
+			routeEvent(
+				new Request(`http://test/api/chats/${chatId}/steer`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(body),
+				}),
+				{ id: chatId },
+			),
 		);
 
 	it("honest rejections: 404 unknown chat, 400 bad input, 409 when no turn is live", async () => {

@@ -17,12 +17,13 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-birth-stamp-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { POST } = await import("../app/api/chats/route.ts");
+const { POST } = await import("../src/routes/api/chats/+server.ts");
 const { readSettings, writeSettings } = await import("../src/store/settings.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 
@@ -31,11 +32,11 @@ after(() => {
 });
 
 function post(): Promise<Response> {
-	return POST(new Request("http://test/api/chats", {
+	return POST(routeEvent(new Request("http://test/api/chats", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ title: "teach me the chain rule" }),
-	}));
+	})));
 }
 
 describe("POST /api/chats — the birth stamp", () => {

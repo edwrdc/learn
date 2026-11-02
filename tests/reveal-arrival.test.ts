@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { probeArrivalExpanded, revealArrival, shouldStampGeometryMute } from "../components/chat.tsx";
+import { probeArrivalExpanded, revealArrival, shouldStampGeometryMute } from "../src/lib/chat/chat-logic.ts";
 
 /**
  * Teach-question arrival states (owner ruling, scroll-honesty round

@@ -1,6 +1,6 @@
 /**
  * Pure-helper tests for the hand-rolled canvas renderer
- * (components/graph-canvas.ts). The renderer class itself is DOM-bound
+ * (src/lib/home/graph-canvas.ts). The renderer class itself is DOM-bound
  * (canvas, rAF, ResizeObserver) and is verified live in the browser; the
  * math it runs on every frame must be exact, so it is pinned here.
  *
@@ -22,7 +22,7 @@ import {
 	wrapRegionLabel,
 	zoomRatioOf,
 	LABELS_FADE_RATIO,
-} from "../components/graph-canvas.ts";
+} from "../src/lib/home/graph-canvas.ts";
 import {
 	sanitizePhysicsTuning,
 	sanitizeRegionTuning,
