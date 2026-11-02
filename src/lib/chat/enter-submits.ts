@@ -1,0 +1,54 @@
+/** Window-level Enter submits from anywhere (typing surfaces and overlay
+ *  buttons keep their own lane), plus the shared "focused button keeps
+ *  native Enter" rule. */
+import { isTypingSurface } from "@/src/core";
+
+const OVERLAY_ROOTS = '[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"]';
+
+export function buttonKeepsNativeEnter(el: HTMLElement): boolean {
+	try {
+		if (el.matches(":focus-visible")) return true;
+	} catch {
+		/* selector engine without the pseudo (tests) */
+	}
+	return !!el.closest(OVERLAY_ROOTS);
+}
+
+export function enterSubmits(submit: () => void) {
+	return (node: HTMLElement) => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Enter") return;
+			if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+			if (isTypingSurface(event)) return;
+			const target = event.target as HTMLElement | null;
+			if (target?.tagName === "BUTTON" && buttonKeepsNativeEnter(target)) return;
+			event.preventDefault();
+			submit();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	};
+}
+
+export function fieldCycle(fields: () => readonly HTMLElement[]) {
+	return (node: HTMLElement) => {
+		const onCycle = () => {
+			const list = fields().filter((el) => el.isConnected);
+			if (list.length === 0) return;
+			const active = document.activeElement;
+			const idx = active ? list.findIndex((el) => el === active || el.contains(active)) : -1;
+			if (idx < 0) {
+				list[0]?.focus();
+				return;
+			}
+			list[(idx + 1) % list.length]?.focus();
+		};
+		window.addEventListener("lh:kbd-cycle-fields", onCycle);
+		return () => window.removeEventListener("lh:kbd-cycle-fields", onCycle);
+	};
+}
+
+export function blurAfterPointerClick(event: MouseEvent): void {
+	if (event.detail === 0) return;
+	(event.currentTarget as HTMLElement | null)?.blur();
+}

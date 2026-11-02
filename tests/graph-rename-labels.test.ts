@@ -17,7 +17,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { renameSessionsPatch, seedMissingNodePositions } from "../components/graph-view.tsx";
+import { renameSessionsPatch, seedMissingNodePositions } from "../src/lib/home/graph-view.ts";
 
 const snapshot = (): {
 	sessions: Record<string, string>;

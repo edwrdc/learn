@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { displayCostTotals, isNodeVisible } from "../components/graph-view.tsx";
+import { displayCostTotals, isNodeVisible } from "../src/lib/home/graph-view.ts";
 
 const node = {
 	name: "Money multiplier",

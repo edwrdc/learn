@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { dockStateKey } from "../components/dock-state-key.ts";
+import { dockStateKey } from "../src/lib/chat/dock-state-key.ts";
 
 describe("dockStateKey (the height-morph trigger)", () => {
 	it("a docked variant carries its fold state — practice included", () => {

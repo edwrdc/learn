@@ -28,6 +28,7 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 import { createFauxCore } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/agent/models.ts";
 
@@ -42,8 +43,8 @@ const { isValidSegmentPath } = await import("../src/core/prompt-segments.ts");
 const { promptOverrides } = await import("../src/store/prompt-overrides.ts");
 // Route-level pins drive the actual app/api handlers (framework-free
 // Request/Response), isolated under the same temp LH_DATA_DIR.
-const { PUT: putSettingsSection } = await import("../app/api/settings/[section]/route.ts");
-const { DELETE: deletePromptText } = await import("../app/api/settings/prompts/[...segment]/route.ts");
+const { PUT: putSettingsSection } = await import("../src/routes/api/settings/[section]/+server.ts");
+const { DELETE: deletePromptText } = await import("../src/routes/api/settings/prompts/[...segment]/+server.ts");
 const { readSettingsRecord } = await import("../src/server/index.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
@@ -91,20 +92,24 @@ function fauxEngine(): PiEngine {
 /** PUT /api/settings/<section> with a fabricated params context. */
 function putSection(section: string, body: unknown): Promise<Response> {
 	return putSettingsSection(
-		new Request(`http://test/api/settings/${section}`, {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-		}),
-		{ params: Promise.resolve({ section }) },
+		routeEvent(
+			new Request(`http://test/api/settings/${section}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+			{ section },
+		),
 	);
 }
 
 /** DELETE /api/settings/prompts/<segment...> with a fabricated params context. */
 function deleteSegment(segment: string[]): Promise<Response> {
-	return deletePromptText(new Request("http://test/api/settings/prompts", { method: "DELETE" }), {
-		params: Promise.resolve({ segment }),
-	});
+	return deletePromptText(
+		routeEvent(new Request("http://test/api/settings/prompts", { method: "DELETE" }), {
+			segment: segment.join("/"),
+		}),
+	);
 }
 
 describe("isValidSegmentPath (the mirror-layout discipline)", () => {

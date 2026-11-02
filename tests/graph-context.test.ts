@@ -19,6 +19,7 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-graph-context-"));
@@ -28,8 +29,8 @@ const { newGraphContextMessage } = await import("../src/core/native-messages.ts"
 const { toLlmMessages } = await import("../src/core/native-messages.ts");
 import type { LhMessage } from "../src/core/native-messages.ts";
 const { projectView } = await import("../src/core/view.ts");
-const { POST } = await import("../app/api/chats/route.ts");
-const { initialPromptOwed } = await import("../components/chat.tsx");
+const { POST } = await import("../src/routes/api/chats/+server.ts");
+const { initialPromptOwed } = await import("../src/lib/chat/chat-logic.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 
@@ -118,7 +119,7 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 			provenance: [], createdAt: "2026-10-01T00:00:00.000Z",
 		});
 
-		const res = await POST(new Request("http://test/api/chats", {
+		const res = await POST(routeEvent(new Request("http://test/api/chats", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -126,7 +127,7 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 				kind: "practice",
 				graphContext: { propositions: PICKS },
 			}),
-		}));
+		})));
 		assert.equal(res.status, 200);
 		const { id } = (await res.json()) as { id: string };
 
@@ -142,11 +143,11 @@ describe("POST /api/chats — graphContext becomes message[0]", () => {
 
 	it("no picks (or malformed) → no marker, an empty record as before", async () => {
 		for (const body of [{ title: "t" }, { title: "t", graphContext: { propositions: "junk" } }]) {
-			const res = await POST(new Request("http://test/api/chats", {
+			const res = await POST(routeEvent(new Request("http://test/api/chats", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
-			}));
+			})));
 			const { id } = (await res.json()) as { id: string };
 			assert.equal((await chatStore.getChat(id))!.messages.length, 0);
 		}

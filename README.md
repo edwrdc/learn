@@ -55,17 +55,23 @@ All three platforms support in-app updates.
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
-- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
+- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records use JSON, JSONL, and SQLite.
 - **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
 
 ## Development and support
 
+This fork uses SvelteKit. Download and update links still point to upstream LearnHarness. See the [migration record](docs/frontend-migration.md) for the changes and verification limits.
+
 ```bash
 npm install
 npm run dev        # http://localhost:3000
 npm test           # deterministic, no LLM, no network
+npm run build      # SvelteKit adapter-node build in dist-server/
+npm start          # curate the standalone payload, then serve it
 ```
+
+The app is SvelteKit with adapter-node and server-side rendering. In production, the browser app and the Electron shell both use the same loopback server; the desktop package ships it at `Resources/server/standalone/server.js`.
 
 See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
 

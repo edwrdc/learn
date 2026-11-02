@@ -1,0 +1,60 @@
+old_file	contract	new_test	disposition
+tests/backdrop-dismiss.test.ts	whole primary gesture on scrim; inside/drag/cancel/button/reattach	tests/backdrop-dismiss.test.ts	rewritten against src/lib/backdrop.ts attachment; no React
+tests/byok-refusal.test.ts	refusal envelopes, slot prefill, stage	tests/byok-refusal.test.ts	retained; imports moved to src/lib/chat/chat-logic.ts + src/lib/settings/setup.ts
+tests/clusters.test.ts	cluster hue	tests/clusters.test.ts	retained; helper moved to src/lib/home/cluster-geometry.ts
+tests/composer-actions.test.tsx	action-row order/centering, practice picker, draft shell	tests/svelte-home-ui.test.ts; tests/browser/frontend-suite-deferred.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/delete-node-dialog.test.tsx	single/multi copy, name cap, destructive actions, 409 line	tests/svelte-dialogs.test.ts	ported; failure copy pure in src/lib/home/delete-node.ts
+tests/demos.test.tsx	bridge, cards, builder/job flows, registry	tests/svelte-demos.test.ts; tests/demos.test.ts	render contracts ported; non-render builder/runner/registry tests retained after stripping React JSX
+tests/dictation-warm.test.ts	warm token cache TTL/failure/refresh	tests/dictation-warm.test.ts	retained; found+fixed refresh() cache regression
+tests/dock-state-key.test.ts	dock morph key	tests/dock-state-key.test.ts	retained; helper moved to src/lib/chat/dock-state-key.ts
+tests/enter-submits.test.ts	native Enter lanes, pointer blur	tests/enter-submits.test.ts	retained; imports moved to src/lib/chat/enter-submits.ts
+tests/esc-layering.test.ts	layered Esc precedence	tests/esc-layering.test.ts	retained; imports moved to src/lib/chat/chat-logic.ts
+tests/font-menu.test.tsx	font menu rows/custom/fallback, appearance trigger, CSS ink tokens	tests/svelte-dialogs.test.ts	ported; pure module src/lib/settings/fonts.ts; CSS path updated
+tests/graph-canvas.test.ts	camera ratio, picking, region tuning, labels	tests/graph-canvas.test.ts	retained; helper moved to src/lib/home/graph-canvas.ts
+tests/graph-rename-labels.test.ts	in-place rename, seeded positions	tests/graph-rename-labels.test.ts	retained; helper moved to src/lib/home/graph-view.ts
+tests/graph-view-filters.test.ts	node visibility, cost fold	tests/graph-view-filters.test.ts	retained; helper moved to src/lib/home/graph-view.ts
+tests/katex-security.test.ts	Object.prototype.trust authority boundary	tests/svelte-markdown.test.ts	existing Svelte KaTeX authority test retains both prototype cases
+tests/keyboard-toggle-sidebar.test.ts	binding->action->event chain, retired alt-cycle	tests/keyboard-toggle-sidebar.test.ts	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/menu-shell-pure.test.ts	placement/flip/cap/alignment	tests/menu-shell-pure.test.ts	retained; helper moved to src/lib/ui/menu-placement.ts
+tests/model-picker-interaction.test.tsx	model/thinking menu interaction	tests/svelte-home-ui.test.ts; tests/browser/frontend-suite-model-picker.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/notes-import.test.tsx	response validation, malformed rejection, error projection, hook reentry	tests/svelte-dialogs.test.ts; tests/browser/frontend-suite-notes-import.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/pan-zoom.test.ts	fit/zoom math	tests/pan-zoom.test.ts	retained; helper moved to src/lib/home/pan-zoom.ts
+tests/plan-window.test.tsx	planExists, marginalia viewBox/glow, layout ink extent	tests/svelte-plan.test.ts	ported; layout helpers in src/lib/chat/plan-layout.ts; topoFor restored
+tests/reading-thinking-field.test.tsx	reading field padding/cap	tests/svelte-chrome.test.ts	ported
+tests/render-abort-turn-dialog.test.tsx	turn/question copy + destructive confirm	tests/svelte-chrome.test.ts	ported
+tests/render-activity-dock.test.tsx	blob folds, refusals, context, elapsed; header/render	tests/svelte-dialogs.test.ts; tests/browser/frontend-suite-activity.mjs; tests/browser/frontend-suite-coverage.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/render-cards.test.tsx	dock forms, answered/probe/explain, labels, math	tests/svelte-cards.test.ts; tests/svelte-chat.test.ts	ported; glyph data-mark restored
+tests/render-chain-table.test.tsx	clusters, conclusion law, rows/connectors, selection/sort/search	tests/svelte-chain-table.test.ts; tests/browser/frontend-suite-deferred.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/render-compaction-divider.test.tsx	moment/cut dividers inert	tests/svelte-chrome.test.ts	ported
+tests/render-composer.test.tsx	placeholder, send/stop/next morph, enterAction	tests/svelte-home-ui.test.ts	ported
+tests/render-extraction-coverage.test.tsx	4096 factory read, ringFill, menu/ring bodies	tests/svelte-dialogs.test.ts; tests/browser/frontend-suite-coverage.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/render-graph-chrome.test.tsx	empty vs populated chrome	tests/svelte-chrome.test.ts; tests/browser/frontend-suite-deferred.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/render-live-tool-card.test.tsx	spinner/label/arg/input	tests/svelte-chrome.test.ts	ported
+tests/render-markdown.test.tsx	delimiters, breaks, lists, tables, mermaid fallback	tests/svelte-rich.test.ts; tests/svelte-markdown.test.ts	ported
+tests/render-md-blocks.test.tsx	code/table/math chrome, overlays, callouts	tests/svelte-rich.test.ts	ported; overlays covered by svelte-chat
+tests/render-minimal-home.test.tsx	line-per-count, plural, empty hint	tests/svelte-home-ui.test.ts; tests/browser/frontend-suite-coverage.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/render-new-session.test.tsx	create-on-send, draft shell, practice picks	tests/svelte-home-ui.test.ts	ported; startDraftSession extracted
+tests/render-phase-divider.test.tsx	chip/divider/teachStepIndex/planNodeCount	tests/svelte-chrome.test.ts	chip/divider ported; teachStepIndex/planNodeCount remain core phase tests
+tests/render-plan-block.test.tsx	layout, block statuses, popup statuses/glow/dim	tests/svelte-plan.test.ts	ported
+tests/render-practice-surface.test.tsx	dock, cards, thinking, metadata, graph context	tests/svelte-cards.test.ts	ported; missing metadata popover/PDF count restored
+tests/render-queued-steers.test.tsx	quiet lines + visibility fold	tests/svelte-chrome.test.ts	render ported; visibleQueuedSteers covered in session-core
+tests/render-settings.test.tsx	dialog/nav, agent slots/tools/prompts, graph, keys, appearance, keyboard	tests/svelte-settings.test.ts	ported; GraphSection extracted; factory chunk budget corrected to 4096
+tests/render-sidebar.test.tsx	row states/meta/spinner/badge/active, timeAgo	tests/svelte-home-ui.test.ts	SessionRow extracted and ported
+tests/render-stats-bar.test.tsx	context/cost folds, dashes, model labels, catalogLimits	tests/svelte-home-ui.test.ts	ported
+tests/render-update-banner.test.tsx	hidden SSR + push->Restart click	tests/svelte-artifacts.test.ts; tests/browser/frontend-suite-bridge.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/repair-math-display.test.tsx	repair composition, corpus matrices, source immutability	tests/svelte-rich.test.ts; tests/svelte-markdown.test.ts	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/research-settings.test.tsx	keyless research toggle vs key-gated search engine	tests/browser/frontend-suite-research-settings.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/reveal-arrival.test.ts	revealArrival/probeArrival/geometry mute	tests/reveal-arrival.test.ts	retained; imports moved to src/lib/chat/chat-logic.ts
+tests/server-events.test.tsx	hub dispatch/resync/error isolation/close	tests/server-events.test.ts	rewritten against ServerEventHub with a fake EventSource
+tests/session-context.test.tsx	SessionRow testid, RenameRow, delete-session copy	tests/svelte-home-ui.test.ts; tests/svelte-dialogs.test.ts; tests/browser/frontend-suite-deferred.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/session-core.test.ts	attach/replay/settle/adoption/steer state machine	tests/session-core.test.ts	retained; model moved to src/lib/chat/session-core.ts
+tests/session-find.test.tsx	range identity, highlights, foreground gate	tests/session-find.test.ts	retained; pure/DOM helpers moved to src/lib/chat
+tests/settings-pure.test.ts	appearance vars, compose helpers, keys, overrides, setup stage	tests/settings-pure.test.ts	retained; helpers extracted to plain modules; Svelte components now use them
+tests/setup-dialog-interaction.test.tsx	provider/model/thinking dropdowns, Escape/backdrop layers	tests/svelte-artifacts.test.ts; tests/browser/frontend-suite-setup-dropdowns.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/svg-image.test.tsx	SVG display repair + image boundary + inversion/controls	tests/svelte-artifacts.test.ts	ported; svgImageSource extracted
+tests/thinking-default.test.ts	default-order level + populate	tests/thinking-default.test.ts	retained; imports moved to src/lib/settings/compose.ts
+tests/tool-content-interaction.test.tsx	select->submit->saved->Why matrix flow	tests/browser/frontend-suite-tool-content.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/tool-content-presentation.test.tsx	corpus matrix rows, source-invalid answers, historical join	tests/svelte-rich.test.ts; tests/browser/frontend-suite-tool-content.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/tooltip-mechanism.test.tsx	hint composition, 500ms, no-wrapper Hint	tests/svelte-artifacts.test.ts; tests/svelte-pure.test.ts	hint composition/delay ported; attachment is wrapper-free by construction
+tests/zero-keys-interaction.test.tsx	zero-keys read status/failure preservation	tests/browser/frontend-suite-zero-keys.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts
+tests/zero-keys.test.tsx	hasProviderKey/strongKeyless/pill/setup body/dictation ids	tests/svelte-artifacts.test.ts; tests/browser/frontend-suite-zero-keys.mjs	ported; see frontend-interaction-coverage.tsv for browser and adapted contracts

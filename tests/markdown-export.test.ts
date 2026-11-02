@@ -14,19 +14,20 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-md-export-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 /** The route handler + the store seam, loaded AFTER the env is set. */
-type Get = (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+type Get = (event: never) => Promise<Response>;
 let GET: Get;
 let createChat: (title: string, kind?: "practice") => { id: string; title: string };
 let saveMessages: (id: string, messages: unknown[]) => Promise<void>;
 
 before(async () => {
-	const route = await import("../app/api/chats/[id]/markdown/route.ts");
+	const route = await import("../src/routes/api/chats/[id]/markdown/+server.ts");
 	GET = route.GET;
 	const server = await import("../src/server/chats.ts");
 	createChat = server.createChat;
@@ -36,7 +37,7 @@ before(async () => {
 
 describe("GET /api/chats/:id/markdown", () => {
 	it("404s an unknown chat", async () => {
-		const res = await GET(new Request("http://x/api/chats/nope/markdown"), { params: Promise.resolve({ id: "nope" }) });
+		const res = await GET(routeEvent(new Request("http://x/api/chats/nope/markdown"), { id: "nope" }));
 		assert.equal(res.status, 404);
 	});
 
@@ -46,7 +47,7 @@ describe("GET /api/chats/:id/markdown", () => {
 			{ id: "m1", role: "user", content: "Teach me joins" },
 			{ id: "m2", role: "assistant", content: "A join combines rows." },
 		]);
-		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		const res = await GET(routeEvent(new Request("http://x/api"), { id: chat.id }));
 		assert.equal(res.status, 200);
 		assert.equal(res.headers.get("content-type"), "text/markdown; charset=utf-8");
 		const disposition = res.headers.get("content-disposition") ?? "";
@@ -62,14 +63,14 @@ describe("GET /api/chats/:id/markdown", () => {
 	it("an unsalvageable title falls back to 'session'", async () => {
 		const chat = await createChat("日本語"); // no ascii alphanumerics survive the slug
 		await saveMessages(chat.id, [{ id: "m1", role: "user", content: "hello" }]);
-		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		const res = await GET(routeEvent(new Request("http://x/api"), { id: chat.id }));
 		assert.equal(res.status, 200);
 		assert.ok((res.headers.get("content-disposition") ?? "").includes('filename="session.md"'));
 	});
 
 	it("an empty session exports the bare header document", async () => {
 		const chat = await createChat("Quiet one");
-		const res = await GET(new Request("http://x/api"), { params: Promise.resolve({ id: chat.id }) });
+		const res = await GET(routeEvent(new Request("http://x/api"), { id: chat.id }));
 		assert.equal(res.status, 200);
 		const body = await res.text();
 		assert.equal(body, "# Quiet one");

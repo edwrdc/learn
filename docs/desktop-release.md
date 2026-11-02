@@ -1,5 +1,7 @@
 # Desktop builds and releases
 
+The update feed in `electron-builder.yml` still points to `amosblomqvist/learnharness`. This migration does not retarget it. Review the feed before distributing this fork.
+
 ## Platforms
 
 | Platform | Build runner | Packages | In-app update |
@@ -16,18 +18,21 @@ Icons are per-platform (2026-10-13): macOS compiles the Icon Composer document `
 
 ## Build pipeline
 
-Each OS installs its own dependencies and builds its own Next standalone tree:
+Each OS installs its own dependencies and builds its own SvelteKit adapter-node payload:
 
 1. `npm ci`
 2. Native PDF/SVG renderer tests for that OS, running in Electron's bundled Node (no display needed).
-3. `npm run build` (`output: "standalone"`).
-4. `node scripts/build-server.mjs` — copy static assets, refuse leaked data/keys, remove only standalone-root `dist/` and `node_modules/electron/` (old installers and the development runtime), check prompt assets. Runtime dependencies' own `dist/` directories and native renderer binaries stay intact.
-5. `node scripts/smoke-server.mjs --electron` — boot the standalone server in Electron's bundled Node, using empty temporary data/auth, then check the home route, the GET-only APIs, and create/read one throwaway chat so the packaged durable store opens its SQLite file (no model call).
-6. `npx electron-builder <platform flags> --publish <policy>`.
+3. `npm run build` (SvelteKit + adapter-node → `dist-server/`).
+4. `node scripts/build-server.mjs` — curate `dist-server/standalone/`: the adapter output + `server.js` launcher, the runtime dependency closure (native/runtime packages copied verbatim), and the markdown prompt assets. It refuses a payload carrying `data/`, `auth.json`, `.env*`, the checkout, or a missing platform-native binary.
+5. `node scripts/smoke-server.mjs --electron` — boot the packaged server in Electron's bundled Node, using empty temporary data/auth, then check the home route, the GET-only APIs, and create/read one throwaway chat so the packaged durable store opens its SQLite file (no model call). The smoke also runs the provider/native confinement checks.
+6. `node scripts/smoke-carrier.mjs --electron` — the real-HTTP carrier gate: SSR documents and store-driven routing, CSRF on a plain-http origin, body size, both SSE channels, clean stream disconnect, static assets and packaged prompts.
+7. `npx electron-builder <platform flags> --publish <policy>`.
 
-The shell/updater live in `app.asar`; the standalone server and native renderer binaries ship unpacked as `extraResources`. **Do not cross-build the server payload.** Next traces the build machine's native binaries, so a macOS-built standalone tree is not a Windows/Linux payload.
+The shell/updater live in `app.asar`; the standalone server and native renderer binaries ship unpacked as `extraResources`, at `Resources/server/standalone/server.js`. **Do not cross-build the server payload.** The payload copies the build machine's native binaries verbatim, so a macOS-built payload is not a Windows/Linux payload. Both smokes copy the payload to a temporary directory outside the checkout before booting and refuse a copy that can still resolve the checkout's `node_modules`.
 
-`npm run desktop:dist` remains the local macOS signing path, using the `LH_NOTARY` keychain profile. For a local Windows/Linux build, run steps 1–5 above, then:
+The launcher defaults to loopback and the server has no request authentication. Keep it that way: do not add a serverless adapter or multiple workers, because turn handles, the turn queue and the event bus are process-local. The launcher stamps `x-forwarded-proto: http` before loading the adapter so SvelteKit's CSRF check sees the plain-HTTP origin; CSRF stays enabled. The runtime keeps `@earendil-works/pi-ai`, `@earendil-works/pi-durable` and `@earendil-works/chord` at 1.4.0, and `npm ci` applies `scripts/patch-pi-durable.mjs` through `postinstall`.
+
+`npm run desktop:dist` remains the local macOS signing path, using the `LH_NOTARY` keychain profile. For a local Windows/Linux build, run steps 1–6 above, then:
 
 ```sh
 # On Windows:
@@ -41,7 +46,7 @@ npx electron-builder --linux --x64 --publish never
 
 `.github/workflows/ci.yml` runs on main pushes and pull requests:
 
-- Typecheck, full deterministic test suite, and lint on Ubuntu.
+- Typecheck, deterministic test suite, and lint on Ubuntu. The browser interaction gate stays separate; see [Browser verification](development.md#browser-verification).
 - Native renderer tests plus standalone build/boot-smoke on macOS (`macos-15`), Windows, and Linux. This macOS job does not compile the Icon Composer asset; only release packaging needs the newer runner.
 
 `.github/workflows/release.yml` has two deliberately separate modes:
@@ -84,7 +89,7 @@ Add these under repository **Settings → Secrets and variables → Actions**:
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple ID |
 | `APPLE_TEAM_ID` | `JS6XN22HY6` |
 
-The workflow maps the certificate secrets to electron-builder's `CSC_LINK` / `CSC_KEY_PASSWORD`. GitHub's built-in `GITHUB_TOKEN` supplies `GH_TOKEN` with job-scoped `contents: write`; no separate GitHub token secret is required. Signing credentials are present only for the packaging step, not the Next build. Never commit certificates, passwords, or `.env.local`.
+The workflow maps the certificate secrets to electron-builder's `CSC_LINK` / `CSC_KEY_PASSWORD`. GitHub's built-in `GITHUB_TOKEN` supplies `GH_TOKEN` with job-scoped `contents: write`; no separate GitHub token secret is required. Signing credentials are present only for the packaging step, not the server build. Never commit certificates, passwords, or `.env.local`.
 
 ## First release runbook
 

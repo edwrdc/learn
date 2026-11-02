@@ -11,10 +11,10 @@
 #                                        (multi-session testing)
 #
 # WHY A SWITCH, NOT AN ENV SCRUB: a script cannot merely unset shell
-# *_API_KEY vars — Next injects .env.local (the dev secrets) into the
-# server env at boot, so a "fresh" instance would silently federate the
+# *_API_KEY vars — vite.config.ts loads .env.local (the dev secrets) into
+# the server env at boot, so a "fresh" instance would silently federate the
 # real keys. LH_IGNORE_ENV_KEYS=1 (the keys seam, src/server/keys.ts)
-# deletes every managed key var from the process after Next's env load:
+# deletes every managed key var from the process after that env load:
 # pi-ai reads provider keys from process.env NATIVELY at every request,
 # so deletion hides keys from the whole app, model engines included.
 #
@@ -96,4 +96,4 @@ echo "  keys     : env keys hidden (LH_IGNORE_ENV_KEYS=1), auth.json empty"
 echo "─────────────────────────────────────────────────────────"
 
 cd "$ROOT"
-exec npm run dev
+exec npm run dev -- --port "$PORT"

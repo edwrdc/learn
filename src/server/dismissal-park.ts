@@ -10,7 +10,7 @@
  * the route would have written it; if it never materialized (the call
  * errored, the model re-posed and answered), the park is dropped silently.
  *
- * Lives on globalThis — the same Next.js module instance discipline as
+ * Lives on globalThis — the same module instance discipline as
  * turn-liveness: the dismiss route and the chat-handler entry must see the
  * SAME registry. Ephemeral by design; one parked dismissal per chat (last
  * write wins — there is one dock, one discard).

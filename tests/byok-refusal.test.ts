@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsRefusal, parseProviderKeyRefusal, parseModelUnavailableRefusal } from "../components/chat.tsx";
-import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../components/setup-dialog.tsx";
+import { parseModelsRefusal, parseProviderKeyRefusal, parseModelUnavailableRefusal } from "../src/lib/chat/chat-logic.ts";
+import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../src/lib/settings/setup.ts";
 import {
 	isModelsRefusal,
 	isProviderKeyRefusal,

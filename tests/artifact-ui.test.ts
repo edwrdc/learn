@@ -16,12 +16,13 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-artifact-ui-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-type Post = (req: Request, ctx: { params: Promise<{ id: string }> }) => Promise<Response>;
+type Post = (event: never) => Promise<Response>;
 let POST: Post;
 let createChat: (title: string, kind?: "practice") => { id: string; title: string };
 let saveMessages: (id: string, messages: unknown[]) => Promise<void>;
@@ -29,7 +30,7 @@ let getChat: (id: string) => Promise<{ messages: unknown[] } | null>;
 let buildSubagentSteerFn: typeof import("../src/core/contracts.ts").buildSubagentSteer;
 
 before(async () => {
-	const route = await import("../app/api/chats/[id]/artifact-ui/route.ts");
+	const route = await import("../src/routes/api/chats/[id]/artifact-ui/+server.ts");
 	POST = route.POST;
 	const server = await import("../src/server/chats.ts");
 	createChat = server.createChat;
@@ -41,9 +42,7 @@ before(async () => {
 });
 
 const post = (id: string, body: unknown) =>
-	POST(new Request("http://x/api", { method: "POST", body: JSON.stringify(body) }), {
-		params: Promise.resolve({ id }),
-	});
+	POST(routeEvent(new Request("http://x/api", { method: "POST", body: JSON.stringify(body) }), { id }));
 
 describe("POST /api/chats/:id/artifact-ui", () => {
 	it("404s an unknown chat", async () => {

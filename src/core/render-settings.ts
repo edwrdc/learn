@@ -1,7 +1,7 @@
 /**
  * Graph render settings: the shape, the defaults, the sanitizer, and the
- * slider mapping (log-scaled, default-centered) — shared by the client (components/graph-canvas.ts,
- * graph-view.tsx), the server store (src/store/render-settings.ts, which
+ * slider mapping (log-scaled, default-centered) — shared by the client (src/lib/home/graph-canvas.ts,
+ * GraphView.svelte), the server store (src/store/render-settings.ts, which
  * persists them to data/render-settings.json), and the API route.
  *
  * This module is pure: no DOM, no d3, no node APIs — safe everywhere.

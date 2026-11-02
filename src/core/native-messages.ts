@@ -8,7 +8,7 @@
  *
  * WHY pi MESSAGES LACK OUR `id`: pi's session format gives every ENTRY an
  * id, never the message. This app needs a per-message id for client
- * identity (React keys, append-only adoption, the continuation seam), so
+ * identity (render keys, append-only adoption, the continuation seam), so
  * every record message carries ONE extra field — `id` — alongside the
  * native shape. `toLlmMessages` strips it at the wire: the provider never
  * sees it (verified single site, below).

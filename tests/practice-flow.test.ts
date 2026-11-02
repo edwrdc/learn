@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { routeEvent } from "./support-route-event.ts";
 import {
 	createFauxCore,
 	fauxAssistantMessage,
@@ -208,14 +209,16 @@ describe("practice flow (scripted model)", () => {
 		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
 
 		// The silent dismissal route (the same POST the client's Esc takes).
-		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
+		const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 		const dismissRes = await dismissRoute.POST(
-			new Request(`http://test/api/chats/${chat.id}/dismiss`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ input: { type: "dismiss-problem", problemCallId: "call-p3" } }),
-			}),
-			{ params: Promise.resolve({ id: chat.id }) },
+			routeEvent(
+				new Request(`http://test/api/chats/${chat.id}/dismiss`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ input: { type: "dismiss-problem", problemCallId: "call-p3" } }),
+				}),
+				{ id: chat.id },
+			),
 		);
 		assert.equal(dismissRes.status, 200);
 		const marked = (await chatStore.getChat(chat.id))!.messages;

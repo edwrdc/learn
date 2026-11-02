@@ -18,7 +18,7 @@
  * instances within the process; it is the standard Next singleton
  * channel (see src/server/turn-liveness.ts for the original incident).
  *
- * Pure core by law: no React, no IO, no imports — the one layer that
+ * Pure core by law: no DOM, no IO, no imports — the one layer that
  * server, store, and agent may all depend on.
  */
 
