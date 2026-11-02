@@ -3,10 +3,10 @@
  *
  * What this process is and is not:
  *   IS:  a thin launcher + security guard around the app's real server —
- *        `next build`'s standalone server.js (Next 16), spawned as a child
+ *        the curated adapter-node server.js, spawned as a child
  *        on 127.0.0.1 with the BYOK auth file and the LH_DATA_DIR seam.
  *   NOT: a host for any app logic. Everything — teacher turns, extraction,
- *        the graph — runs in the Next server, unchanged.
+ *        the graph — runs in the application server, unchanged.
  *
  * Pattern (fact-checked 2026-09-17 against current Electron 44 / Next 16
  * docs — see .memory release-strategy + electron-wrapper notes):
@@ -31,7 +31,7 @@ const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 
-// Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
+// Mirrors SIDEBAR_AUTOCLOSE in src/lib/shell/Sidebar.svelte — keep in sync (the
 // renderer owns the number; this is the IPC widen target).
 const SIDEBAR_AUTOCLOSE = 928;
 
@@ -49,10 +49,10 @@ const DATA_DIR = () => path.join(app.getPath("userData"), "data");
 
 /** The packaged standalone server (extraResources → Resources/server).
  *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
- *  the window points at the running `next dev` server (full HMR). */
+ *  the window points at the running `vite dev` server (full HMR). */
 function serverEntry() {
-	// extraResources ships the whole .next payload under server/standalone/
-	// (copied from .next with an explicit filter — see electron-builder.yml).
+	// extraResources ships the curated payload under server/standalone/
+	// (copied from dist-server with an explicit filter — see electron-builder.yml).
 	return path.join(process.resourcesPath, "server", "standalone", "server.js");
 }
 
@@ -267,8 +267,8 @@ function createWindow(url) {
 		// center (owner ask, 2026-09-17): macOS centers each 12px circle at
 		// y+6.75, and the pill box center measures 29.25 in the running app
 		// (band 0–59.5, pill box 19–39.5) — y 22.5 lands the circles at
-		// 29.25, exactly on the pill. Wordmark gutter: components/sidebar.tsx.
-		// Dragging comes from the renderer's .lh-drag bands (app/globals.css).
+		// 29.25, exactly on the pill. Wordmark gutter: src/lib/shell/Sidebar.svelte.
+		// Dragging comes from the renderer's .lh-drag bands (src/lib/styles/globals.css).
 		...(process.platform === "darwin"
 			? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 22.5 } }
 			: {
@@ -300,7 +300,7 @@ function createWindow(url) {
 		// below it even a wrapped chrome row gets cramped and the chat header
 		// (lights gutter 92 + toggle + title) runs out of room. The sidebar
 		// auto-closes below 928 = 640 + 288 (sidebar) in the renderer
-		// (components/sidebar.tsx, SIDEBAR_AUTOCLOSE); its "lh:expand-window"
+		// (src/lib/shell/Sidebar.svelte, SIDEBAR_AUTOCLOSE); its "lh:expand-window"
 		// IPC widens the window back to that threshold.
 		minWidth: 640,
 		minHeight: 600,
@@ -388,7 +388,7 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  *
  * Hard rules:
  *  - DEV NEVER UPDATES: !app.isPackaged skips the updater entirely — the
- *    dev world runs `next dev` and has no signed bundle.
+ *    dev world runs `vite dev` and has no signed bundle.
  *  - THE UPDATER CAN NEVER TAKE THE APP DOWN: every event and check is
  *    caught and logged (feed down, disk full, bad signature — all just
  *    log lines; the app keeps working, update or no update).
@@ -557,7 +557,7 @@ async function main() {
 
 	await app.whenReady();
 
-	// Dev mode: point at a running `next dev` server (LH_DEV_URL) — no
+	// Dev mode: point at a running `vite dev` server (LH_DEV_URL) — no
 	// spawn, no packaging, full HMR. The rest of this shell still applies
 	// (guards, menu, single instance).
 	const devUrl = process.env.LH_DEV_URL;

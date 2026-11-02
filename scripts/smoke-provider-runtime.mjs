@@ -133,7 +133,7 @@ async function main() {
 		assert.ok(args[index + 1] && !args[index + 1].startsWith("--"), `${name} requires a path`);
 		return path.resolve(args[index + 1]);
 	};
-	verifyProviderRuntime(value("--standalone", path.resolve(import.meta.dirname, "../.next/standalone")), value("--runtime", process.execPath));
+	verifyProviderRuntime(value("--standalone", path.resolve(import.meta.dirname, "../dist-server/standalone")), value("--runtime", process.execPath));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

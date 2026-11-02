@@ -1,8 +1,10 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Repository root (this file is at <root>/config.ts). */
-export const ROOT = path.dirname(fileURLToPath(import.meta.url));
+// Bundled config lives in server/chunks; the launcher supplies the prompt-asset root.
+export const ROOT = process.env.LH_ROOT
+	? path.resolve(process.env.LH_ROOT)
+	: path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * THE data-location seam (the Electron contract, 2026-09-17): LH_DATA_DIR
