@@ -19,7 +19,7 @@ describe("settings dialog", () => {
 		assert.equal(body, "");
 	});
 
-	it("the dialog frame carries role, close affordance, six nav sections and the loading state", async () => {
+	it("the dialog frame carries role, close affordance, five nav sections and the loading state", async () => {
 		const dialogs = (await loadSvelteModule("/src/lib/state/dialogs.svelte.ts")) as {
 			settingsDialog: { open: (section?: string) => void; close: () => void };
 		};
@@ -29,10 +29,10 @@ describe("settings dialog", () => {
 		assert.ok(body.includes('role="dialog"'));
 		assert.ok(body.includes('aria-modal="true"'));
 		assert.ok(body.includes('aria-label="Close settings"'));
-		for (const id of ["general", "keys", "agent", "appearance", "graph", "keyboard"]) {
+		for (const id of ["keys", "agent", "appearance", "graph", "keyboard"]) {
 			assert.ok(body.includes(`data-testid="settings-nav-${id}"`), id);
 		}
-		assert.ok(tagOf(body, "settings-nav-general").includes('aria-current="true"'));
+		assert.ok(tagOf(body, "settings-nav-keys").includes('aria-current="true"'));
 		assert.ok(tagOf(body, "settings-nav-keyboard").includes('aria-current="false"'));
 		assert.ok(body.includes("Loading settings…"));
 		assert.ok(!body.includes('href="/settings"'));

@@ -11,7 +11,6 @@ import * as deferred from "./frontend-suite-deferred.mjs";
 import * as notesImport from "./frontend-suite-notes-import.mjs";
 import * as activity from "./frontend-suite-activity.mjs";
 import * as coverage from "./frontend-suite-coverage.mjs";
-import * as bridge from "./frontend-suite-bridge.mjs";
 
 const args = process.argv.slice(2);
 const argValue = (name, fallback) => {
@@ -81,7 +80,6 @@ try {
 	await toolContent.run(run, check);
 	await deferred.run(run, check);
 	await notesImport.run(run, check);
-	await bridge.run(run, check);
 	// Last: the minimal-home checks flip the shipped graph-rendering setting.
 	await coverage.run(run, check);
 	await check("harness: every provider request hit the loopback mock with the dummy key", async () => {

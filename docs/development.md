@@ -28,7 +28,8 @@ npm run lint         # eslint — includes the import law (architecture §2)
 npm run typecheck    # svelte-kit sync + tsc --noEmit + svelte-check
 
 npm run desktop:dev    # vite dev + Electron shell pointed at it
-npm run desktop:dist   # local signed/notarized macOS arm64 build (LH_NOTARY keychain)
+npm run desktop:dist   # local Fedora x64 RPM build in dist/
+npm run desktop:act    # the same pipeline on this Fedora host through act
 
 # one-shot data scripts (run from the master tree only — data never crosses trees)
 npx tsx --env-file=.env.local scripts/import-notes.ts <dir>   # bulk-import notes → graph
@@ -37,11 +38,11 @@ npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout
 npx tsx scripts/sync-pricing.ts                               # regenerate core/prices.ts tables
 ```
 
-For Windows/Linux packages and the three-OS CI/release flow, see [`desktop-release.md`](desktop-release.md). Native renderer binaries are installed per platform, so release builds run on the target OS, not as cross-builds from macOS.
+Desktop packaging is a local Fedora x86_64 RPM built through `act` on this host; see [`desktop-release.md`](desktop-release.md). Native renderer binaries are installed per platform, so the payload is built on the target OS, not as a cross-build.
 
 ## Browser verification
 
-Browser checks require a separately installed `agent-browser` CLI and its browser. The migration was tested with CLI 0.38.1. These checks remain separate from CI and `npm test`, by explicit choice. They use copies of the checked-in fixtures, disposable data and auth, loopback scripted providers, and labelled API or preload fixtures. They do not call a real model.
+Browser checks require a separately installed `agent-browser` CLI and its browser. The migration was tested with CLI 0.38.1. These checks remain separate from `npm test`, by explicit choice. They use copies of the checked-in fixtures, disposable data and auth, loopback scripted providers, and labelled API or preload fixtures. They do not call a real model.
 
 ```bash
 npm run build
@@ -49,7 +50,7 @@ node scripts/build-server.mjs
 npm run test:browser
 ```
 
-The command runs 39 interaction checks and the optimistic-message regression. Each run copies the payload before boot. Results and screenshots go to a temporary run directory printed by the script. See the [migration record](frontend-migration.md), [test-file mapping](frontend-test-port.tsv), and [interaction contracts](frontend-interaction-coverage.tsv).
+The command runs 37 interaction checks and the optimistic-message regression. Each run copies the payload before boot. Results and screenshots go to a temporary run directory printed by the script. See the [migration record](frontend-migration.md), [test-file mapping](frontend-test-port.tsv), and [interaction contracts](frontend-interaction-coverage.tsv).
 
 ## Environment (`.env.local`)
 
@@ -134,7 +135,7 @@ src/lib/                        Svelte render layer, grouped by responsibility
   chat/                         session UI · question dock · composer · plan panel
   home/                         graph view · chain table · session picker
   settings/                     settings and setup dialogs
-  shell/                        sidebar · activity dock · update banner
+  shell/                        sidebar · activity dock · cheat sheet
   artifacts/                    job and artifact renderers
   markdown/                     markdown · code · math · mermaid
   state/                        client stores and the server-events listener

@@ -3,13 +3,6 @@
 // with baked transparency, owner ruling 2026-10-13).
 //
 //   build/icon.ico  — Windows (.ico with 16/24/32/48/64/128/256 PNG entries)
-//   build/icon.png  — Linux (512×512; AppImage/deb/desktop entry)
-//
-// macOS does NOT come from here: build/icon.icon (the Icon Composer
-// document) is the mac source of truth, compiled by actool at package
-// time into Assets.car (macOS 26 Liquid Glass) + a fallback icns; the
-// hand-packed build/icon.icns replaces that fallback's 256px cap via
-// scripts/after-pack.cjs (pre-Tahoe keeps full-res).
 //
 // Renders each size DIRECTLY from the SVG (resvg) — sharper squircle
 // edges than downsampling a raster. Committed outputs; rerun only when

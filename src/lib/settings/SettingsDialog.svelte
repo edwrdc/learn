@@ -7,7 +7,6 @@
 	import { appearance } from "$lib/state/appearance.svelte";
 	import { notifySettingsSaved } from "$lib/state/settings-signal";
 	import Controls from "./Controls.svelte";
-	import Toggle from "$lib/ui/Toggle.svelte";
 	import CommitInput from "./CommitInput.svelte";
 	import ThinSelect from "./ThinSelect.svelte";
 	import KeysSection from "./KeysSection.svelte";
@@ -17,7 +16,6 @@
 	import GraphSection from "./GraphSection.svelte";
 
 	const SECTIONS: Array<{ id: SettingsSectionId; label: string }> = [
-		{ id: "general", label: "General" },
 		{ id: "keys", label: "Keys" },
 		{ id: "agent", label: "Agent" },
 		{ id: "appearance", label: "Appearance" },
@@ -27,7 +25,7 @@
 
 	let record = $state<UserSettings | null | undefined>(undefined);
 	let error = $state<string | null>(null);
-	let active = $state<SettingsSectionId>("general");
+	let active = $state<SettingsSectionId>("keys");
 	let content = $state<HTMLDivElement | null>(null);
 
 	function load(): void {
@@ -56,7 +54,7 @@
 		return () => document.removeEventListener("keydown", onKey);
 	});
 
-	async function write(section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {
+	async function write(section: "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {
 		error = null;
 		const res = await fetch(`/api/settings/${section}`, {
 			method: "PUT",
@@ -129,13 +127,7 @@
 					{:else if record === null}
 						<p class="px-6 py-5 text-xs text-muted-foreground/70">Settings could not be loaded — refresh to retry.</p>
 					{:else}
-						{#if active === "general"}
-							<Controls kind="section" title="General" testid="section-general">
-								<Controls kind="row" label="Auto-update" hint="Automatic updates arrive in an upcoming release" testid="row-auto-update">
-									<Toggle checked={record.general?.autoUpdate ?? true} label="auto update" onChange={(on) => void write("general", { autoUpdate: on })} />
-								</Controls>
-							</Controls>
-						{:else if active === "keys"}
+						{#if active === "keys"}
 							<Controls kind="section" title="Keys" testid="section-keys">
 								<KeysSection initialRow={settingsDialog.row ?? undefined} />
 							</Controls>

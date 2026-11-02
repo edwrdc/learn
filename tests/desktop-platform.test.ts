@@ -1,6 +1,5 @@
-/** Platform window chrome + packaging policy, without launching Electron. */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +9,15 @@ import { describe, it } from "node:test";
 const require = createRequire(import.meta.url);
 const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url));
 const mainSource = readFileSync(mainFile, "utf8");
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+	author: { name: string; email: string };
+	homepage: string;
+	desktopName: string;
+	dependencies: Record<string, string>;
+	scripts: Record<string, string>;
+};
+const yaml = require("js-yaml") as { load(source: string): Record<string, any> };
+const builderConfig = yaml.load(readFileSync(new URL("../electron-builder.yml", import.meta.url), "utf8"));
 
 /** Decline the single-instance lock so normal boot never spawns a server.
  * Then call the REAL createWindow with a stub Electron API and inspect its
@@ -76,37 +84,29 @@ describe("desktop window chrome", () => {
 		};
 		runInNewContext(readFileSync(new URL("../electron/preload.cjs", import.meta.url), "utf8"), context);
 		assert.equal(bridge.platform, "win32");
-		assert.deepEqual(Object.keys(bridge).sort(), [
-			"expandWindow", "getZoom", "installUpdate", "onUpdateStatus", "onZoom", "platform",
-		]);
+		assert.deepEqual(Object.keys(bridge).sort(), ["expandWindow", "getZoom", "onZoom", "platform"]);
 	});
 });
 
 describe("desktop packaging policy", () => {
-	const yaml = require("js-yaml") as { load(source: string): Record<string, any> };
-	const config = yaml.load(readFileSync(new URL("../electron-builder.yml", import.meta.url), "utf8"));
-
 	it("configuration is accepted by the INSTALLED electron-builder schema", async () => {
 		const { validateConfiguration } = require("app-builder-lib/out/util/config/config.js");
-		await validateConfiguration(config, { isEnabled: false });
+		await validateConfiguration(builderConfig, { isEnabled: false });
 	});
 
-	it("ships Mac arm64, Windows NSIS x64, and both Linux x64 channels", () => {
-		assert.deepEqual(config.mac.target, [
-			{ target: "dmg", arch: ["arm64"] }, { target: "zip", arch: ["arm64"] },
-		]);
-		assert.deepEqual(config.win.target, [{ target: "nsis", arch: ["x64"] }]);
-		assert.equal(config.win.signExecutable, false);
-		assert.equal(config.win.verifyUpdateCodeSignature, false);
-		assert.deepEqual(config.linux.target, [
-			{ target: "AppImage", arch: ["x64"] }, { target: "deb", arch: ["x64"] },
-		]);
-		assert.equal(config.linux.syncDesktopName, true);
-		assert.equal(config.publish[0].releaseType, "draft");
+	it("packages one Fedora Linux x64 RPM and nothing else", () => {
+		assert.deepEqual(builderConfig.linux.target, [{ target: "rpm", arch: ["x64"] }]);
+		assert.equal(builderConfig.linux.syncDesktopName, true);
+		for (const key of ["mac", "win", "nsis", "dmg", "afterPack"]) {
+			assert.equal(builderConfig[key], undefined, `${key} is obsolete packaging scope`);
+		}
+		assert.equal(builderConfig.publish, null, "explicit null disables electron-builder's inferred GitHub update feed");
+		assert.equal(builderConfig.files.some((entry: string) => entry.includes("electron-updater")), false);
 	});
 
-	it("deb has public maintainer metadata and a matching desktop identity", () => {
-		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+	it("keeps the app identity the RPM installs", () => {
+		assert.equal(builderConfig.appId, "com.learnharness.LearnHarness");
+		assert.equal(builderConfig.productName, "LearnHarness");
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
 		assert.equal(pkg.homepage, "https://github.com/amosblomqvist/learnharness");
@@ -114,145 +114,97 @@ describe("desktop packaging policy", () => {
 	});
 });
 
-describe("workflow action versions", () => {
-	type Step = { uses?: string; with?: Record<string, unknown> };
-	type Workflow = { jobs: Record<string, { steps: Step[] }> };
-	const yaml = require("js-yaml") as { load(source: string): Workflow };
+describe("Fedora act workflow", () => {
+	type Step = { uses?: string; with?: Record<string, unknown>; run?: string };
+	type Job = { steps: Step[]; "runs-on"?: string; needs?: string };
+	const workflow = yaml.load(readFileSync(new URL("../.act/workflows/fedora.yml", import.meta.url), "utf8")) as {
+		jobs: Record<string, Job>;
+	};
 
-	for (const filename of ["ci.yml", "release.yml"]) {
-		it(`${filename} uses supported Action runtimes without changing the app's Node 26`, () => {
-			const workflow = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
-			const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
-			if (filename === "release.yml") {
-				expected.push("actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
-			}
+	it("runs both jobs on the mapped Fedora x64 label and proves the host", () => {
+		const jobs = Object.values(workflow.jobs);
+		assert.equal(jobs.length, 2);
+		for (const job of jobs) {
+			assert.equal(job["runs-on"], "fedora-44-x64");
+			const boundary = job.steps[0]?.run ?? "";
+			assert.ok(boundary.includes("/etc/os-release") && boundary.includes("fedora"));
+			assert.ok(boundary.includes('uname -m') && boundary.includes("x86_64"));
+		}
+		assert.equal(workflow.jobs.package?.needs, "quality");
+	});
+
+	it("uses supported Action runtimes without changing the app's Node 26", () => {
+		const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
+		for (const job of Object.values(workflow.jobs)) {
 			const observed = new Set<string>();
-			for (const job of Object.values(workflow.jobs)) {
-				for (const step of job.steps) {
-					if (!step.uses) continue;
-					assert.ok(expected.includes(step.uses), `unexpected Action reference: ${step.uses}`);
-					observed.add(step.uses);
-					if (step.uses === "actions/setup-node@v7") {
-						assert.equal(step.with?.["node-version"], "26");
-						assert.equal(step.with?.cache, "npm");
-					}
-					if (step.uses === "actions/upload-artifact@v7") {
-						assert.equal(step.with?.archive ?? true, true, "multi-file installers remain zipped artifacts");
-					}
+			assert.ok(job.steps.some(step => step.run === "npm ci"), "each job installs its own dependencies");
+			for (const step of job.steps) {
+				if (!step.uses) continue;
+				assert.ok(expected.includes(step.uses), `unexpected Action reference: ${step.uses}`);
+				observed.add(step.uses);
+				if (step.uses === "actions/setup-node@v7") {
+					assert.equal(step.with?.["node-version"], "26");
+					assert.equal(step.with?.cache, "npm");
 				}
 			}
-			assert.deepEqual([...observed].sort(), expected.sort());
-		});
-	}
-});
-
-describe("desktop release workflow", () => {
-	type Step = {
-		if?: string; run?: string; uses?: string; env?: Record<string, string>;
-		with?: { script?: string; "xcode-version"?: string };
-	};
-	type Workflow = {
-		concurrency: { group: string; "cancel-in-progress": boolean };
-		jobs: Record<string, {
-			needs?: string | string[]; steps: Step[]; "runs-on"?: string;
-			strategy?: { matrix: { include: { os: string; platform: string; builder_args?: string }[] } };
-		}>;
-	};
-	const yaml = require("js-yaml") as { load(source: string): Workflow };
-	const workflow = yaml.load(readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8"));
-	const draft = workflow.jobs.draft;
-	const packaging = workflow.jobs.package;
-	assert.ok(draft && packaging);
-	const prepare = draft.steps[0];
-	assert.ok(prepare?.with);
-	const script = prepare.with.script;
-	assert.ok(script);
-	type Release = { id: number; tag_name: string; draft: boolean };
-
-	/** Execute the REAL action script with an in-memory GitHub API. */
-	async function prepareDraft(releases: Release[]) {
-		const created: Record<string, unknown>[] = [];
-		const listReleases = () => {};
-		await runInNewContext(`(async () => { ${script} })()`, {
-			context: { repo: { owner: "test-owner", repo: "test-repo" }, ref: "refs/tags/v0.3.0" },
-			core: { info() {} },
-			github: {
-				paginate: async (method: unknown, options: unknown) => {
-					assert.equal(method, listReleases);
-					assert.deepEqual(JSON.parse(JSON.stringify(options)), {
-						owner: "test-owner", repo: "test-repo", per_page: 100,
-					});
-					return releases;
-				},
-				rest: { repos: {
-					listReleases,
-					createRelease: async (options: Record<string, unknown>) => {
-						created.push(JSON.parse(JSON.stringify(options)));
-						return { data: { id: 123 } };
-					},
-				} },
-			},
-		});
-		return created;
-	}
-
-	it("prepares once after gates, never on rehearsals, before parallel packaging", () => {
-		assert.equal(draft.needs, "quality");
-		assert.equal(prepare.if, "github.event_name == 'push'");
-		assert.deepEqual(packaging.needs, ["quality", "draft"]);
-		assert.equal(workflow.concurrency.group, "release-${{ github.ref }}");
-		assert.equal(workflow.concurrency["cancel-in-progress"], false);
-		for (const filename of ["ci.yml", "release.yml"]) {
-			const config = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
-			const job = config.jobs[filename === "ci.yml" ? "standalone" : "package"];
-			assert.ok(job);
-			const steps = job.steps;
-			const native = steps.find(step => step.run?.includes("pdf-native-render.test.ts"));
-			assert.ok(native);
-			assert.ok(native.run?.startsWith("npx electron --import tsx --test "));
-			assert.equal(native.env?.ELECTRON_RUN_AS_NODE, "1");
-			assert.ok(steps.some(step => step.run === "node scripts/smoke-server.mjs --electron"));
+			assert.deepEqual([...observed].sort(), [...expected].sort());
 		}
 	});
 
-	it("pairs Icon Composer packaging with macOS 26 and Xcode selection, retaining macOS 15 CI", () => {
-		const mac = packaging.strategy?.matrix.include.find(entry => entry.platform === "mac-arm64");
-		assert.equal(mac?.os, "macos-26", "actool's .icon compiler needs macOS 26 host frameworks, not just newer Xcode");
-		assert.equal(mac?.builder_args, "--mac --arm64");
-		assert.equal(packaging["runs-on"], "${{ matrix.os }}");
-		const xcodeIndex = packaging.steps.findIndex(step => step.uses === "maxim-lobanov/setup-xcode@v1");
-		assert.ok(xcodeIndex >= 0);
-		const xcode = packaging.steps[xcodeIndex];
-		assert.equal(xcode?.if, "runner.os == 'macOS'");
-		assert.equal(xcode?.with?.["xcode-version"], "latest-stable");
-		const buildIndex = packaging.steps.findIndex(step => step.run?.includes("electron-builder"));
-		assert.ok(buildIndex > xcodeIndex, "select Xcode before packaging compiles the icon");
-
-		const ci = yaml.load(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"));
-		const ciMac = ci.jobs.standalone?.strategy?.matrix.include.find(entry => entry.platform === "mac-arm64");
-		assert.equal(ciMac?.os, "macos-15", "ordinary CI keeps older macOS build/boot coverage");
+	it("retains the packaged gates and copies the RPM to the caller's output dir", () => {
+		const steps = workflow.jobs.package!.steps;
+		const native = steps.find(step => step.run?.includes("pdf-native-render.test.ts"));
+		assert.ok(native?.run?.startsWith("npx electron --import tsx --test "));
+		assert.ok(steps.some(step => step.run === "npm run desktop:dist"));
+		assert.ok(steps.some(step => step.run?.includes("smoke-provider-runtime.mjs --standalone")));
+		assert.ok(steps.some(step => step.run?.startsWith("xvfb-run -a node scripts/smoke-demo-runtime.mjs")));
+		const copy = steps.at(-1)?.run ?? "";
+		assert.ok(copy.includes("dist/*.rpm"));
+		assert.ok(copy.includes("${LH_OUTPUT_DIR:?"));
+		assert.ok(copy.includes("mkdir -p"));
+		assert.ok(copy.includes("exit 1"), "a run without an RPM fails instead of passing");
 	});
 
-	it("creates exactly one unpublished draft when none matches", async () => {
-		assert.deepEqual(await prepareDraft([{ id: 9, tag_name: "v0.2.0", draft: false }]), [{
-			owner: "test-owner", repo: "test-repo", tag_name: "v0.3.0", name: "0.3.0", draft: true,
-		}]);
+	it("proves the RPM tools and Xvfb exist before installing or building", () => {
+		const steps = workflow.jobs.package!.steps;
+		const prerequisite = steps.findIndex(step => step.run?.includes("rpm -q rpm-build libxcrypt-compat xorg-x11-server-Xvfb"));
+		assert.ok(prerequisite > 0, "the package job checks its host tools");
+		assert.ok(prerequisite < steps.findIndex(step => step.uses === "actions/checkout@v7"));
+		assert.ok(prerequisite < steps.findIndex(step => step.run === "npm ci"));
+	});
+});
+
+describe("local-only contract", () => {
+	const workflowDir = new URL("../.github/workflows", import.meta.url);
+
+	it("leaves GitHub no workflow to run", () => {
+		const dir = fileURLToPath(workflowDir);
+		if (!existsSync(dir)) return;
+		assert.deepEqual(readdirSync(dir).filter(name => /\.ya?ml$/.test(name)), []);
 	});
 
-	it("reuses an existing draft without creating another", async () => {
-		assert.deepEqual(await prepareDraft([{ id: 10, tag_name: "v0.3.0", draft: true }]), []);
-		// Match the publisher's support for legacy unprefixed tags too.
-		assert.deepEqual(await prepareDraft([{ id: 10, tag_name: "0.3.0", draft: true }]), []);
-	});
-
-	it("refuses to modify an already-published release", async () => {
-		await assert.rejects(prepareDraft([{ id: 10, tag_name: "v0.3.0", draft: false }]), /already published/);
-	});
-
-	it("refuses an ambiguous set of drafts instead of splitting assets", async () => {
-		await assert.rejects(prepareDraft([
-			{ id: 10, tag_name: "v0.3.0", draft: true },
-			{ id: 11, tag_name: "v0.3.0", draft: true },
-		]), /Multiple releases match/);
+	it("builds and keeps the RPM locally without publishing or updating", () => {
+		const dist = pkg.scripts["desktop:dist"] ?? "";
+		assert.ok(dist.startsWith("rm -rf dist && "), "cleanup stays first so stale output cannot be validated");
+		assert.ok(dist.endsWith("electron-builder --linux --x64 --publish never"));
+		assert.ok(dist.includes("node scripts/smoke-carrier.mjs"), "desktop:dist owns the carrier gate");
+		for (const smoke of ["smoke-server", "smoke-carrier"]) {
+			const gate = `node scripts/${smoke}.mjs --electron`;
+			assert.ok(dist.includes(gate), `${gate} runs on Electron's bundled Node`);
+			assert.ok(dist.indexOf(gate) < dist.indexOf("electron-builder"), `${gate} gates the artifact`);
+		}
+		const act = pkg.scripts["desktop:act"] ?? "";
+		assert.ok(act.includes("-W .act/workflows/fedora.yml"));
+		assert.ok(act.includes("-P fedora-44-x64=-self-hosted"));
+		assert.ok(act.includes('--env "LH_OUTPUT_DIR=$PWD/dist"'));
+		assert.ok(!act.includes("--publish"));
+		for (const script of Object.values(pkg.scripts)) assert.ok(!script.includes("--publish always"));
+		assert.equal("electron-updater" in pkg.dependencies, false);
+		for (const file of ["../electron/main.cjs", "../electron/preload.cjs"]) {
+			const source = readFileSync(new URL(file, import.meta.url), "utf8");
+			for (const marker of ["electron-updater", "lh:update-status", "lh:update-install"]) {
+				assert.equal(source.includes(marker), false, `${file} still references ${marker}`);
+			}
+		}
 	});
 });

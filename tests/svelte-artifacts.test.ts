@@ -1,5 +1,5 @@
 /** Svelte ports of the SVG image boundary, zero-keys truth, setup stage 1,
- *  tooltip composition, and the update banner's SSR state. */
+ *  and tooltip composition. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
@@ -180,18 +180,5 @@ describe("tooltip composition", () => {
 		assert.equal(hintText("Close", undefined, "escape"), "Close (Esc)");
 		assert.equal(hintText("Send", undefined, "enter"), "Send (↵)");
 		assert.equal(hintText("Home"), "Home");
-	});
-
-	it("the auto-update hint is user language", async () => {
-		const body = await html("/src/lib/settings/SettingsDialog.svelte");
-		assert.equal(body, "");
-		const auto = "Automatic updates arrive in an upcoming release";
-		assert.ok(!auto.includes("wave"));
-	});
-});
-
-describe("update banner", () => {
-	it("hides without a bridge/status (SSR)", async () => {
-		assert.equal(await html("/src/lib/shell/UpdateBanner.svelte"), "");
 	});
 });

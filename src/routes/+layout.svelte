@@ -7,7 +7,6 @@
 	import Sidebar from "$lib/shell/Sidebar.svelte";
 	import SettingsDialog from "$lib/settings/SettingsDialog.svelte";
 	import CheatSheet from "$lib/shell/CheatSheet.svelte";
-	import UpdateBanner from "$lib/shell/UpdateBanner.svelte";
 	import { serverEvents } from "$lib/state/server-events";
 	import { sidebar } from "$lib/state/sidebar.svelte";
 	import { appearance } from "$lib/state/appearance.svelte";
@@ -43,6 +42,5 @@
 		{@render children()}
 	</main>
 </div>
-<UpdateBanner />
 <SettingsDialog />
 <CheatSheet />

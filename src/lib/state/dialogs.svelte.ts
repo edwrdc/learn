@@ -1,8 +1,8 @@
-export type SettingsSectionId = "general" | "keys" | "agent" | "appearance" | "graph" | "keyboard";
+export type SettingsSectionId = "keys" | "agent" | "appearance" | "graph" | "keyboard";
 
 class SettingsDialogStore {
 	show = $state(false);
-	section = $state<SettingsSectionId>("general");
+	section = $state<SettingsSectionId>("keys");
 	row = $state<string | null>(null);
 
 	open(section?: string, row?: string): void {

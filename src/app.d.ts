@@ -7,8 +7,6 @@ declare global {
 			expandWindow: () => void;
 			onZoom?: (cb: (factor: number) => void) => () => void;
 			getZoom?: () => Promise<number>;
-			onUpdateStatus?: (cb: (status: { status: string; version: string | null }) => void) => () => void;
-			installUpdate?: () => void;
 		};
 	}
 

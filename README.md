@@ -9,7 +9,7 @@
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
 <p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
+  <a href="docs/desktop-release.md">Build locally</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/development.md">Documentation</a> ·
   <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a>
@@ -40,17 +40,19 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
 
-## Download and get started
+## Build and run on Fedora
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+This fork does not distribute installers. It builds one Fedora x86_64 RPM locally and installs it by hand; the [desktop build guide](docs/desktop-release.md) has the prerequisites and qualification limits.
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+```sh
+npm install
+npm run desktop:act        # quality gates, then the RPM
+sudo dnf install ./dist/LearnHarness-*-x86_64.rpm
+```
 
 Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
 
-All three platforms support in-app updates.
+There is no in-app updater: upgrade by installing a newer RPM.
 
 ## Your keys, your data
 
@@ -61,7 +63,7 @@ All three platforms support in-app updates.
 
 ## Development and support
 
-This fork uses SvelteKit. Download and update links still point to upstream LearnHarness. See the [migration record](docs/frontend-migration.md) for the changes and verification limits.
+This fork uses SvelteKit. It builds a local Fedora x86_64 RPM only: no GitHub checks, no publishing, and no in-app updates. See the [migration record](docs/frontend-migration.md) for the SvelteKit changes and verification limits.
 
 ```bash
 npm install
@@ -73,7 +75,7 @@ npm start          # curate the standalone payload, then serve it
 
 The app is SvelteKit with adapter-node and server-side rendering. In production, the browser app and the Electron shell both use the same loopback server; the desktop package ships it at `Resources/server/standalone/server.js`.
 
-See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
+See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop build guide](docs/desktop-release.md).
 
 Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
 
