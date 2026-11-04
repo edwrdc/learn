@@ -34,6 +34,7 @@ import { untrack } from "svelte";
 	import PhaseDivider from "./PhaseDivider.svelte";
 	import TopBar from "./TopBar.svelte";
 	import Composer from "./Composer.svelte";
+	import { withCode } from "./code-input";
 	import DockOverlay from "./DockOverlay.svelte";
 	import SessionFind from "./SessionFind.svelte";
 	import CoverageRing from "./CoverageRing.svelte";
@@ -105,6 +106,7 @@ import { untrack } from "svelte";
 	let turnInFlight = $state(untrack(() => initiallyInFlight ?? false));
 	let compacting = $state(untrack(() => initiallyCompacting));
 	let text = $state("");
+	let code = $state("");
 	let textMirror = "";
 	let configured = $state(untrack(() => initialConfigured));
 	let setupOpen = $state(false);
@@ -169,7 +171,7 @@ import { untrack } from "svelte";
 	const requiresReveal = $derived(pending !== null && questionNeedsReveal(pending.tool, pending.input, phaseAt3(messages)));
 	const queuedSteers = $derived(visibleQueuedSteers(steerQueue, nativeMessages)) as SteerQueueItem[];
 
-	const canSend = $derived((text.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting);
+	const canSend = $derived((text.trim().length > 0 || code.trim().length > 0 || dictation.active) && !pending && !activeProblem && !compacting);
 	const nextReady = $derived(
 		kind === "practice" &&
 			!pending &&
@@ -278,19 +280,21 @@ import { untrack } from "svelte";
 
 	function doSend(): void {
 		if (busy || pending || compacting) return;
-		const value = textMirror.trim();
+		const value = withCode(textMirror, code).trim();
 		if (!value) return;
 		draft = value;
 		applyText("");
+		code = "";
 		session.send({ type: "text", text: value });
 	}
 
 	function doSteerOrSend(): void {
 		if (pending || compacting) return;
-		const value = textMirror.trim();
+		const value = withCode(textMirror, code).trim();
 		if (!value) return;
 		if (busy) {
 			applyText("");
+			code = "";
 			session.steer(value);
 			return;
 		}
@@ -618,6 +622,8 @@ import { untrack } from "svelte";
 	<Composer
 		busy={busy}
 		value={text}
+		{code}
+		onCodeChange={(value) => (code = value)}
 		onChange={applyText}
 		onSend={onSend}
 		onStop={abortInFlightTurn}

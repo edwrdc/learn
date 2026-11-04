@@ -25,6 +25,8 @@
 	} from "@/src/core";
 	import { CONFIDENCE_COLORS, confidenceRailStyle } from "./confidence";
 	import { enterSubmits } from "./enter-submits";
+	import CodeInput from "./CodeInput.svelte";
+	import { withCode } from "./code-input";
 	import { finishDictation, isDictationActive, joinDictation, setDictationTarget } from "./dictation.svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import { cn } from "$lib/utils";
@@ -104,6 +106,7 @@
 	let thinking = $state("");
 	let other = $state("");
 	let text = $state("");
+	let code = $state("");
 	let thinkingRefValue = "";
 	let answerRefValue = "";
 	let confIdx = $state(DEFAULT_CONFIDENCE_INDEX);
@@ -117,7 +120,7 @@
 	const rowCount = $derived(qd?.mode === "text" ? 0 : optionCount + 1);
 	const canSubmit = $derived(
 		qd?.mode === "text"
-			? text.trim().length > 0
+			? text.trim().length > 0 || code.trim().length > 0
 			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0,
 	);
 
@@ -162,8 +165,8 @@
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
 			other: sel.otherSelected ? other : undefined,
-			text: qd.mode === "text" ? answerRefValue : undefined,
-			thinking: qd.mode !== "text" ? thinkingRefValue.trim() || undefined : undefined,
+			text: qd.mode === "text" ? withCode(answerRefValue, code) : undefined,
+			thinking: qd.mode !== "text" ? withCode(thinkingRefValue.trim(), code) || undefined : undefined,
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		onSubmit(buildAnswer(qd, request, toolName));
@@ -499,6 +502,7 @@
 								)}
 							></textarea>
 						{/if}
+						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} />
 						<div class="flex items-center justify-between gap-2 p-1">
 							<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

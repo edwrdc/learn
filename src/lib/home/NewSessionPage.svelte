@@ -7,6 +7,7 @@ import { untrack } from "svelte";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import type { GraphSnapshot, TurnUsage } from "@/src/core";
 	import Composer from "$lib/chat/Composer.svelte";
+	import { withCode } from "$lib/chat/code-input";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
 	import StatsBar from "$lib/chat/StatsBar.svelte";
 	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
@@ -18,6 +19,7 @@ import { untrack } from "svelte";
 	let { initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" } = $props();
 
 	let text = $state("");
+	let code = $state("");
 	let textMirror = "";
 	let busy = $state(false);
 	let configured = $state(untrack(() => initialConfigured));
@@ -49,7 +51,7 @@ import { untrack } from "svelte";
 
 
 	function send() {
-		const draft = textMirror.trim();
+		const draft = withCode(textMirror, code).trim();
 		if (!draft || busy) return;
 		if (!configured) {
 			setupOpen = true;
@@ -81,7 +83,7 @@ import { untrack } from "svelte";
 		return dictation.mount();
 	});
 
-	const canSend = $derived(text.trim().length > 0 || dictation.active);
+	const canSend = $derived(text.trim().length > 0 || code.trim().length > 0 || dictation.active);
 </script>
 
 <div class="relative flex h-dvh">
@@ -130,6 +132,8 @@ import { untrack } from "svelte";
 							<Composer
 								busy={busy}
 								value={text}
+								{code}
+								onCodeChange={(value) => (code = value)}
 								onChange={applyText}
 								onSend={handleSend}
 								onStop={() => {}}

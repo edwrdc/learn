@@ -2,6 +2,8 @@
 	import { ChevronRight } from "@lucide/svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import { enterSubmits } from "./enter-submits";
+	import CodeInput from "./CodeInput.svelte";
+	import { withCode } from "./code-input";
 	import { finishDictation, isDictationActive, joinDictation, setDictationTarget } from "./dictation.svelte";
 
 	let {
@@ -23,6 +25,7 @@
 	} = $props();
 
 	let thinking = $state("");
+	let code = $state("");
 	let mirror = "";
 
 	$effect(() => {
@@ -36,10 +39,11 @@
 
 	function doSubmit() {
 		if (compactionRunning) return;
-		const text = mirror.trim();
+		const text = withCode(mirror, code).trim();
 		if (text.length === 0) return;
 		mirror = "";
 		thinking = "";
+		code = "";
 		onSubmit(text);
 	}
 	function submit() {
@@ -95,6 +99,7 @@
 				rows={4}
 				class="field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground"
 			></textarea>
+			<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} />
 			<div class="flex items-center justify-between gap-2 p-1">
 				<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 					{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
@@ -102,7 +107,7 @@
 				<button
 					type="button"
 					data-testid="practice-send"
-					disabled={thinking.trim().length === 0 || compactionRunning}
+					disabled={(!thinking.trim() && !code.trim()) || compactionRunning}
 					onclick={() => submit()}
 					class="ml-auto h-9 rounded-[6px] bg-primary px-3.5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
 				>

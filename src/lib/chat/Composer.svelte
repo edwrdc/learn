@@ -2,10 +2,13 @@
 	import { ArrowRight, CornerDownLeft, Square } from "@lucide/svelte";
 	import { focusOnMount } from "$lib/dom";
 	import { enterAction } from "./chat-logic";
+	import CodeInput from "./CodeInput.svelte";
 
 	let {
 		busy,
 		value,
+		code = "",
+		onCodeChange,
 		onChange,
 		onSend,
 		onStop,
@@ -18,6 +21,8 @@
 	}: {
 		busy: boolean;
 		value: string;
+		code?: string;
+		onCodeChange?: (value: string) => void;
 		onChange: (v: string) => void;
 		onSend: () => void;
 		onStop: () => void;
@@ -39,12 +44,13 @@
 
 <form
 	data-testid="composer"
-	class="flex items-end gap-1.5 p-1.5"
+	class="p-1.5"
 	onsubmit={(event) => {
 		event.preventDefault();
 		act();
 	}}
 >
+	<div class="flex items-end gap-1.5">
 	<textarea
 		{value}
 		oninput={(event) => onChange((event.currentTarget as HTMLTextAreaElement).value)}
@@ -90,5 +96,9 @@
 				<CornerDownLeft class="size-5" />
 			{/if}
 		</button>
+	{/if}
+	</div>
+	{#if onCodeChange}
+		<CodeInput value={code} onChange={onCodeChange} onSubmit={act} {onEscape} />
 	{/if}
 </form>
