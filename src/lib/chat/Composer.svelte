@@ -34,6 +34,8 @@
 		onNext?: () => void;
 	} = $props();
 
+	let prose = $state<HTMLTextAreaElement | null>(null);
+
 	function act() {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "send") onSend();
@@ -52,6 +54,8 @@
 >
 	<div class="flex items-end gap-1.5">
 	<textarea
+		bind:this={prose}
+		data-testid="prose-field"
 		{value}
 		oninput={(event) => onChange((event.currentTarget as HTMLTextAreaElement).value)}
 		onkeydown={(event) => {
@@ -99,6 +103,6 @@
 	{/if}
 	</div>
 	{#if onCodeChange}
-		<CodeInput value={code} onChange={onCodeChange} onSubmit={act} {onEscape} />
+		<CodeInput value={code} onChange={onCodeChange} onSubmit={act} {onEscape} onLeave={() => prose?.focus()} />
 	{/if}
 </form>

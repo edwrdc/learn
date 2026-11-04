@@ -160,7 +160,7 @@ export async function run(run, check) {
 			page.press("Escape");
 			await page.waitForJs(`!document.querySelector('[data-testid=coverage-ring-popover]')`, 5_000, "Escape closes only the coverage popover");
 			assert.equal(page.exists('[data-testid="coverage-ring"]'), true, "Escape removed the coverage ring");
-			assert.equal(page.exists('[data-testid="composer"] textarea'), true, "Escape removed the chat composer");
+			assert.equal(page.exists('[data-testid="composer"] [data-testid="prose-field"]'), true, "Escape removed the chat composer");
 			page.screenshot("deferred-02-coverage-popover");
 			return { dash: closed.dash, body: body.slice(0, 120) };
 		} finally {

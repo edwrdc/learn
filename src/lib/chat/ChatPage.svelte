@@ -131,7 +131,7 @@ import { untrack } from "svelte";
 	let sentInitial = false;
 	let mountContinuation = false;
 	let continuedTail: string | null = null;
-	let draft: string | null = null;
+	let draft: { text: string; code: string } | null = null;
 	let handlingRefusal = false;
 	let pendingSync = false;
 	let jobStatuses = new Map<string, string>();
@@ -282,7 +282,7 @@ import { untrack } from "svelte";
 		if (busy || pending || compacting) return;
 		const value = withCode(textMirror, code).trim();
 		if (!value) return;
-		draft = value;
+		draft = { text: textMirror, code };
 		applyText("");
 		code = "";
 		session.send({ type: "text", text: value });
@@ -454,7 +454,8 @@ import { untrack } from "svelte";
 			if (cancelled) return;
 			if (Array.isArray(record?.messages)) session.setMessages(record.messages);
 			if (draft !== null) {
-				applyText(draft);
+				applyText(draft.text);
+				code = draft.code;
 				draft = null;
 			}
 			if (unavailable && !Array.isArray(record?.messages)) {

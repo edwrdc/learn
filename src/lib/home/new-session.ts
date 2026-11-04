@@ -7,9 +7,10 @@ export async function startDraftSession(
 	fetchImpl: typeof fetch = fetch,
 	mode: "teach" | "practice" = "teach",
 	picks: readonly PracticePick[] = [],
+	title = value.trim(),
 ): Promise<string | null> {
-	const title = value.trim();
-	if (!title) return null;
+	const prompt = value.trim();
+	if (!title || !prompt) return null;
 	const res = await fetchImpl("/api/chats", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -20,5 +21,5 @@ export async function startDraftSession(
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
-	return `/chat/${id}?prompt=${encodeURIComponent(title)}`;
+	return `/chat/${id}?prompt=${encodeURIComponent(prompt)}`;
 }

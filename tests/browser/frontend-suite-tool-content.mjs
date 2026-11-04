@@ -32,8 +32,8 @@ export async function run(run, check) {
 		const page = browser(run, "tool-content");
 		let chatId;
 		try {
-			await page.goto("/chat/new", { ready: '[data-testid="composer"] textarea' });
-			page.fill('[data-testid="composer"] textarea', `Probe me [[MOCK:mathquiz:${TAG}]]`);
+			await page.goto("/chat/new", { ready: '[data-testid="composer"] [data-testid="prose-field"]' });
+			page.fill('[data-testid="composer"] [data-testid="prose-field"]', `Probe me [[MOCK:mathquiz:${TAG}]]`);
 			page.press("Enter");
 			await page.waitForJs(`location.pathname.startsWith('/chat/') && location.pathname !== '/chat/new'`, 15_000, "chat route created");
 			chatId = page.js("location.pathname.split('/').at(-1)");
@@ -134,8 +134,8 @@ export async function run(run, check) {
 		const tag = "EXPLAIN1";
 		let chatId;
 		try {
-			await page.goto("/chat/new", { ready: '[data-testid="composer"] textarea' });
-			page.fill('[data-testid="composer"] textarea', `Explain probe [[MOCK:explain:${tag}]]`);
+			await page.goto("/chat/new", { ready: '[data-testid="composer"] [data-testid="prose-field"]' });
+			page.fill('[data-testid="composer"] [data-testid="prose-field"]', `Explain probe [[MOCK:explain:${tag}]]`);
 			page.press("Enter");
 			await page.waitForJs(`location.pathname.startsWith('/chat/') && location.pathname !== '/chat/new'`, 15_000, "chat route created");
 			chatId = page.js("location.pathname.split('/').at(-1)");

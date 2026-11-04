@@ -62,7 +62,8 @@ import { untrack } from "svelte";
 			return;
 		}
 		busy = true;
-		void startDraftSession(draft, fetch, mode, picks)
+		const title = textMirror.trim() || "Code";
+		void startDraftSession(draft, fetch, mode, picks, title)
 			.then((target) => {
 				if (target) void goto(target);
 				else busy = false;

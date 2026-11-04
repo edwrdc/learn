@@ -26,6 +26,7 @@
 
 	let thinking = $state("");
 	let code = $state("");
+	let prose = $state<HTMLTextAreaElement | null>(null);
 	let mirror = "";
 
 	$effect(() => {
@@ -78,6 +79,8 @@
 		>
 			<div class="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">YOUR THINKING</div>
 			<textarea
+				bind:this={prose}
+				data-testid="prose-field"
 				value={thinking}
 				oninput={(event) => {
 					mirror = (event.currentTarget as HTMLTextAreaElement).value;
@@ -99,7 +102,7 @@
 				rows={4}
 				class="field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground"
 			></textarea>
-			<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} />
+			<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => prose?.focus()} />
 			<div class="flex items-center justify-between gap-2 p-1">
 				<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 					{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

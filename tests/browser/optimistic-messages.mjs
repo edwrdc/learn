@@ -143,7 +143,7 @@ async function main() {
 	const page = browser(run, "optimistic", { initScript: initScript(run, "optimistic", probeScript()) });
 	try {
 		await configureMock(run);
-		await page.goto("/chat/new", { ready: '[data-testid="composer"] textarea' });
+		await page.goto("/chat/new", { ready: '[data-testid="composer"] [data-testid="prose-field"]' });
 		await sleep(1_800);
 		const ready = page.js(
 			`({ setup: !!document.querySelector('[data-testid=setup-dialog]'), cta: !!document.querySelector('[data-testid=setup-cta-keys]') })`,
@@ -151,7 +151,7 @@ async function main() {
 		assert.equal(ready.setup, false, "setup dialog opened before the first send");
 		assert.equal(ready.cta, false, "zero-key CTA shown before the first send");
 
-		page.fill('[data-testid="composer"] textarea', PROMPT);
+		page.fill('[data-testid="composer"] [data-testid="prose-field"]', PROMPT);
 		page.press("Enter");
 		await page.waitForJs(
 			"location.pathname.startsWith('/chat/') && location.pathname !== '/chat/new'",

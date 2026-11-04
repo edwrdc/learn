@@ -24,16 +24,18 @@ second pillar of input).
 
 ## Rules
 
-- **Tab is dead everywhere** (owner decision: browser tab-focus
-  navigation abandoned). Shift+Tab cycles the thinking level — also
-  while typing in a field (modifier combos are the only keys that fire
-  from typing surfaces; bare keys never do).
+- **Tab is dead everywhere** except the code field, where it inserts four
+  spaces (owner decision: browser tab-focus navigation abandoned).
+  Shift+Tab cycles the thinking level — also while typing in a field
+  (modifier combos are the only keys that fire from typing surfaces; bare
+  keys never do).
 - **Esc priority chain**: topmost popover → cheat sheet → cancel
   dictation (DISCARD — the transcript flush is Cmd+D/Stop only, owner
-  round) → abort turn (local stream only — a server-side wake turn has
-  no client request to abort). Every element/document-level Esc handler
-  that acts calls `e.stopPropagation()` so the window chain never
-  double-fires. The session search claims Esc to blur back to normal.
+  round) → code field returns focus to its prose field → abort turn
+  (local stream only — a server-side wake turn has no client request to
+  abort). Every element/document-level Esc handler that acts calls
+  `e.stopPropagation()` so the window chain never double-fires. The
+  session search claims Esc to blur back to normal.
 - **Focus ring**: browser Tab-focus is gone, so `:focus-visible` stays
   unstyled (an earlier experimental outline was live-rejected — inputs
   showed a red ring on plain click-focus).
@@ -95,6 +97,29 @@ While a question is expanded, the dock owns ↑/↓/Space/Enter/Tab:
   without ALSO walking the question rows (owner round 3). The listener
   lives only while the dock is expanded — collapsed, the bar's native
   Enter expands it.
+
+## Code field (learner code input)
+
+Every code pane (home, chat, practice, question) follows one key
+contract:
+
+- **Enter / Shift+Enter** insert a newline. The field never submits on a
+  bare Enter.
+- **Ctrl+Enter / Cmd+Enter** runs the surface's existing action once
+  (send, steer, stop, next, or submit). It keeps every existing gate:
+  busy, configuration, compaction, and the selection-required question
+  rules. It never fires during IME composition.
+- **Tab (plain)** replaces the selection with four spaces and keeps
+  focus in the field. The question dock's row machine never sees it.
+- **Shift+Tab and modified Tab** bubble to global handling. Shift+Tab
+  cycles the thinking level.
+- **Esc** cancels active dictation first. Otherwise it returns focus to
+  the sibling prose field and consumes the key. It does not clear the
+  code, close the pane, or abort the turn. The next Esc in prose
+  follows the normal app chain.
+- **Add code** opens the pane and focuses the field after the mount
+  tick. Draft restoration and prop updates never move focus. The pane
+  stays open after a send for its mounted lifetime.
 
 ## Status
 

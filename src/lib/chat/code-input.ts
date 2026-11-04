@@ -9,11 +9,12 @@ export function codeKeydown(
 	onChange: (value: string) => void,
 	onSubmit: () => void,
 	onEscape?: () => void,
+	onLeave?: () => void,
 ): void {
 	if (event.key === "Tab") {
-		event.stopPropagation();
 		if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
 		event.preventDefault();
+		event.stopPropagation();
 		const field = event.currentTarget;
 		field.setRangeText("    ", field.selectionStart, field.selectionEnd, "end");
 		onChange(field.value);
@@ -22,9 +23,15 @@ export function codeKeydown(
 		if (event.isComposing || !(event.ctrlKey || event.metaKey)) return;
 		event.preventDefault();
 		onSubmit();
-	} else if (event.key === "Escape" && onEscape) {
-		event.preventDefault();
-		event.stopPropagation();
-		onEscape();
+	} else if (event.key === "Escape") {
+		if (onEscape) {
+			event.preventDefault();
+			event.stopPropagation();
+			onEscape();
+		} else if (onLeave) {
+			event.preventDefault();
+			event.stopPropagation();
+			onLeave();
+		}
 	}
 }

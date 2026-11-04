@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { escAbortTarget, initialPromptOwed, parseModelsRefusal, parseProviderKeyRefusal } from "../src/lib/chat/chat-logic.ts";
+import { codeKeydown, withCode } from "../src/lib/chat/code-input.ts";
 import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
 import { confidenceRailStyle, CONFIDENCE_COLORS } from "../src/lib/chat/confidence.ts";
 import { formatTokens, formatUsd, prettyModel, timeAgo } from "../src/lib/format.ts";
@@ -31,6 +32,103 @@ describe("chat logic", () => {
 		assert.equal(parseModelsRefusal("boom"), null);
 		assert.equal(parseProviderKeyRefusal(JSON.stringify({ code: "provider_key_missing", error: "No OpenRouter key is set — add one in Settings → Keys" })), true);
 		assert.equal(parseProviderKeyRefusal("{}"), false);
+	});
+});
+
+describe("learner code input", () => {
+	it("withCode joins prose and code and keeps code bytes", () => {
+		assert.equal(withCode("", "x"), "```\nx\n```");
+		assert.equal(withCode("hi", ""), "hi");
+		assert.equal(withCode("  hi  ", "  "), "  hi  ");
+		assert.equal(withCode("hi", "x"), "hi\n\n```\nx\n```");
+		assert.equal(withCode("hi", "x\n\n"), "hi\n\n```\nx\n\n\n```");
+	});
+
+	it("withCode widens the fence past the longest backtick run", () => {
+		assert.equal(withCode("hi", "a ``` b"), "hi\n\n````\na ``` b\n````");
+	});
+
+	it("withCode never repairs a malformed prose fence", () => {
+		const out = withCode("```\nopen", "x");
+		assert.ok(out.startsWith("```\nopen\n\n```\nx\n```"));
+	});
+
+	it("code keydown: Tab, Enter and Esc ownership", () => {
+		const run = (
+			key: string,
+			opts: Record<string, unknown> = {},
+			escape = true,
+		) => {
+			let value = (opts.value as string) ?? "";
+			const calls = { prevented: 0, stopped: 0 };
+			const seen = { change: 0, submit: 0, escape: 0, leave: 0 };
+			const field = {
+				selectionStart: (opts.selectionStart as number) ?? value.length,
+				selectionEnd: (opts.selectionEnd as number) ?? value.length,
+				get value() {
+					return value;
+				},
+				setRangeText(text: string, from: number, to: number) {
+					value = value.slice(0, from) + text + value.slice(to);
+				},
+			};
+			const event = {
+				key,
+				shiftKey: !!opts.shiftKey,
+				ctrlKey: !!opts.ctrlKey,
+				metaKey: !!opts.metaKey,
+				altKey: !!opts.altKey,
+				isComposing: !!opts.isComposing,
+				preventDefault: () => calls.prevented++,
+				stopPropagation: () => calls.stopped++,
+				currentTarget: field,
+			} as unknown as KeyboardEvent & { currentTarget: HTMLTextAreaElement };
+			codeKeydown(
+				event,
+				() => seen.change++,
+				() => seen.submit++,
+				escape ? () => seen.escape++ : undefined,
+				() => seen.leave++,
+			);
+			return { value, calls, seen };
+		};
+
+		const tab = run("Tab", { value: "abcdef", selectionStart: 2, selectionEnd: 4 });
+		assert.equal(tab.value, "ab    ef");
+		assert.equal(tab.calls.prevented, 1);
+		assert.equal(tab.calls.stopped, 1);
+		assert.equal(tab.seen.change, 1);
+		assert.equal(tab.seen.submit + tab.seen.escape + tab.seen.leave, 0);
+
+		assert.deepEqual(run("Tab", { shiftKey: true }).calls, { prevented: 0, stopped: 0 });
+		assert.deepEqual(run("Tab", { ctrlKey: true }).calls, { prevented: 0, stopped: 0 });
+		assert.deepEqual(run("Tab", { altKey: true }).calls, { prevented: 0, stopped: 0 });
+
+		const enter = run("Enter");
+		assert.deepEqual(enter.calls, { prevented: 0, stopped: 1 });
+		assert.equal(enter.seen.submit, 0);
+		assert.equal(enter.seen.change, 0);
+
+		const ctrlEnter = run("Enter", { ctrlKey: true });
+		assert.deepEqual(ctrlEnter.calls, { prevented: 1, stopped: 1 });
+		assert.equal(ctrlEnter.seen.submit, 1);
+
+		const cmdShiftEnter = run("Enter", { metaKey: true, shiftKey: true });
+		assert.equal(cmdShiftEnter.seen.submit, 1);
+
+		const composing = run("Enter", { metaKey: true, isComposing: true });
+		assert.equal(composing.calls.prevented, 0);
+		assert.equal(composing.seen.submit, 0);
+
+		const escape = run("Escape");
+		assert.deepEqual(escape.calls, { prevented: 1, stopped: 1 });
+		assert.equal(escape.seen.escape, 1);
+		assert.equal(escape.seen.leave, 0);
+
+		const leave = run("Escape", {}, false);
+		assert.deepEqual(leave.calls, { prevented: 1, stopped: 1 });
+		assert.equal(leave.seen.escape, 0);
+		assert.equal(leave.seen.leave, 1);
 	});
 });
 

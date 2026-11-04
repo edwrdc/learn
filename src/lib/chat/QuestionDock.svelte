@@ -112,6 +112,7 @@
 	let confIdx = $state(DEFAULT_CONFIDENCE_INDEX);
 	let kbdIdx = $state<number | null>(null);
 	let root = $state<HTMLDivElement | null>(null);
+	let prose = $state<HTMLTextAreaElement | null>(null);
 	let thinkingEl = $state<HTMLTextAreaElement | null>(null);
 	let otherEl = $state<HTMLInputElement | null>(null);
 
@@ -453,6 +454,8 @@
 						</div>
 						{#if qd.mode === "text"}
 							<textarea
+								bind:this={prose}
+								data-testid="prose-field"
 								value={text}
 								oninput={(event) => {
 									answerRefValue = (event.currentTarget as HTMLTextAreaElement).value;
@@ -477,6 +480,7 @@
 						{:else}
 							<textarea
 								bind:this={thinkingEl}
+								data-testid="prose-field"
 								value={thinking}
 								oninput={(event) => {
 									thinkingRefValue = (event.currentTarget as HTMLTextAreaElement).value;
@@ -502,7 +506,7 @@
 								)}
 							></textarea>
 						{/if}
-						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} />
+						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => prose?.focus()} />
 						<div class="flex items-center justify-between gap-2 p-1">
 							<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

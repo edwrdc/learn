@@ -24,8 +24,8 @@ async function setTools(run, tools) {
 }
 
 async function dispatchJob(page, run, tag) {
-	await page.goto("/chat/new", { ready: '[data-testid="composer"] textarea' });
-	page.fill('[data-testid="composer"] textarea', `Activity probe ${tag} [[MOCK:research:${tag}]]`);
+	await page.goto("/chat/new", { ready: '[data-testid="composer"] [data-testid="prose-field"]' });
+	page.fill('[data-testid="composer"] [data-testid="prose-field"]', `Activity probe ${tag} [[MOCK:research:${tag}]]`);
 	page.press("Enter");
 	await page.waitForJs(`location.pathname.startsWith('/chat/') && location.pathname !== '/chat/new'`, 15_000, "chat route created");
 	const chatId = page.js("location.pathname.split('/').at(-1)");

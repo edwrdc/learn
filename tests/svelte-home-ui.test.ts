@@ -57,6 +57,47 @@ describe("startDraftSession — create on first send", () => {
 		await startDraftSession("orbital mechanics", fetchImpl);
 		assert.deepEqual(calls[0]!.body, { title: "orbital mechanics" });
 	});
+
+	it("an explicit title keeps the full merged prompt in the URL", async () => {
+		const { fetchImpl, calls } = fakeFetch("c12");
+		const prompt = "```\nx = 1\n```";
+		const target = await startDraftSession(prompt, fetchImpl, "teach", [], "Code");
+		assert.equal(target, `/chat/c12?prompt=${encodeURIComponent(prompt)}`);
+		assert.deepEqual(calls[0]!.body, { title: "Code" });
+	});
+
+	it("practice keeps picks with an explicit title", async () => {
+		const { fetchImpl, calls } = fakeFetch("c13");
+		const picks = [{ id: "n_2", name: "Parity", statement: "Odd + odd = even." }];
+		await startDraftSession("```\nx\n```", fetchImpl, "practice", picks, "Code");
+		assert.deepEqual(calls[0]!.body, { title: "Code", kind: "practice", graphContext: { propositions: picks } });
+	});
+});
+
+describe("learner code controls", () => {
+	it("Add code renders until a value exists, then the code field does", async () => {
+		const empty = await html("/src/lib/chat/CodeInput.svelte", { value: "", onChange: () => {}, onSubmit: () => {} });
+		assert.ok(empty.includes('data-testid="add-code"'));
+		assert.ok(empty.includes("Add code"));
+		const filled = await html("/src/lib/chat/CodeInput.svelte", { value: "x = 1", onChange: () => {}, onSubmit: () => {} });
+		assert.ok(filled.includes('data-testid="code-field"'));
+		assert.ok(filled.includes("x = 1"));
+		assert.ok(filled.includes("Enter newline · Tab 4 spaces · Shift+Tab thinking level · Esc text · Ctrl/Cmd+Enter submit"));
+	});
+
+	it("Composer mounts the prose field and the add-code affordance", async () => {
+		const body = await html("/src/lib/chat/Composer.svelte", {
+			busy: false,
+			value: "",
+			onChange: () => {},
+			onSend: () => {},
+			onStop: () => {},
+			canSend: true,
+			onCodeChange: () => {},
+		});
+		assert.ok(body.includes('data-testid="prose-field"'));
+		assert.ok(body.includes('data-testid="add-code"'));
+	});
 });
 
 describe("composer", () => {
