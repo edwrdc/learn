@@ -28,7 +28,7 @@ function annotationCount(page) {
 }
 
 export async function run(run, check) {
-	await check("tool content: live math dock, submit, persisted details, historical Why", async () => {
+	await check("tool content: live math dock, Escape to thinking, submit, persisted details, historical Why", async () => {
 		const page = browser(run, "tool-content");
 		let chatId;
 		try {
@@ -58,6 +58,11 @@ export async function run(run, check) {
 			assert.equal(dock.katexErrors, 0, "live question rendered a KaTeX error");
 			assert.ok(dock.mathRadio >= 0, "no option rendered the KaTeX label");
 			assert.ok(dock.text.includes("Find"), "the question text is missing from the dock");
+
+			page.click('[data-testid="question-dock"] [data-testid="add-code"]');
+			await page.waitForJs(`document.activeElement === document.querySelector('[data-testid="question-dock"] [data-testid="code-field"]')`, 5_000, "selection question code focused");
+			page.press("Escape");
+			assert.equal(page.js(`document.activeElement === document.querySelector('[data-testid="question-dock"] [data-testid="thinking-field"] textarea[data-testid="prose-field"]')`), true, "Escape did not return focus to the selection question thinking textarea");
 
 			page.js(`(() => {
 				const radios = [...document.querySelectorAll('[data-testid=question-dock] button[role="radio"]')];

@@ -506,7 +506,7 @@
 								)}
 							></textarea>
 						{/if}
-						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => prose?.focus()} />
+						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => (qd.mode === "text" ? prose : thinkingEl)?.focus()} />
 						<div class="flex items-center justify-between gap-2 p-1">
 							<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
