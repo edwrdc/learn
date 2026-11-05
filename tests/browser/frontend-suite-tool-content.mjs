@@ -59,6 +59,17 @@ export async function run(run, check) {
 			assert.ok(dock.mathRadio >= 0, "no option rendered the KaTeX label");
 			assert.ok(dock.text.includes("Find"), "the question text is missing from the dock");
 
+			// The dock's height animation can invalidate native click coordinates.
+			await page.waitForJs(`(() => {
+				const button = document.querySelector('[data-testid="question-dock"] [data-testid="add-code"]');
+				if (!button) return false;
+				for (let node = button; node; node = node.parentElement) {
+					if (node.getAnimations().length) return false;
+				}
+				button.scrollIntoView({ block: 'center', behavior: 'instant' });
+				const rect = button.getBoundingClientRect();
+				return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+			})()`, 5_000, "selection question Add code ready for native click");
 			page.click('[data-testid="question-dock"] [data-testid="add-code"]');
 			await page.waitForJs(`document.activeElement === document.querySelector('[data-testid="question-dock"] [data-testid="code-field"]')`, 5_000, "selection question code focused");
 			page.press("Escape");
