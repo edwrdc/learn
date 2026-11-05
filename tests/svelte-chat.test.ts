@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
+import { parseHTML } from "linkedom";
 import {
 	buildAnswer,
 	normalizeOptions,
@@ -189,6 +190,57 @@ describe("svelte transcript chrome", () => {
 		assert.match(popup, /role="dialog"/);
 		assert.match(popup, /aria-label="The full plan"/);
 		assert.match(popup, /Drag to pan · scroll to zoom/);
+	});
+});
+
+describe("svelte learner message", () => {
+	function learnerCards(html: string): string[] {
+		return html.split('data-testid="user-message"').slice(1);
+	}
+
+	it("renders learner code and math through the shared Markdown pipeline", async () => {
+		const html = await render("/src/lib/chat/ChatPage.svelte", {
+			chatId: "c1",
+			title: "Probe",
+			initialMessages: [
+				{ id: "m1", role: "user", content: "Here:\n\n```js\nconst x = 1;\n```\n\nand $x^2$.", timestamp: Date.now() },
+				{
+					id: "m2",
+					role: "user",
+					content: [{ type: "text", text: "first part" }, { type: "text", text: "second part" }],
+					timestamp: Date.now(),
+				},
+			],
+		});
+		const cards = learnerCards(html);
+		assert.equal(cards.length, 2, "both learner messages rendered");
+		const [code, parts] = cards;
+		assert.ok(code!.includes('data-testid="md-code"'), "learner code renders as the code block");
+		assert.ok(code!.includes('aria-label="Copy code"'), "the code keeps its existing copy control");
+		assert.ok(code!.includes("katex"), "learner math renders");
+		assert.ok(!code!.includes("```"), "the fence markers are consumed");
+		assert.match(parts!, /first part[\s\S]*second part/, "every text part renders in order");
+	});
+
+	it("sanitizes raw HTML and never tool-repairs learner math", async () => {
+		const html = await render("/src/lib/chat/ChatPage.svelte", {
+			chatId: "c2",
+			title: "Probe",
+			initialMessages: [
+				{
+					id: "m1",
+					role: "user",
+					content: String.raw`row sums to $\\frac{1}{2}$ <b>bold</b> <script>alert(1)</script>`,
+					timestamp: Date.now(),
+				},
+			],
+		});
+		const card = html.split('data-testid="user-message"')[1]!;
+		assert.ok(!/<script/i.test(card), "raw script is stripped");
+		assert.ok(card.includes("<b>bold</b>"), "sanitized inline HTML still renders");
+		const { document } = parseHTML(`<html><body>${card}</body></html>`);
+		const tex = [...document.querySelectorAll('annotation[encoding="application/x-tex"]')].map((node) => node.textContent);
+		assert.deepEqual(tex, [String.raw`\\frac{1}{2}`], "over-escaped learner math keeps its literal source");
 	});
 });
 

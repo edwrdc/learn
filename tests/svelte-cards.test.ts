@@ -167,6 +167,23 @@ describe("answered card", () => {
 		assert.ok(!body.includes("incorrect") && !body.includes('data-mark="x"'));
 	});
 
+	it("renders the text answer as Markdown, without decorative quotes", async () => {
+		const askData: QuestionData = { id: "a2", kind: "ask", question: "How does the gradient behave?", mode: "text", options: [], createdAt: new Date().toISOString() };
+		const answer = buildAnswer(askData, { text: "It points uphill.\n\n```py\nprint(1)\n```\n\nUse `grad(f)`." }, "ask_user_question");
+		const body = await html("/src/lib/chat/AnsweredCard.svelte", { answer });
+		assert.ok(body.includes('data-testid="md-code"'), "the fenced answer code renders as a block");
+		assert.ok(body.includes('data-streamdown="inline-code"'), "the inline answer code renders");
+		assert.ok(!body.includes("“"), "the answer carries no decorative quotes");
+	});
+
+	it("expanded thinking renders code and math with house typography, never italic", async () => {
+		const body = await html("/src/lib/chat/ThinkingBlock.svelte", { text: "try `x=1` and $x^2$", defaultOpen: true });
+		assert.ok(body.includes('data-streamdown="inline-code"'), "thinking inline code renders");
+		assert.ok(body.includes("katex"), "thinking math renders");
+		assert.ok(!body.includes("italic"), "thinking prose, code and math are never italic");
+		assert.ok(body.includes("text-foreground/50"), "the muted thinking treatment stays");
+	});
+
 	it("explain reveals one committed answer with no verdict marks", async () => {
 		const explain: QuestionData = {
 			id: "e1",

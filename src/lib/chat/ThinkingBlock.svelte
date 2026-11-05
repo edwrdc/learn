@@ -2,6 +2,7 @@
 import { untrack } from "svelte";
 	import { ChevronDown } from "@lucide/svelte";
 	import { cn } from "$lib/utils";
+	import Markdown from "$lib/markdown/Markdown.svelte";
 
 	let {
 		label = "YOUR THINKING",
@@ -47,6 +48,6 @@ import { untrack } from "svelte";
 		<ChevronDown class={cn("size-4 shrink-0 transition-transform", open ? "rotate-180" : "rotate-0")} />
 	</button>
 	{#if open}
-		<span class="lh-prose mt-1.5 block whitespace-pre-wrap text-[15px] italic text-foreground/50">{text}</span>
+		<div class="mt-1.5 text-[15px] text-foreground/50"><Markdown text={text} /></div>
 	{/if}
 </div>

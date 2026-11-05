@@ -80,6 +80,11 @@ describe("messageMarkdown", () => {
 		assert.equal(md, "### Learner\n\nhello");
 	});
 
+	it("learner code and math export as the original source string", () => {
+		const source = "Here:\n\n```js\nconst x = 1;\n```\n\nand $x^2$.";
+		assert.equal(messageMarkdown(user("u1", source), "u1", false), `### Learner\n\n${source}`);
+	});
+
 	it("quiz blocks: question + outcome + the learner's note", () => {
 		const md = messageMarkdown(
 			result("r1", "q1", "quiz", { questionText: "What is a derivative?", correct: false, dontKnow: false, note: "mixed up signs" }),

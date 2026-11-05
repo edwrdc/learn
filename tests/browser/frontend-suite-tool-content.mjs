@@ -173,17 +173,20 @@ export async function run(run, check) {
 			await page.waitForJs(`!!document.querySelector('[data-testid=answered-card]')`, 20_000, "answered card");
 			const card = page.js(`(() => {
 				const card = document.querySelector('[data-testid=answered-card]');
-				const paragraphs = [...card.querySelectorAll('p')];
+				const committed = [...card.querySelectorAll('div')].find((node) => node.firstElementChild?.textContent?.trim() === 'The answer:');
+				const committedParagraphs = committed ? [...committed.querySelectorAll('p')] : [];
 				return {
-					paragraphs: paragraphs.length,
-					firstParentClass: paragraphs[1]?.parentElement?.className ?? null,
+					paragraphs: card.querySelectorAll('p').length,
+					committedParagraphs: committedParagraphs.length,
+					firstParentClass: committedParagraphs[0]?.parentElement?.className ?? null,
 					katexErrors: card.querySelectorAll('.katex-error').length,
 					katex: card.querySelectorAll('.katex').length,
 					text: card.innerText,
 					tucked: !!card.querySelector('[data-testid=tucked-explanation]'),
 				};
 			})()`);
-			assert.equal(card.paragraphs, 3, `expected the question plus two committed-answer paragraphs, saw ${card.paragraphs}`);
+			assert.equal(card.paragraphs, 4, `expected the question, the learner answer and two committed-answer paragraphs, saw ${card.paragraphs}`);
+			assert.equal(card.committedParagraphs, 2, `expected two committed-answer paragraphs, saw ${card.committedParagraphs}`);
 			assert.ok(card.firstParentClass?.includes("[&>p:first-child]:inline"), "the committed first paragraph is not inline");
 			assert.ok(!card.firstParentClass?.includes("[&_p]:inline"), "the committed reveal flattened every paragraph inline");
 			assert.equal(card.katexErrors, 0, "the committed reveal rendered a KaTeX error");
@@ -211,10 +214,17 @@ export async function run(run, check) {
 			await page.goto(`/chat/${chatId}`, { ready: '[data-testid="answered-card"]' });
 			const reloaded = await page.js(`(() => {
 				const card = document.querySelector('[data-testid=answered-card]');
-				const paragraphs = [...card.querySelectorAll('p')];
-				return { paragraphs: paragraphs.length, firstParentClass: paragraphs[1]?.parentElement?.className ?? null, committed: card.innerText.includes('steepest ascent') };
+				const committed = [...card.querySelectorAll('div')].find((node) => node.firstElementChild?.textContent?.trim() === 'The answer:');
+				const committedParagraphs = committed ? [...committed.querySelectorAll('p')] : [];
+				return {
+					paragraphs: card.querySelectorAll('p').length,
+					committedParagraphs: committedParagraphs.length,
+					firstParentClass: committedParagraphs[0]?.parentElement?.className ?? null,
+					committed: card.innerText.includes('steepest ascent'),
+				};
 			})()`);
-			assert.equal(reloaded.paragraphs, 3, "the reloaded committed reveal changed its paragraph count");
+			assert.equal(reloaded.paragraphs, 4, "the reloaded committed reveal changed its paragraph count");
+			assert.equal(reloaded.committedParagraphs, 2, "the reloaded committed reveal changed its committed paragraph count");
 			assert.ok(reloaded.firstParentClass?.includes("[&>p:first-child]:inline"), "the reloaded committed reveal lost the inline-first paragraph");
 			assert.ok(!reloaded.firstParentClass?.includes("[&_p]:inline"), "the reloaded committed reveal flattened every paragraph");
 			assert.equal(reloaded.committed, true, "the reloaded card lost the committed answer");

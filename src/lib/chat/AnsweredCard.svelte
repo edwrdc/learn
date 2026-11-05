@@ -90,7 +90,7 @@
 		{/if}
 
 		{#if answer.text}
-			<div class="lh-prose mt-2 whitespace-pre-wrap">“{answer.text}”</div>
+			<div class="mt-2"><Markdown text={answer.text} /></div>
 		{/if}
 
 		{#if isQuiz && answer.confidence != null}

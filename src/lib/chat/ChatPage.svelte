@@ -765,8 +765,8 @@ import { untrack } from "svelte";
 									{#if message.role === "user"}
 										<div data-testid="user-message" class="my-2 w-full border-l-[calc(3ch-14px)] border-muted-foreground/30 bg-card py-1 pl-[14px] pr-4 font-ui text-xs">
 											<div class="font-medium uppercase tracking-wide text-muted-foreground">You</div>
-											<div class="lh-prose whitespace-pre-wrap text-foreground">
-												{message.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}
+											<div class="text-foreground">
+												<Markdown text={message.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")} />
 											</div>
 										</div>
 									{:else}
