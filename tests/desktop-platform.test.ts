@@ -8,6 +8,7 @@ import { describe, it } from "node:test";
 
 const require = createRequire(import.meta.url);
 const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url));
+const requireMain = createRequire(mainFile);
 const mainSource = readFileSync(mainFile, "utf8");
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
 	author: { name: string; email: string };
@@ -35,7 +36,9 @@ function windowOptions(platform: string) {
 		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
 	};
 	const context = {
-		require: (id: string) => id === "electron" ? electron : require(id),
+		require: (id: string) => id === "electron" ? electron
+			: id === "./free-port.cjs" ? requireMain("./free-port.cjs")
+			: require(id),
 		process: { platform, argv: [], env: {}, on() {} },
 		__dirname: dirname(mainFile),
 	};

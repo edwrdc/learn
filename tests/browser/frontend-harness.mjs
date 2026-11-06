@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { freePort } from "../../electron/free-port.cjs";
 import { mockProvider } from "./frontend-mock-provider.mjs";
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -29,17 +29,6 @@ function cleanEnv(home) {
 		LH_IGNORE_ENV_KEYS: "1",
 		NODE_ENV: "production",
 	};
-}
-
-function freePort() {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer();
-		srv.listen(0, "127.0.0.1", () => {
-			const { port } = srv.address();
-			srv.close(() => resolve(port));
-		});
-		srv.on("error", reject);
-	});
 }
 
 function fileHash(file) {

@@ -1,7 +1,7 @@
 import { abortExtraction, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
-import { titleFromPrompt } from "../core/contracts.ts";
+import { titleFromPrompt, type SessionCoverage } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -112,27 +112,6 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }
 
-/** One session's coverage read (extraction-UX redesign, owner dispatch
- *  2026-09-24): the chat view's ring meter + popover data, scoped to one
- *  chat (the all-sessions GET died with this redesign — nothing consumed
- *  it once the sidebar and ring read here; the Extract POST stays).
- *  Uncovered stays DERIVED per request (fingerprint the transcript,
- *  diff the coverage ledger — never dual-tracked).
- *
- *  lastFoldedAt: the newest coverage row's fold timestamp — a cheap single
- *  pass over the chat's ledger rows (the ring popover's "last extraction"
- *  line); null before the session's first fold. */
-export interface SessionCoverage {
-	totalMessages: number;
-	coveredCount: number;
-	uncoveredCount: number;
-	coveredTokens: number;
-	uncoveredTokens: number;
-	/** True while a chat-kind extraction run is registered for this session. */
-	running: boolean;
-	/** ISO of the newest fold in this session's coverage rows; null before any. */
-	lastFoldedAt: string | null;
-}
 
 /** The per-session coverage block (see SessionCoverage). Null when the
  *  chat doesn't exist — callers own the 404. */

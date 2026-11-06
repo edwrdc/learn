@@ -36,7 +36,7 @@ import type {
 } from "../core/contracts/models.ts";
 import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolution.ts";
 import { AUTH_PROVIDER_KEYS } from "../core/auth-keys.ts";
-import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelSlotName, type ModelsSettings } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelsSettings } from "../core/settings.ts";
 
 /** The picker's client-safe model entry (contract: core/contracts/models.ts). */
 export type ModelDto = ModelCatalogEntry;
@@ -223,23 +223,7 @@ export type SettingsValidation =
  *    prober/teacher pin; one controller, so the two specs share it). */
 export function validateChatSettings(settings: ChatSettings): SettingsValidation {
 	syncCustomEndpointProvider();
-	const providers = piModels().getProviders().map((p) => p.id);
-	if (settings.model) {
-		const { provider, id } = settings.model;
-		if (!providers.includes(provider)) {
-			return { ok: false, error: `Unknown provider "${provider}" — configured: ${providers.join(", ")}` };
-		}
-		if (!piModels().getModel(provider, id)) {
-			return { ok: false, error: `No model "${id}" in the ${provider} catalog` };
-		}
-	}
-	// BYOK interlude (owner, 2026-09-22): thinking levels NEVER reject a
-	// write — a model swap with a pinned level JUST WORKS. The WRITE clamps
-	// the pin to the new model's nearest supported level (clampChatLevel
-	// below, applied by the routes) and stores the clamped result; a bare
-	// level with no model anywhere rides unchecked and clamps against
-	// whatever the chain later holds at engine build.
-	return { ok: true };
+	return validateModelSettings(settings);
 }
 
 export function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
@@ -247,13 +231,15 @@ export function validateModelsSettings(settings: ModelsSettings): SettingsValida
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
 		if (!slot) continue;
-		const verdict = validateSlotSpec(name, slot);
+		const verdict = validateModelSettings(slot);
 		if (!verdict.ok) return verdict;
 	}
 	return { ok: true };
 }
 
-function validateSlotSpec(name: ModelSlotName, slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
+/** The one catalog gate a settings write shares: a named provider must be
+ *  configured, and its model must exist in that provider's catalog. */
+function validateModelSettings(slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
 	const providers = piModels().getProviders().map((p) => p.id);
 	if (slot.model) {
 		const { provider, id } = slot.model;
@@ -264,10 +250,12 @@ function validateSlotSpec(name: ModelSlotName, slot: { model?: { provider: strin
 			return { ok: false, error: `No model "${id}" in the ${provider} catalog` };
 		}
 	}
-	// BYOK interlude (owner, 2026-09-22): the supported-level verdict is
-	// DEAD — a slot write with a pinned level never rejects; the WRITE
-	// clamps the level to the model's nearest supported (clampModelsLevels
-	// below, applied by the route) and stores the clamped result.
+	// BYOK interlude (owner, 2026-09-22): thinking levels NEVER reject a
+	// write — a model swap with a pinned level JUST WORKS. The WRITE clamps
+	// the pin to the new model's nearest supported level (clampChatLevel /
+	// clampModelsLevels below, applied by the routes) and stores the clamped
+	// result; a bare level with no model anywhere rides unchecked and clamps
+	// against whatever the chain later holds at engine build.
 	return { ok: true };
 }
 

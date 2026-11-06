@@ -30,9 +30,9 @@ import { verifyProviderRuntime } from "./smoke-provider-runtime.mjs";
 import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as http from "node:http";
-import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { freePort } from "../electron/free-port.cjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const SOURCE = path.join(ROOT, "dist-server", "standalone");
@@ -62,18 +62,6 @@ function isolatedPayload() {
 	}
 	fs.cpSync(SOURCE, isolated, { recursive: true });
 	return isolated;
-}
-
-/** A free TCP port (listen(0) → the kernel assigns one) — mirrors main.cjs. */
-function freePort() {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer();
-		srv.listen(0, "127.0.0.1", () => {
-			const { port } = srv.address();
-			srv.close(() => resolve(port));
-		});
-		srv.on("error", reject);
-	});
 }
 
 /** One JSON request; resolves { status, body } (0 = connection refused/failed). */

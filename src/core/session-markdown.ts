@@ -25,18 +25,9 @@ import {
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	problemInputForConclude,
+	textOf,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-
-/** The user-facing text blocks of a native message (string or text parts). */
-function textOf(content: unknown): string[] {
-	if (typeof content === "string") return content.trim() ? [content] : [];
-	if (!Array.isArray(content)) return [];
-	return content
-		.filter((c): c is { type: "text"; text: string } => (c as { type?: string }).type === "text")
-		.map((c) => c.text)
-		.filter((t) => t.trim().length > 0);
-}
 
 /** The practice join context (owner-approved, 2026-10-06 export round):
  *  practice tool RESULTS are acks — the statement, outcome, and verdict

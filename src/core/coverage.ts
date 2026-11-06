@@ -22,19 +22,9 @@
 import { createHash } from "node:crypto";
 
 import type { CoverageEntry } from "./contracts/graph.ts";
-import type { LhMessage } from "./native-messages.ts";
+import { textOf, type LhMessage } from "./native-messages.ts";
 
 export type { CoverageEntry };
-
-/** The user-facing text of a native message (string or text blocks). */
-function textOf(content: unknown): string[] {
-	if (typeof content === "string") return content.trim() ? [content] : [];
-	if (!Array.isArray(content)) return [];
-	return content
-		.filter((c): c is { type: "text"; text: string } => (c as { type?: string }).type === "text")
-		.map((c) => c.text)
-		.filter((t) => t.trim().length > 0);
-}
 
 /**
  * The extraction-relevant lines of ONE native message — the shared seam

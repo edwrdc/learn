@@ -1,11 +1,12 @@
 import { Type } from "typebox";
 import type { Usage } from "@earendil-works/pi-ai";
-import type { AppTool, AppToolResult } from "../tool-adapter.ts";
+import type { AppTool } from "../tool-adapter.ts";
 import {
 	backgroundRun,
 	type RoleRunIdentity,
 	type RoleStateIo,
 	type VisualRunState,
+	textResult,
 } from "./durable-run.ts";
 import type { VisualResult } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
@@ -96,10 +97,6 @@ export const VISUAL_LOOK_MESSAGE =
 	"Here is the current render of your SVG — inspect it critically (geometry, labels, clipping, readability):";
 export const VISUAL_UNLOOKED_MESSAGE =
 	"You finished without looking at a render of your final SVG. Above is its render. If it is correct and clean, reply with just your notes; otherwise call write_svg with fixes and render again.";
-
-function textResult(text: string): AppToolResult {
-	return { content: [{ type: "text", text }] };
-}
 
 export function visualRoleTools(
 	io: RoleStateIo<VisualRunState>,

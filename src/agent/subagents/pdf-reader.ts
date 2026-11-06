@@ -1,11 +1,12 @@
 import { Type } from "typebox";
-import type { AppTool, AppToolResult } from "../tool-adapter.ts";
+import type { AppTool } from "../tool-adapter.ts";
 import { resolveSourcePath } from "../tools/fs-shared.ts";
 import {
 	backgroundRun,
 	type PdfRunState,
 	type RoleRunIdentity,
 	type RoleStateIo,
+	textResult,
 } from "./durable-run.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi, type RenderedPdfPage } from "./headless.ts";
@@ -81,10 +82,6 @@ export interface PdfReaderOptions {
 }
 
 export interface PdfReaderInput extends PdfToolInput {}
-
-function textResult(text: string): AppToolResult {
-	return { content: [{ type: "text", text }] };
-}
 
 function addPages(state: PdfRunState, pages: readonly number[], read: boolean): void {
 	for (const page of pages) {

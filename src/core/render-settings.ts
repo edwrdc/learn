@@ -164,11 +164,6 @@ export const DEFAULT_REGION_TUNING: RegionTuning = {
 	enabled: true,
 };
 
-/** Nearest member of a fixed option set (dropdowns have no free values). */
-function snapToOption(value: number, options: readonly number[]): number {
-	return options.reduce((best, o) => (Math.abs(o - value) < Math.abs(best - value) ? o : best), options[0] as number);
-}
-
 /** Clamp/validate a region tuning. `bitmap` snaps to the nearest allowed
  *  option (a fixed set — dropdown, not a free number). */
 export function sanitizeRegionTuning(input: Partial<RegionTuning> | null | undefined): RegionTuning {
@@ -181,7 +176,7 @@ export function sanitizeRegionTuning(input: Partial<RegionTuning> | null | undef
 	return {
 		dilation: ladd(input?.dilation, REGION_DILATION_LADDER, d.dilation),
 		blur: ladd(input?.blur, REGION_BLUR_LADDER, d.blur),
-		bitmap: snapToOption(bitmap, REGION_BITMAP_OPTIONS),
+		bitmap: snapToLadder(bitmap, REGION_BITMAP_OPTIONS),
 		edgeAlpha: ladd(input?.edgeAlpha, REGION_EDGE_ALPHA_LADDER, d.edgeAlpha),
 		// Old persisted files predate the switch: missing → on (the look
 		// users tuned); only an explicit false turns regions off.

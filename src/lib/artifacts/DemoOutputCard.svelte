@@ -7,6 +7,7 @@ import { untrack } from "svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { buildDemoSrcDoc, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState, type DemoBridgeState } from "./demo-bridge";
 	import { downloadFile, slugFilename } from "./download";
+	import { persistInverted } from "./artifact-ui";
 	import InvertDisc from "./InvertDisc.svelte";
 
 	let {
@@ -35,12 +36,7 @@ import { untrack } from "svelte";
 
 	function toggleInverted(next: boolean) {
 		inverted = next;
-		if (!actions?.chatId || !messageId) return;
-		void fetch(`/api/chats/${actions.chatId}/artifact-ui`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { messageId, inverted: next } }),
-		}).catch(() => {});
+		persistInverted(actions?.chatId, messageId, next);
 	}
 </script>
 

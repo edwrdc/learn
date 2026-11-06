@@ -8,6 +8,7 @@ import { untrack } from "svelte";
 	import type { SessionMermaidApi } from "$lib/chat/types";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { downloadFile } from "./download";
+	import { persistInverted } from "./artifact-ui";
 	import InvertDisc from "./InvertDisc.svelte";
 	import SvgImage from "./SvgImage.svelte";
 
@@ -34,12 +35,7 @@ import { untrack } from "svelte";
 
 	function toggleInverted(next: boolean) {
 		inverted = next;
-		if (!actions?.chatId || !messageId) return;
-		void fetch(`/api/chats/${actions.chatId}/artifact-ui`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ input: { messageId, inverted: next } }),
-		}).catch(() => {});
+		persistInverted(actions?.chatId, messageId, next);
 	}
 </script>
 

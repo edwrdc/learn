@@ -2,16 +2,6 @@
  *  the donut fold. */
 import { resolveSettings, type UserSettings } from "@/src/core";
 
-export interface SessionCoverage {
-	totalMessages: number;
-	coveredCount: number;
-	uncoveredCount: number;
-	coveredTokens: number;
-	uncoveredTokens: number;
-	running: boolean;
-	lastFoldedAt: string | null;
-}
-
 export interface GraphRead {
 	enabled: boolean;
 	chunkTokens: number;
