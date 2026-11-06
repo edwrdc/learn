@@ -13,7 +13,7 @@ import { Type, type Static } from "typebox";
 import type { AppTool, AppToolResult } from "../tool-adapter.ts";
 import { invalidInputResult, toToolResult } from "../tool-execute.ts";
 import { healEncodedArguments } from "../../core/argument-heal.ts";
-import type { AuditVerdicts, SessionFindings } from "../../core/contracts.ts";
+import type { AuditVerdicts } from "../../core/contracts.ts";
 import type { RoleStateIo, SubmitRunState } from "./durable-run.ts";
 
 // ── the weak-model string-heal (owner, 2026-09-28; moved here from
@@ -134,8 +134,7 @@ const sessionFindingsSchema = Type.Object({
 
 /** What the extractor SUBMITS (the redesign's wire shape) — propositions
  *  + chains. fillFindings normalizes it; validateFindingsChains checks
- *  the chain laws; asSessionFindings lifts it straight into
- *  SessionFindings — chains are stored AS-IS (chains-primary, owner
+ *  the chain laws — chains are stored AS-IS (chains-primary, owner
  *  2026-09-30: no edge translation at any seam). */
 export type FindingsSubmit = Static<typeof findingsSchema>;
 
@@ -304,18 +303,5 @@ export function submitRoleTool(
 			});
 			return { ...(toToolResult(value) as AppToolResult), terminate: true };
 		},
-	};
-}
-
-/** The pipeline's lift of a submitted session shape into SessionFindings
- *  (aliases filled; the messageId anchor preserved, 2026-10-13). */
-export function asSessionFindings(raw: unknown): SessionFindings {
-	const value = raw as {
-		propositions: Array<{ id: string; name: string; statement: string; aliases?: string[]; messageId?: string }>;
-		chains: Array<{ premises: string[]; conclusion: string }>;
-	};
-	return {
-		propositions: value.propositions.map((p) => ({ ...p, aliases: p.aliases ?? [] })),
-		chains: value.chains,
 	};
 }

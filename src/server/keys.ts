@@ -2,11 +2,11 @@
  * The auth/keys composition (auth-keys wave, 2026-09-19): the server-side
  * key manager behind GET/PUT/DELETE /api/keys.
  *
- * THE ENV SEAM (the architecture keystone): every consumer — models.ts's
- * openRouterApiKey(), the sub-agents, web.ts, the STT route — reads
- * process.env directly, and the agent layer may not import the store
- * layer. Instead of rewiring five consumers across lanes, the store
- * REFLECTS itself into the child's env: at boot (idempotent, anchored on
+ * THE ENV SEAM (the architecture keystone): every consumer — the
+ * sub-agents, web.ts, the STT route — reads process.env directly, and the
+ * agent layer may not import the store layer. Instead of rewiring every
+ * consumer across lanes, the store REFLECTS itself into the child's env:
+ * at boot (idempotent, anchored on
  * globalThis like the extraction registry) every file var UNSET in the
  * real env is fill-gapped into process.env, and each save/delete updates
  * file + env together. Keys therefore take effect immediately — no restart

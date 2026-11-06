@@ -7,7 +7,3 @@ export interface ChatActions {
 	sendText: (text: string) => void;
 	openSetup: () => void;
 }
-
-export interface JobsFeed {
-	list: import("@/src/core").JobRecord[];
-}

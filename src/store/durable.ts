@@ -1,7 +1,7 @@
 /**
  * THE DURABLE CHAT STORE.
  *
- * One SQLite database per PUBLIC chat id at PATHS.durable/<chatId>/. The
+ * One SQLite database per PUBLIC chat id at PATHS.data/durable/<chatId>/. The
  * database has exactly ONE Harness owner in this process (the handle map
  * below — globalThis because Next dev hands every route its own module
  * instance). The chat's own transcript is the ROOT conversation; job and
@@ -47,15 +47,6 @@ export const CONTINUATION_KIND = "lh.continuation";
  *  request hook hides the `lh.continuation` ENTRY, so a learner message
  *  with the same text (string or structured) keeps reaching the provider. */
 export const CONTINUATION_TEXT = "[continue]";
-
-/** Every entry kind this app writes. Durable reserves the `pi.` prefix. */
-export type LhEntryKind =
-	| "lh.user"
-	| "lh.assistant"
-	| "lh.tool-result"
-	| "lh.marker"
-	| "lh.edit"
-	| typeof CONTINUATION_KIND;
 
 /** The `data` payload of an app-written entry. */
 export interface LhEntryData {

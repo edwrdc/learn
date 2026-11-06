@@ -140,7 +140,6 @@ function proseView(messages: ReadonlyArray<LhMessage>, title?: string): string {
 // ./submit-role.ts: the durable role factory rebuilds the exact same submit
 // tool from the persisted run descriptor after a restart.
 type NotesFindings = SessionFindings;
-type NotesAuditResult = AuditVerdicts;
 
 // ── the extractor's system prompt (owner redesign, 2026-09-30) ──
 //

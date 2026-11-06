@@ -172,11 +172,6 @@ export function routedModels(): Models {
 	return routed;
 }
 
-/** OpenRouter API key (BYOK); tests never read this — they inject engines. */
-export function openRouterApiKey(): string | undefined {
-	return process.env.OPENROUTER_API_KEY || undefined;
-}
-
 interface CustomProviderSnapshot {
 	config: CustomEndpointConfig;
 	provider: Provider;

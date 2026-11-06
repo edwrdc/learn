@@ -4,7 +4,6 @@
 import { goto } from "$app/navigation";
 import {
 	actionForBinding,
-	bindingForAction,
 	eventBinding,
 	isTypingSurface,
 	kbdEventForAction,
@@ -70,8 +69,4 @@ export function initKeyboard(): () => void {
 	};
 	window.addEventListener("keydown", onKeyDown);
 	return () => window.removeEventListener("keydown", onKeyDown);
-}
-
-export function actionBinding(action: Parameters<typeof bindingForAction>[0]): string {
-	return bindingForAction(action);
 }

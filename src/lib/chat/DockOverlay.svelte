@@ -76,7 +76,6 @@ import { untrack } from "svelte";
 	let sbInset = $state(0);
 	let dockMaxH = $state<number | null>(null);
 	let prevPendingId: string | null = untrack(() => pending?.toolCallId ?? null);
-	let initialPending = untrack(() => pending?.toolCallId ?? null);
 	let prevExpanded = untrack(() => expanded);
 	let intent = false;
 	let intentTimer: ReturnType<typeof setTimeout> | undefined;
