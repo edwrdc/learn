@@ -11,7 +11,7 @@
 </script>
 
 {#if tool === "research" || tool === "pdf"}
-	<JobCards {part} />
+	<JobCards {part} {jobs} />
 {:else if tool === "demo"}
 	<DispatchCard toolCallId={part.toolCallId} kind="demo" {jobs} />
 {:else if tool === "visual"}

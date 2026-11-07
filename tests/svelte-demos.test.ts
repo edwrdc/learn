@@ -166,6 +166,36 @@ describe("dispatch card", () => {
 	});
 });
 
+describe("artifact part job wiring", () => {
+	const job = (over: Record<string, unknown>) => ({
+		id: "j1",
+		kind: "research",
+		chatId: "c1",
+		toolCallId: "call-1",
+		status: "done",
+		activity: "delivered",
+		createdAt: new Date(Date.now() - 5000).toISOString(),
+		updatedAt: new Date().toISOString(),
+		...over,
+	});
+	const render = (type: string, jobs: unknown[]) =>
+		html("/src/lib/artifacts/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
+
+	it("forwards the job list so research and pdf cards settle and refuse", async () => {
+		for (const [type, label] of [["tool-research", "Research agent"], ["tool-pdf", "PDF reader"]] as const) {
+			const done = await render(type, [job({})]);
+			assert.match(done, new RegExp(label));
+			assert.match(done, /delivered/);
+			assert.ok(!done.includes("Dispatched"), `${type} rendered the pending card over a settled job`);
+
+			const models = await render(type, [job({ status: "error", error: "No model configured — set up your models first (missing: cheap)" })]);
+			assert.ok(models.includes('data-testid="dispatch-refused"'), `${type} rendered the refusal as a settled card`);
+			assert.match(models, /needs model setup/);
+			assert.ok(!models.includes("failed"), `${type} rendered the model refusal as a failure`);
+		}
+	});
+});
+
 describe("steer cards", () => {
 	const view = (steer: unknown) => projectView([steer as never])[0]!;
 	const render = (steer: unknown) => html("/src/lib/artifacts/SteerCard.svelte", { message: view(steer) });

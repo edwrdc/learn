@@ -105,6 +105,7 @@ import { untrack } from "svelte";
 
 	let turnInFlight = $state(untrack(() => initiallyInFlight ?? false));
 	let compacting = $state(untrack(() => initiallyCompacting));
+	let compactionRevision = 0;
 	let text = $state("");
 	let code = $state("");
 	let textMirror = "";
@@ -233,6 +234,19 @@ import { untrack } from "svelte";
 		if (!Array.isArray(record.messages)) return;
 		session.setMessages(record.messages);
 		if (status === "ready") autoContinue(record.messages);
+	}
+
+	async function syncCompaction(): Promise<void> {
+		const revision = ++compactionRevision;
+		try {
+			const res = await fetch(`/api/chats/${chatId}`);
+			if (!res.ok) return;
+			const record = (await res.json()) as { compacting?: boolean };
+			// A frame that arrived after the read started owns the state.
+			if (revision !== compactionRevision) return;
+			if (typeof record.compacting === "boolean") compacting = record.compacting;
+		} catch {
+		}
 	}
 
 	async function adoptAppendOnly(): Promise<void> {
@@ -495,7 +509,9 @@ import { untrack } from "svelte";
 				void syncFromServer();
 			}),
 			serverEvents.subscribe("compaction-changed", (payload) => {
-				if (payload.chatId === chatId) compacting = payload.running;
+				if (payload.chatId !== chatId) return;
+				compactionRevision += 1;
+				compacting = payload.running;
 			}),
 			serverEvents.subscribe("record-changed", (payload) => {
 				if (payload.chatId !== chatId || localStream || turnInFlight) return;
@@ -505,7 +521,10 @@ import { untrack } from "svelte";
 				if (payload.chatId != null && payload.chatId !== chatId) return;
 				scheduleJobs();
 			}),
-			serverEvents.onResync(() => void fetchJobs()),
+			serverEvents.onResync(() => {
+				void fetchJobs();
+				void syncCompaction();
+			}),
 		];
 		return () => {
 			for (const off of offs) off();
@@ -537,6 +556,7 @@ import { untrack } from "svelte";
 		const unmountDictation = dictation.mount();
 		void fetchJobs();
 		void syncTurns();
+		void syncCompaction();
 		// A mount full sync would replace the view while the ?prompt send is optimistic.
 
 		if (initialPromptOwed(initialMessages, initialPrompt) && initialPrompt) {
