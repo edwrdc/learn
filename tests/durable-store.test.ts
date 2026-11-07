@@ -9,6 +9,7 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
@@ -16,7 +17,10 @@ import test from "node:test";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-store-"));
 process.env.LH_DATA_DIR = TMP;
 
+const { PATHS } = await import("../config.ts");
+assert.equal(PATHS.data, TMP);
 const { chatStore } = await import("../src/store/chats.ts");
+const { subscribe } = await import("../src/core/events.ts");
 const {
 	appendEntries,
 	closeChatRuntime,
@@ -291,6 +295,41 @@ test("hard deletion closes the runtime, removes the database and backup, and is 
 	assert.equal(fs.existsSync(chatFile(chat.id)), false, "the metadata file is gone");
 	assert.equal(await chatStore.getChat(chat.id), null, "a deleted chat does not resurrect");
 	assert.equal(await chatStore.deleteChat(chat.id), false, "a second delete is a clean false");
+});
+
+test("hard deletion rejects a metadata removal failure and permits retry after partial removal", async (t) => {
+	const chat = chatStore.createChat("failed delete");
+	await chatStore.saveMessages(chat.id, [newUserMessage("hi")]);
+	const file = chatFile(chat.id);
+	const before = fs.readFileSync(file);
+	const failure = new Error("EACCES: private metadata path");
+	const realUnlink = fs.unlinkSync;
+	const unlink = t.mock.method(fs, "unlinkSync", (target: fs.PathLike) => {
+		if (target === file) throw failure;
+		return realUnlink(target);
+	});
+	syncBuiltinESMExports();
+	let announces = 0;
+	const off = subscribe((event) => { if (event.type === "chats-changed") announces++; });
+	try {
+		await assert.rejects(chatStore.deleteChat(chat.id), (error) => error === failure);
+		assert.equal(peekChatRuntime(chat.id), undefined);
+		assert.equal(fs.existsSync(durableDir(chat.id)), false, "runtime removal already happened, not rolled back");
+		assert.deepEqual(fs.readFileSync(file), before, "metadata survives the failed unlink");
+		assert.equal(announces, 0, "a failed deletion must not announce success");
+		unlink.mock.restore();
+		syncBuiltinESMExports();
+		assert.equal(await chatStore.deleteChat(chat.id), true);
+		assert.equal(fs.existsSync(file), false);
+		assert.equal(announces, 1);
+		assert.equal(await chatStore.deleteChat(chat.id), false);
+		assert.equal(announces, 1);
+	} finally {
+		unlink.mock.restore();
+		syncBuiltinESMExports();
+		off();
+		await closeChatRuntime(chat.id);
+	}
 });
 
 test("the projection applies edits and keeps the full history for export", async () => {

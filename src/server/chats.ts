@@ -5,6 +5,7 @@ import { titleFromPrompt, type SessionCoverage } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
+import { withChatOperation } from "./chat-operations.ts";
 
 /**
  * Server-side chat entries for the transport layer (app/api/chats*,
@@ -13,7 +14,7 @@ import { isTurnRunning } from "./turn-liveness.ts";
  *
  * deleteChatSession (wave 6, session deletion — the FIRST destructive
  * operation on the graph ledgers) is the one real orchestration here:
- * gates → extraction wind-down → one synchronous deletion block. See
+ * gates → extraction wind-down → ledger purge → awaited storage deletion. See
  * core/graph-deletion.ts for the ledger semantics and the atomicity
  * argument.
  */
@@ -33,6 +34,7 @@ const WIND_DOWN_POLL_MS = 50;
 export type ChatDeleteOutcome =
 	| { ok: false; status: 404; code: "not_found"; error: string }
 	| { ok: false; status: 409; code: "turn_in_flight" | "jobs_running"; error: string; jobIds: string[] }
+	| { ok: false; status: 500; code: "delete_failed"; error: string }
 	| { ok: false; status: 503; code: "extraction_winding_down"; error: string }
 	| {
 			ok: true;
@@ -54,62 +56,62 @@ export type ChatDeleteOutcome =
  *      CANCELLED (abortExtraction: spend stops, nothing merges), then
  *      awaited off the registry. A timeout is a retryable 503, never a
  *      forced race.
- *   3. THE SYNC BLOCK — everything below runs without a single await:
- *      no extraction append can interleave (the event loop never yields
- *      mid-block), so the read-filter-write of the ledger rewrites is
- *      atomic against the pipeline. Ledgers first, jobs next, the chat
- *      record LAST (a crash mid-block leaves a deletable chat with a
- *      purged graph — re-running DELETE fixes it — never a deleted chat
- *      with live traces). The pipeline's per-batch liveness guard
- *      (extraction.ts) closes the last window: a run that slipped past
- *      the wind-down finds the chat gone at its merge and aborts with
- *      nothing merged.
+ *   3. PURGE — ledger and job rewrites are synchronous, then storage
+ *      deletion awaits runtime close. Ledgers first, chat record last keeps a
+ *      partially purged chat available for a retry after a crash.
+ *
+ * The first read can recover an interrupted turn, which then refuses deletion.
  */
 export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): Promise<ChatDeleteOutcome> {
-	if (!(await stores.chatStore.getChat(chatId))) {
-		return { ok: false, status: 404, code: "not_found", error: "No such session" };
-	}
-	if (await isTurnRunning(chatId)) {
-		return {
-			ok: false,
-			status: 409,
-			code: "turn_in_flight",
-			error: "A turn is running in this session — try again when it finishes",
-			jobIds: [],
-		};
-	}
-	const runningJobs = stores.jobStore.listJobs(chatId).filter((job) => job.status === "running");
-	if (runningJobs.length > 0) {
-		return {
-			ok: false,
-			status: 409,
-			code: "jobs_running",
-			error: "Background jobs are still running in this session — try again when they finish",
-			jobIds: runningJobs.map((job) => job.id),
-		};
-	}
-	if (extractionStatuses().some((run) => run.chatId === chatId)) {
-		abortExtraction(chatId); // true cancellation — spend stops, nothing merges
-		const deadline = Date.now() + WIND_DOWN_TIMEOUT_MS;
-		while (extractionStatuses().some((run) => run.chatId === chatId)) {
-			if (Date.now() > deadline) {
-				return {
-					ok: false,
-					status: 503,
-					code: "extraction_winding_down",
-					error: "The session's extraction is still winding down — try again in a moment",
-				};
-			}
-			await new Promise((resolve) => setTimeout(resolve, WIND_DOWN_POLL_MS));
+	return withChatOperation(chatId, async () => {
+		if (!(await stores.chatStore.getChat(chatId))) {
+			return { ok: false, status: 404, code: "not_found", error: "No such session" };
 		}
-	}
+		if (await isTurnRunning(chatId)) {
+			return {
+				ok: false,
+				status: 409,
+				code: "turn_in_flight",
+				error: "A turn is running in this session — try again when it finishes",
+				jobIds: [],
+			};
+		}
+		const runningJobs = stores.jobStore.listJobs(chatId).filter((job) => job.status === "running");
+		if (runningJobs.length > 0) {
+			return {
+				ok: false,
+				status: 409,
+				code: "jobs_running",
+				error: "Background jobs are still running in this session — try again when they finish",
+				jobIds: runningJobs.map((job) => job.id),
+			};
+		}
+		if (extractionStatuses().some((run) => run.chatId === chatId)) {
+			abortExtraction(chatId); // true cancellation — spend stops, nothing merges
+			const deadline = Date.now() + WIND_DOWN_TIMEOUT_MS;
+			while (extractionStatuses().some((run) => run.chatId === chatId)) {
+				if (Date.now() > deadline) {
+					return {
+						ok: false,
+						status: 503,
+						code: "extraction_winding_down",
+						error: "The session's extraction is still winding down — try again in a moment",
+					};
+				}
+				await new Promise((resolve) => setTimeout(resolve, WIND_DOWN_POLL_MS));
+			}
+		}
 
-	// THE SYNC BLOCK — no awaits below (see the doc comment). Order:
-	// ledgers → jobs → the chat record.
-	const stats = deleteChatTraces(stores.graphStore, chatId, mode);
-	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
-	await stores.chatStore.deleteChat(chatId);
-	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
+		const stats = deleteChatTraces(stores.graphStore, chatId, mode);
+		const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
+		try {
+			if (!(await stores.chatStore.deleteChat(chatId))) throw new Error("Session storage did not delete the chat");
+		} catch (error) {
+			console.error(`[chat ${chatId}] session deletion failed:`, error);
+			return { ok: false, status: 500, code: "delete_failed", error: "Session deletion failed. Try again." };
+		}
+		return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
+	});
 }
 
 

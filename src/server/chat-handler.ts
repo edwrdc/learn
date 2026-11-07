@@ -47,6 +47,7 @@ import {
 } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
+import { withChatOperation } from "./chat-operations.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, settledTurnResponse, unregisterTurn } from "./turn-runs.ts";
 import {
@@ -255,23 +256,30 @@ async function resumeForegroundTurn(runtime: ChatRuntime): Promise<void> {
 	// A run that FINISHED before its process died is recovered the same way:
 	// its settled submission resolves at once and the handle applies the
 	// settle services without starting anything.
-	beginTurn(runtime.chatId);
-	registerTurn(
-		runtime.chatId,
-		runDurableTurn({
-			runtime,
-			chatId: runtime.chatId,
-			submission: await runtime.harness.submission(admitted.id, BACKGROUND_CONTEXT),
-			replayAfter,
-			onError: (error) => {
-				console.error(`[chat ${runtime.chatId}] recovered turn error:`, error);
-				return "An error occurred.";
-			},
-			onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
-			onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
-		}),
-	);
-	noteTurnStarted(runtime.chatId);
+	const submission = await runtime.harness.submission(admitted.id, BACKGROUND_CONTEXT);
+	const ownsClaim = beginTurn(runtime.chatId);
+	let handedOff = false;
+	try {
+		registerTurn(
+			runtime.chatId,
+			runDurableTurn({
+				runtime,
+				chatId: runtime.chatId,
+				submission,
+				replayAfter,
+				onError: (error) => {
+					console.error(`[chat ${runtime.chatId}] recovered turn error:`, error);
+					return "An error occurred.";
+				},
+				onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
+				onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
+			}),
+		);
+		handedOff = true;
+		noteTurnStarted(runtime.chatId);
+	} finally {
+		if (ownsClaim && !handedOff) endTurn(runtime.chatId);
+	}
 }
 
 interface LhTurnSettlesGlobal {
@@ -462,270 +470,275 @@ export async function handleChatInput(
 	input: TurnInput,
 	turn?: ChatTurnInjection,
 ): Promise<Response> {
-	let record: Awaited<ReturnType<typeof stores.chatStore.getChat>>;
-	try {
-		record = await stores.chatStore.getChat(chatId);
-	} catch (error) {
-		// Fail-closed runtime open (a previous run could not be restored): the
-		// committed inputs are untouched, so the retry is just another POST.
-		if (error instanceof ChatRuntimeInitError) {
-			console.error(`[chat ${chatId}] turn refused — ${error.message}`, error.cause);
-			return Response.json({ error: error.message, code: "runtime_unavailable" }, { status: 503 });
-		}
-		throw error;
-	}
-	if (!record) {
-		return Response.json({ error: "Unknown chat" }, { status: 404 });
-	}
-
-	// THE UNIVERSAL TURN GATE (BYOK, owner, 2026-09-22): a turn needs the
-	// CONVERSATION chain — the chat's own model override over the strong
-	// slot — and there is no factory floor; when both are empty the turn
-	// refuses honestly with the machine-readable 503 envelope (new sessions
-	// and continuing ones alike — wake-pipeline turns ride this same path).
-	const effective = effectiveSettings();
-	const conversation = resolveConversationSpec(record.settings, effective.models.strong);
-	if (!conversation) {
-		const envelope = modelsNotConfigured(["strong"]);
-		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
-		return Response.json(envelope, { status: 503 });
-	}
-
-	// THE KEY-PRESENCE GATE (provider-key interlude, owner, 2026-09-25): a
-	// pinned model is not enough — its PROVIDER's key must be present, or
-	// the turn dies mid-stream masked to a generic error. Truth is env-first
-	// (providerKeyPresent reads what pi-ai would read at request time), so
-	// an env-shadowed key passes.
-	if (!providerHasKey(conversation.provider)) {
-		const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
-		console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
-		return Response.json(envelope, { status: 503 });
-	}
-
-	// The engine is the app's one provider adapter (models.ts): production
-	// resolves the chat's spec (the custom endpoint's provider + credential
-	// snapshot is captured here), tests inject a scripted engine.
-	syncCustomEndpointProvider();
-	let engine: PiEngine;
-	try {
-		engine = turn?.engine ?? piEngineForSpec(conversation);
-	} catch (error) {
-		console.error(`[chat ${chatId}] model unavailable:`, error);
-		return Response.json(
-			{
-				error: "The selected model is no longer available — update your model settings",
-				code: "model_unavailable",
-			},
-			{ status: 503 },
-		);
-	}
-
-	const runtime = await openChatRuntime(chatId);
-	const phaseBeforeTurn = chatPhase(record.messages, record.kind);
-	const modelId = `${engine.model.provider}:${engine.model.id}`;
-
-	// THE COMPACTION GATE: NOTHING model-facing
-	// for this chat interleaves with a running compaction — await the settle
-	// kick's summary, compact synchronously if still over threshold. The
-	// record re-reads after because compaction appends the marker.
-	await ensureCompacted(
-		{
-			chatStore: stores.chatStore,
-			engine,
-			modelId,
-			kind: phaseBeforeTurn,
-			thresholdTokens: effectiveThresholdTokens(
-				effective.compaction?.thresholdTokens,
-				catalogContextLimits().get(modelId),
-			),
-			systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
-		},
-		chatId,
-	);
-	record = (await stores.chatStore.getChat(chatId)) ?? record;
-
-	// The input's native appends (pure; the honest 400 for an answer with no
-	// pending question call). The idle wake carries EVERY queued
-	// marker (steerDelivered filters a re-fire of an already-landed one).
-	let appends: LhMessage[];
-	try {
-		appends =
-			input.type === "steers"
-				? input.steers.filter((steer) => !steerDelivered(record!.messages, steer.id))
-				: inputAppends(record, input);
-	} catch (err) {
-		if (err instanceof ChatInputError) {
-			return Response.json({ error: err.message }, { status: 400 });
-		}
-		throw err;
-	}
-
-	// A wake whose every marker already landed delivers NOTHING — no
-	// continuation, no model call, no spend (the pump's dedupe races the
-	// transcript append, so this is reachable).
-	if (input.type === "steers" && appends.length === 0) return settledTurnResponse();
-
-	// THE QUESTION-PAUSE GENERATION GATE: while any question is unanswered,
-	// an explicit continue or a wake carrying late results may not start a
-	// generation (the phantom mount continuation after a pose). The answer
-	// path below is the only way through; it replaces the placeholder before
-	// any run. A steer wake gets 409 so the pump retries, never a fake
-	// delivery.
-	if ((input.type === "continue" || input.type === "steers") && danglingQuestionOf(record.messages) !== null) {
-		if (input.type === "steers") {
-			return Response.json({ error: "A question is pending" }, { status: 409 });
-		}
-		return settledTurnResponse();
-	}
-
-	// THE PARALLEL-QUESTION GATE: an answer that leaves a SIBLING question pending
-	// defers its wake. The dock advances to the next question (the answer
-	// write + record-changed carry the view); the LAST answer fires the one
-	// reaction turn with every result ADJACENT to its calling assistant
-	// message — the provider shape law. The gate above is the server's one
-	// generation boundary; this branch is the answer's cheap terminal.
-	if (input.type === "answer" && danglingQuestionOf([...record.messages, appends[0]!]) !== null) {
+	return withChatOperation(chatId, async () => {
+		let record: Awaited<ReturnType<typeof stores.chatStore.getChat>>;
 		try {
-			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
-			await applyAnswer(chatId, write);
-			await stores.chatStore.touchChat(chatId).catch((err) => {
-				console.error(`[chat ${chatId}] activity touch failed:`, err);
-			});
+			record = await stores.chatStore.getChat(chatId);
+		} catch (error) {
+			// Fail-closed runtime open (a previous run could not be restored): the
+			// committed inputs are untouched, so the retry is just another POST.
+			if (error instanceof ChatRuntimeInitError) {
+				console.error(`[chat ${chatId}] turn refused — ${error.message}`, error.cause);
+				return Response.json({ error: error.message, code: "runtime_unavailable" }, { status: 503 });
+			}
+			throw error;
+		}
+		if (!record) {
+			return Response.json({ error: "Unknown chat" }, { status: 404 });
+		}
+
+		// THE UNIVERSAL TURN GATE (BYOK, owner, 2026-09-22): a turn needs the
+		// CONVERSATION chain — the chat's own model override over the strong
+		// slot — and there is no factory floor; when both are empty the turn
+		// refuses honestly with the machine-readable 503 envelope (new sessions
+		// and continuing ones alike — wake-pipeline turns ride this same path).
+		const effective = effectiveSettings();
+		const conversation = resolveConversationSpec(record.settings, effective.models.strong);
+		if (!conversation) {
+			const envelope = modelsNotConfigured(["strong"]);
+			console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
+			return Response.json(envelope, { status: 503 });
+		}
+
+		// THE KEY-PRESENCE GATE (provider-key interlude, owner, 2026-09-25): a
+		// pinned model is not enough — its PROVIDER's key must be present, or
+		// the turn dies mid-stream masked to a generic error. Truth is env-first
+		// (providerKeyPresent reads what pi-ai would read at request time), so
+		// an env-shadowed key passes.
+		if (!providerHasKey(conversation.provider)) {
+			const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
+			console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
+			return Response.json(envelope, { status: 503 });
+		}
+
+		// The engine is the app's one provider adapter (models.ts): production
+		// resolves the chat's spec (the custom endpoint's provider + credential
+		// snapshot is captured here), tests inject a scripted engine.
+		syncCustomEndpointProvider();
+		let engine: PiEngine;
+		try {
+			engine = turn?.engine ?? piEngineForSpec(conversation);
+		} catch (error) {
+			console.error(`[chat ${chatId}] model unavailable:`, error);
+			return Response.json(
+				{
+					error: "The selected model is no longer available — update your model settings",
+					code: "model_unavailable",
+				},
+				{ status: 503 },
+			);
+		}
+
+		const runtime = await openChatRuntime(chatId);
+		const phaseBeforeTurn = chatPhase(record.messages, record.kind);
+		const modelId = `${engine.model.provider}:${engine.model.id}`;
+
+		// THE COMPACTION GATE: NOTHING model-facing
+		// for this chat interleaves with a running compaction — await the settle
+		// kick's summary, compact synchronously if still over threshold. The
+		// record re-reads after because compaction appends the marker.
+		await ensureCompacted(
+			{
+				chatStore: stores.chatStore,
+				engine,
+				modelId,
+				kind: phaseBeforeTurn,
+				thresholdTokens: effectiveThresholdTokens(
+					effective.compaction?.thresholdTokens,
+					catalogContextLimits().get(modelId),
+				),
+				systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
+			},
+			chatId,
+		);
+		record = (await stores.chatStore.getChat(chatId)) ?? record;
+
+		// The input's native appends (pure; the honest 400 for an answer with no
+		// pending question call). The idle wake carries EVERY queued
+		// marker (steerDelivered filters a re-fire of an already-landed one).
+		let appends: LhMessage[];
+		try {
+			appends =
+				input.type === "steers"
+					? input.steers.filter((steer) => !steerDelivered(record!.messages, steer.id))
+					: inputAppends(record, input);
 		} catch (err) {
 			if (err instanceof ChatInputError) {
 				return Response.json({ error: err.message }, { status: 400 });
 			}
 			throw err;
 		}
-		emit("record-changed", { chatId });
-		return settledTurnResponse(); // the cheap terminal — no run
-	}
 
-	// One turn per chat, ever (this process). A second request while a turn
-	// runs means a stale/remounted client raced a live one; the submit below
-	// is the durable half of the same law (ConversationBusy → 409).
-	if (!beginTurn(chatId)) {
-		console.info(`[chat ${chatId}] turn already in flight — request rejected`);
-		return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
-	}
+		// A wake whose every marker already landed delivers NOTHING — no
+		// continuation, no model call, no spend (the pump's dedupe races the
+		// transcript append, so this is reachable).
+		if (input.type === "steers" && appends.length === 0) return settledTurnResponse();
 
-	// WRITE-AHEAD: everything the event appends lands before the run starts.
-	// The LAST append that can start a run is placed by the input submission
-	// itself (it is the turn's own entry); an answer is a ContextEdit over
-	// the pose placeholder and the hidden continuation starts the reaction.
-	let tail: LhMessage | undefined;
-	try {
-		if (input.type === "answer") {
-			const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
-			await applyAnswer(chatId, write);
-		} else {
-			tail = startsInput(appends[appends.length - 1]) ? appends[appends.length - 1] : undefined;
-			await appendMessages(chatId, tail ? appends.slice(0, -1) : appends);
+		// THE QUESTION-PAUSE GENERATION GATE: while any question is unanswered,
+		// an explicit continue or a wake carrying late results may not start a
+		// generation (the phantom mount continuation after a pose). The answer
+		// path below is the only way through; it replaces the placeholder before
+		// any run. A steer wake gets 409 so the pump retries, never a fake
+		// delivery.
+		if ((input.type === "continue" || input.type === "steers") && danglingQuestionOf(record.messages) !== null) {
+			if (input.type === "steers") {
+				return Response.json({ error: "A question is pending" }, { status: 409 });
+			}
+			return settledTurnResponse();
 		}
-		// Dock fix (owner ruling 2026-09-26): persisted markers are visible
-		// in the record — flip their jobs now (the wake's steers ride this
-		// write-ahead; the delivering turn may run for minutes).
-		for (const appended of appends) {
-			if (appended.role === "custom") noteSteerVisible(appended as SteerMessage);
-		}
-	} catch (err) {
-		endTurn(chatId);
-		console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
-		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
-	}
-	await stores.chatStore.touchChat(chatId).catch((err) => {
-		console.error(`[chat ${chatId}] activity touch failed:`, err);
-	});
 
-	const turnUsageId = crypto.randomUUID();
-	const admittedEntries = await readEntries(runtime);
-	const baseEntryCount = admittedEntries.length;
-	const baseMessages = projectEntries(admittedEntries);
-	// The live view starts at the admission boundary, exactly like recovery:
-	// replaying the whole chat would resend every earlier reply and tool round.
-	const replayAfter = baseEntryCount > 0 ? admittedEntries[baseEntryCount - 1]!.id : undefined;
-	const phase = chatPhase(baseMessages, record.kind);
-	// The durable admission descriptor: everything a later process needs to
-	// rebuild this turn's finish path (see turn-service's ForegroundTurn).
-	// Written BEFORE submit; only a committed submission makes it recoverable.
-	const admission: ForegroundTurn = {
-		turnId: turnUsageId,
-		requestId: `turn:${turnUsageId}`,
-		modelId,
-		model: {
-			provider: engine.model.provider,
-			modelId: engine.model.id,
-			...(engine.level ? { thinking: engine.level } : {}),
-			...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
-		},
-		phase,
-		baseEntryCount,
-		settle: "running",
-	};
-	const deps = conversationDeps(turn);
-	let submission: Awaited<ReturnType<ChatRuntime["root"]["submit"]>>;
-	try {
-		await writeTurn(runtime, admission);
-		await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, {
-			tools: turn?.tools,
-			phase,
-		});
-		// Debug recorder run marker: correlates the
-		// JSONL event stream with the record's turns; no-op unless
-		// LH_PROVIDER_EVENTS=1.
-		providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
-		const draft = tail ? submissionOf(tail) : undefined;
-		submission = await runtime.root.submit(
-			draft
-				? {
-						type: "input",
-						content: draft.content as never,
-						whenBusy: "reject",
-						requestId: admission.requestId,
-						entry: draft.entry as never,
-					}
-				: {
-						type: "input",
-						content: CONTINUATION_TEXT,
-						whenBusy: "reject",
-						requestId: admission.requestId,
-						entry: { kind: CONTINUATION_KIND } as never,
-					},
-			BACKGROUND_CONTEXT,
-		);
-	} catch (err) {
-		endTurn(chatId);
-		if (err instanceof ConversationBusy) {
+		// THE PARALLEL-QUESTION GATE: an answer that leaves a SIBLING question pending
+		// defers its wake. The dock advances to the next question (the answer
+		// write + record-changed carry the view); the LAST answer fires the one
+		// reaction turn with every result ADJACENT to its calling assistant
+		// message — the provider shape law. The gate above is the server's one
+		// generation boundary; this branch is the answer's cheap terminal.
+		if (input.type === "answer" && danglingQuestionOf([...record.messages, appends[0]!]) !== null) {
+			try {
+				const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
+				await applyAnswer(chatId, write);
+				await stores.chatStore.touchChat(chatId).catch((err) => {
+					console.error(`[chat ${chatId}] activity touch failed:`, err);
+				});
+			} catch (err) {
+				if (err instanceof ChatInputError) {
+					return Response.json({ error: err.message }, { status: 400 });
+				}
+				throw err;
+			}
+			emit("record-changed", { chatId });
+			return settledTurnResponse(); // the cheap terminal — no run
+		}
+
+		// One turn per chat, ever (this process). A second request while a turn
+		// runs means a stale/remounted client raced a live one; the submit below
+		// is the durable half of the same law (ConversationBusy → 409).
+		if (!beginTurn(chatId)) {
+			console.info(`[chat ${chatId}] turn already in flight — request rejected`);
 			return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
 		}
-		console.error(`[chat ${chatId}] turn failed to start:`, err);
-		return Response.json({ error: "Failed to start the turn" }, { status: 500 });
-	}
+		let handedOff = false;
+		try {
+			// WRITE-AHEAD: everything the event appends lands before the run starts.
+			// The LAST append that can start a run is placed by the input submission
+			// itself (it is the turn's own entry); an answer is a ContextEdit over
+			// the pose placeholder and the hidden continuation starts the reaction.
+			let tail: LhMessage | undefined;
+			try {
+				if (input.type === "answer") {
+					const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
+					await applyAnswer(chatId, write);
+				} else {
+					tail = startsInput(appends[appends.length - 1]) ? appends[appends.length - 1] : undefined;
+					await appendMessages(chatId, tail ? appends.slice(0, -1) : appends);
+				}
+				// Dock fix (owner ruling 2026-09-26): persisted markers are visible
+				// in the record — flip their jobs now (the wake's steers ride this
+				// write-ahead; the delivering turn may run for minutes).
+				for (const appended of appends) {
+					if (appended.role === "custom") noteSteerVisible(appended as SteerMessage);
+				}
+			} catch (err) {
+				console.error(`[chat ${chatId}] write-ahead persist failed:`, err);
+				return Response.json({ error: "Failed to start the turn" }, { status: 500 });
+			}
+			await stores.chatStore.touchChat(chatId).catch((err) => {
+				console.error(`[chat ${chatId}] activity touch failed:`, err);
+			});
 
-	const handle = runDurableTurn({
-		runtime,
-		chatId,
-		submission,
-		replayAfter,
-		onError: (error) => {
-			console.error(`[chat ${chatId}] turn error:`, error);
-			return "An error occurred.";
-		},
-		onEntry: (entry) => noteTurnEntry(chatId, entry),
-		onFinish: () => settleForegroundTurn(runtime, chatId, admission),
+			const turnUsageId = crypto.randomUUID();
+			const admittedEntries = await readEntries(runtime);
+			const baseEntryCount = admittedEntries.length;
+			const baseMessages = projectEntries(admittedEntries);
+			// The live view starts at the admission boundary, exactly like recovery:
+			// replaying the whole chat would resend every earlier reply and tool round.
+			const replayAfter = baseEntryCount > 0 ? admittedEntries[baseEntryCount - 1]!.id : undefined;
+			const phase = chatPhase(baseMessages, record.kind);
+			// The durable admission descriptor: everything a later process needs to
+			// rebuild this turn's finish path (see turn-service's ForegroundTurn).
+			// Written BEFORE submit; only a committed submission makes it recoverable.
+			const admission: ForegroundTurn = {
+				turnId: turnUsageId,
+				requestId: `turn:${turnUsageId}`,
+				modelId,
+				model: {
+					provider: engine.model.provider,
+					modelId: engine.model.id,
+					...(engine.level ? { thinking: engine.level } : {}),
+					...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
+				},
+				phase,
+				baseEntryCount,
+				settle: "running",
+			};
+			const deps = conversationDeps(turn);
+			let submission: Awaited<ReturnType<ChatRuntime["root"]["submit"]>>;
+			try {
+				await writeTurn(runtime, admission);
+				await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, {
+					tools: turn?.tools,
+					phase,
+				});
+				// Debug recorder run marker: correlates the
+				// JSONL event stream with the record's turns; no-op unless
+				// LH_PROVIDER_EVENTS=1.
+				providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
+				const draft = tail ? submissionOf(tail) : undefined;
+				submission = await runtime.root.submit(
+					draft
+						? {
+								type: "input",
+								content: draft.content as never,
+								whenBusy: "reject",
+								requestId: admission.requestId,
+								entry: draft.entry as never,
+							}
+						: {
+								type: "input",
+								content: CONTINUATION_TEXT,
+								whenBusy: "reject",
+								requestId: admission.requestId,
+								entry: { kind: CONTINUATION_KIND } as never,
+							},
+					BACKGROUND_CONTEXT,
+				);
+			} catch (err) {
+				if (err instanceof ConversationBusy) {
+					return Response.json({ error: "A turn is already running for this session" }, { status: 409 });
+				}
+				console.error(`[chat ${chatId}] turn failed to start:`, err);
+				return Response.json({ error: "Failed to start the turn" }, { status: 500 });
+			}
+
+			const handle = runDurableTurn({
+				runtime,
+				chatId,
+				submission,
+				replayAfter,
+				onError: (error) => {
+					console.error(`[chat ${chatId}] turn error:`, error);
+					return "An error occurred.";
+				},
+				onEntry: (entry) => noteTurnEntry(chatId, entry),
+				onFinish: () => settleForegroundTurn(runtime, chatId, admission),
+			});
+			// The turn is now a live background object: register it so any view can
+			// reattach (GET /api/chats/[id]/stream) or remotely abort it
+			// (POST /api/activity/abort, kind "turn").
+			registerTurn(chatId, handle);
+			handedOff = true;
+			noteTurnStarted(chatId);
+			// A submission that faults after admission must never go unobserved: the
+			// view's wait settles on the same scope, but the error is logged here.
+			void submission.wait(BACKGROUND_CONTEXT).catch((error) => {
+				console.error(`[chat ${chatId}] submission failed:`, error);
+			});
+			// CONNECTION DIET B: the POST acknowledges acceptance
+			// and closes; the turn runs server-side and every view attaches through
+			// GET /api/chats/[id]/stream.
+			return Response.json({ ok: true });
+		} finally {
+			if (!handedOff) endTurn(chatId);
+		}
 	});
-	// The turn is now a live background object: register it so any view can
-	// reattach (GET /api/chats/[id]/stream) or remotely abort it
-	// (POST /api/activity/abort, kind "turn").
-	registerTurn(chatId, handle);
-	noteTurnStarted(chatId);
-	// A submission that faults after admission must never go unobserved: the
-	// view's wait settles on the same scope, but the error is logged here.
-	void submission.wait(BACKGROUND_CONTEXT).catch((error) => {
-		console.error(`[chat ${chatId}] submission failed:`, error);
-	});
-	// CONNECTION DIET B: the POST acknowledges acceptance
-	// and closes; the turn runs server-side and every view attaches through
-	// GET /api/chats/[id]/stream.
-	return Response.json({ ok: true });
 }
