@@ -191,9 +191,8 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	// ANTI-CHURN GUARD: when the cut cannot advance past the previous
 	// kept boundary, the span is empty (or repeats it) — the kept tail
 	// alone carries the projection and re-summarizing the same span
-	// cannot shrink it. Reachable only when the threshold sits below
-	// kept-tail + summary (a hand-edited record below the settings
-	// floor); skipping keeps the loop honest instead of churning.
+	// cannot shrink it. A pending question can pin an oversized tail;
+	// skipping preserves it without repeatedly summarizing the same span.
 	if (previous && prevKept !== -1 && cut <= prevKept) {
 		console.info(
 			`[chat ${chatId}] compaction skipped — the kept tail alone exceeds the threshold (raise it or shrink the tail)`,
@@ -232,7 +231,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 			at: new Date().toISOString(),
 		};
 		const marker = newCompactionMarker(trimmed, details);
-		await deps.chatStore.saveMessages(chatId, [...messages, marker]);
+		await deps.chatStore.saveMessages(chatId, [marker]);
 		// The money channel: the summary is a real model call on the
 		// session's own engine — its usage keys to the marker (provenance:
 		// the transcript shows the compaction divider at the marker).
@@ -277,9 +276,13 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	if (process.env.NODE_ENV === "test" && !deps.summarize) return;
 	await awaitCompaction(chatId);
 	const record = await deps.chatStore.getChat(chatId);
+	const running = state().inFlight.get(chatId);
+	if (running) {
+		await running; // a concurrent caller started it while we awaited
+		return;
+	}
 	if (!record) return;
 	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-	if (state().inFlight.has(chatId)) return; // a concurrent caller started it while we awaited
 	const run = compact(deps, chatId);
 	state().inFlight.set(chatId, run);
 	try {

@@ -41,8 +41,8 @@ export interface ChatStore {
 	getChat(id: string): Promise<ChatRecord | null>;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): Promise<ChatSummary[]>;
-	/** Persist the full native message list (the record IS the agent
-	 * state — Wave B, owner-approved 2026-09-26). */
+	/** Upsert supplied native messages by id. Omitted messages remain;
+	 * callers can append without replaying a transcript snapshot. */
 	saveMessages(id: string, messages: LhMessage[]): Promise<void>;
 	/** Bump the record's activity timestamp after an ACCEPTED transcript
 	 *  write (turn, answer, dismissal). Settings, renames and tree edits

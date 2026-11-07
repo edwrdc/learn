@@ -28,8 +28,7 @@ import { projectView } from "../src/core/view.ts";
  *
  * The laws pinned here:
  * - the cut NEVER separates a tool result from its call;
- * - a pending question call (pose→answer window) always survives — the
- *   walk cannot cross the transcript end;
+ * - a pending question call and its following messages always survive;
  * - the active marker is the NEWEST one (chained compactions rule last);
  * - the marker renders ONCE (head), never twice;
  * - a corrupt cut degrades honestly (everything renders — never throw).
@@ -183,6 +182,28 @@ describe("compactionCutIndex", () => {
 
 	it("zero budget summarizes everything; whole-history-in-budget returns 0 only when nothing precedes", () => {
 		assert.equal(compactionCutIndex([newUserMessage("hi")], 100), 0);
+	});
+
+	for (const legacy of [false, true]) {
+		it("pins parallel pending calls before an oversized tail, legacy=" + legacy, () => {
+			const pose = assistantWithCall("parallel", "q1");
+			(pose as unknown as AssistantMessage).content.push({ type: "toolCall", id: "q2", name: "quiz", arguments: { question: "Q2?" } });
+			const results = legacy ? [] : [resultFor("q1", "Question posed"), resultFor("q2", "Question posed")];
+			const messages = [big("old"), pose, ...results, big("trailing input", 90)];
+			assert.equal(compactionCutIndex(messages), 1, "both calls and their entire tail stay verbatim even over budget");
+			if (!legacy) {
+				results[0]!.details = { dismissed: true };
+				assert.equal(compactionCutIndex(messages), 1, "the remaining pending sibling still pins the assistant");
+				results[1]!.details = { dismissed: true };
+				assert.equal(compactionCutIndex(messages), messages.length - 1, "answered calls no longer pin the cut");
+			}
+		});
+	}
+
+	it("pins a pending call before an oversized compaction marker", () => {
+		const pose = assistantWithCall("pending", "q");
+		const marker = newCompactionMarker("x".repeat(84_000), { firstKeptMessageId: pose.id, tokensBefore: 100_000, at: "t" });
+		assert.equal(compactionCutIndex([big("old"), pose, resultFor("q", "Question posed"), marker]), 1);
 	});
 });
 

@@ -428,8 +428,7 @@ export async function appendEntries(chatId: string, drafts: readonly EntryDraft[
 /** Append the record messages the transcript does not hold yet, keyed by
  *  app message id; a message whose content changed is written as a
  *  ContextEdit over the entry that owns it (entries are immutable). The old
- *  store's saveMessages callers pass the WHOLE desired list, so this is its
- *  exact upsert contract. */
+ *  store's saveMessages contract leaves omitted messages unchanged. */
 export async function appendMessages(chatId: string, messages: readonly LhMessage[]): Promise<void> {
 	const runtime = await openChatRuntime(chatId);
 	const { messages: current, entryOf } = projectTranscript(await readEntries(runtime));

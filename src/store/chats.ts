@@ -234,10 +234,9 @@ async function listChats(): Promise<ChatSummary[]> {
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** Persist the full native message list. The record IS the transcript, so
- *  only the messages the durable store does not hold yet are appended (the
- *  callers pass the whole desired list). SILENT by the events law: callers
- *  emit their own record change. */
+/** Upsert supplied native messages by id; omitted messages remain.
+ *  New ids append, changed messages edit their existing entries.
+ *  SILENT by the events law: callers emit their own record change. */
 async function saveMessages(id: string, messages: LhMessage[]): Promise<void> {
 	await mutateMeta(id, async (meta) => {
 		await appendMessages(id, messages);
