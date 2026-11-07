@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { Type } from "typebox";
 import type { AppTool } from "../tool-adapter.ts";
 import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
-import { resolveSourcePath } from "./fs-shared.ts";
+import { formatSize, MAX_OUTPUT_BYTES, resolveSourcePath } from "./fs-shared.ts";
 
 /**
  * The read tool — sources v0 (2026-09): a Node port of pi's read semantics
@@ -29,7 +29,6 @@ import { resolveSourcePath } from "./fs-shared.ts";
  */
 
 const MAX_LINES = 2000;
-const MAX_BYTES = 50 * 1024;
 
 /** Extension map for v0 (pi sniffs magic bytes; extensions suffice here —
  *  learner files are pasted paths, not adversarial uploads). */
@@ -48,10 +47,6 @@ const readInput = Type.Object({
 	limit: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum number of lines to read" })),
 });
 
-function formatSize(bytes: number): string {
-	return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${bytes}B`;
-}
-
 /** Slice + truncate the text body, pi's continuation-notice style. */
 function readTextSlice(text: string, offset: number | undefined, limit: number | undefined): string {
 	const allLines = text.split("\n");
@@ -69,8 +64,8 @@ function readTextSlice(text: string, offset: number | undefined, limit: number |
 		truncatedBy = "lines";
 	}
 	// then the 50KB ceiling
-	if (Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_BYTES) {
-		while (selected.length > 0 && Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_BYTES) {
+	if (Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_OUTPUT_BYTES) {
+		while (selected.length > 0 && Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_OUTPUT_BYTES) {
 			selected.pop();
 		}
 		truncatedBy = "bytes";
@@ -84,7 +79,7 @@ function readTextSlice(text: string, offset: number | undefined, limit: number |
 	}
 	const endLineDisplay = startLine + selected.length;
 	const reason =
-		truncatedBy === "lines" ? `${MAX_LINES} line limit` : `${formatSize(MAX_BYTES)} limit`;
+		truncatedBy === "lines" ? `${MAX_LINES} line limit` : `${formatSize(MAX_OUTPUT_BYTES)} limit`;
 	return `${selected.join("\n")}\n\n[Showing lines ${startLine + 1}-${endLineDisplay} of ${totalLines} (${reason}). Use offset=${endLineDisplay + 1} to continue.]`;
 }
 

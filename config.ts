@@ -26,10 +26,8 @@ export const PATHS = {
 	teacherPrompt: path.join(ROOT, "src", "agent", "system-prompt.md"),
 	data: DATA_ROOT,
 	/** Chat session METADATA (one JSON file per chat; the transcript lives
-	 *  in the durable store below — see src/store/chats.ts). */
+	 *  in the durable store — see src/store/chats.ts). */
 	chats: path.join(DATA_ROOT, "chats"),
-	/** Per-chat durable transcript databases (src/store/durable.ts). */
-	durable: path.join(DATA_ROOT, "durable"),
 	graph: path.join(DATA_ROOT, "graph"),
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */

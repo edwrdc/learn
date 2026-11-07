@@ -17,11 +17,14 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
+import { setImmediate } from "node:timers/promises";
 
 // ── the seam, BEFORE any config-loading import (the birth-stamp discipline) ─
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
+const { PATHS } = await import("../config.ts");
+assert.equal(PATHS.data, TMP_DATA, "compaction tests use the isolated data directory");
 const { chatStore } = await import("../src/store/chats.ts");
 const {
 	ensureCompacted,
@@ -42,6 +45,12 @@ after(() => {
 // ── fixtures ────────────────────────────────────────────────────────────────
 
 const big = (text: string, kb = 100): LhMessage => newUserMessage(`${text}: ${"x".repeat(kb * 1024)}`);
+
+function deferred() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => { resolve = done; });
+	return { promise, resolve };
+}
 
 /** A chat whose record projects far over any test threshold. */
 async function overThresholdChat(label: string): Promise<string> {
@@ -113,6 +122,119 @@ describe("the compaction service", () => {
 		const deps = depsOf(chatId, 40_000);
 		await Promise.all([ensureCompacted(deps, chatId), ensureCompacted(deps, chatId), ensureCompacted(deps, chatId)]);
 		assert.equal(summarizeCalls, before + 1, "exactly one summary however many gates race");
+	});
+
+	for (const competitor of ["cold caller", "settle kick"] as const) {
+		it(`the turn-start gate waits for a ${competitor} that starts during getChat`, async () => {
+			const chatId = await overThresholdChat(`compact: ${competitor} overlap`);
+			const record = await chatStore.getChat(chatId);
+			const readsReady = deferred();
+			const readGate = deferred();
+			const summaryStarted = deferred();
+			const summaryGate = deferred();
+			const blockedReads = competitor === "cold caller" ? 2 : 1;
+			let reads = 0;
+			let summaries = 0;
+			const base = depsOf(chatId, 40_000);
+			const deps: CompactionDeps = {
+				...base,
+				chatStore: {
+					...chatStore,
+					getChat: async () => {
+						if (++reads <= blockedReads) {
+							if (reads === blockedReads) readsReady.resolve();
+							await readGate.promise;
+						}
+						return record;
+					},
+				},
+				summarize: async (...args) => {
+					summaries++;
+					summaryStarted.resolve();
+					await summaryGate.promise;
+					return base.summarize!(...args);
+				},
+			};
+			const returned = [false, false];
+			const callers = [ensureCompacted(deps, chatId).then(() => { returned[0] = true; })];
+			if (competitor === "cold caller") {
+				callers.push(ensureCompacted(deps, chatId).then(() => { returned[1] = true; }));
+			}
+			await readsReady.promise;
+			if (competitor === "settle kick") {
+				kickCompaction(() => deps, chatId);
+				callers.push(awaitCompaction(chatId).then(() => { returned[1] = true; }));
+			}
+			readGate.resolve();
+			try {
+				await summaryStarted.promise;
+				// Drain continuations from the released reads while the summary stays gated.
+				await setImmediate();
+				assert.deepEqual([...returned], [false, false], "both callers wait for the summary");
+				assert.equal(summaries, 1, "only one summary starts before release");
+			} finally {
+				summaryGate.resolve();
+				await Promise.all(callers);
+			}
+			assert.equal(summaries, 1, "joining does not start another summary");
+			assert.deepEqual(returned, [true, true]);
+			assert.ok(activeCompactionOf((await chatStore.getChat(chatId))!.messages), "the marker is persisted before callers return");
+		});
+	}
+
+	it("the turn-start gate waits after a competing kick saves its marker but before usage finishes", async () => {
+		const chatId = await overThresholdChat("compact: saved marker overlap");
+		const readStarted = deferred();
+		const readFinished = deferred();
+		const readGate = deferred();
+		const usageStarted = deferred();
+		const usageGate = deferred();
+		let returned = false;
+		const base = depsOf(chatId, 40_000);
+		const caller = ensureCompacted({
+			...base,
+			chatStore: {
+				...chatStore,
+				getChat: async (id) => {
+					readStarted.resolve();
+					await readGate.promise;
+					const record = await chatStore.getChat(id);
+					readFinished.resolve();
+					return record;
+				},
+			},
+		}, chatId).then(() => { returned = true; });
+		await readStarted.promise;
+		kickCompaction(() => ({
+			...base,
+			chatStore: {
+				...chatStore,
+				appendTurnUsage: async (id, entry) => {
+					usageStarted.resolve();
+					await usageGate.promise;
+					return chatStore.appendTurnUsage(id, entry);
+				},
+			},
+		}), chatId);
+		const kick = awaitCompaction(chatId);
+		try {
+			await usageStarted.promise;
+			const record = (await chatStore.getChat(chatId))!;
+			assert.ok(activeCompactionOf(record.messages), "the marker is already persisted");
+			assert.ok(projectedContextTokens(record.messages, 100) < base.thresholdTokens);
+			assert.equal(record.turns?.length ?? 0, 0, "usage has not been recorded");
+			readGate.resolve();
+			await readFinished.promise;
+			await setImmediate();
+			assert.equal(returned, false, "an under-threshold read must still join the active compaction");
+		} finally {
+			readGate.resolve();
+			usageGate.resolve();
+			await Promise.all([caller, kick]);
+		}
+		assert.equal(returned, true);
+		const record = (await chatStore.getChat(chatId))!;
+		assert.ok(record.turns?.some((turn) => turn.messageId === activeCompactionOf(record.messages)!.id));
 	});
 
 	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {

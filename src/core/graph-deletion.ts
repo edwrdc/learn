@@ -275,10 +275,6 @@ function nodeLinesOf(graphStore: GraphStore, nodeId: string): GraphNode[] {
 	return graphStore.readNodes().filter((line) => line.id === nodeId);
 }
 
-function chainLinesOf(graphStore: GraphStore, chainId: string): GraphChain[] {
-	return graphStore.readChains().filter((line) => line.id === chainId);
-}
-
 /**
  * Full-death one node (or one argument, by its arg_ id). Returns null
  * when no such node/chain exists (the orchestration maps that to 404);

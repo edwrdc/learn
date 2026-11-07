@@ -104,20 +104,6 @@ export interface NotesSource {
 	extractions?: ExtractionRunUsage[];
 }
 
-/** What one cluster-naming refresh did — the namer's ClusterRefreshStats,
- *  contract-shaped so the agent layer needs no contracts import.
- *  Structural twins stay interchangeable. */
-export interface NamingRunStats {
-	/** Communities the current graph divides into (all sizes). */
-	detected: number;
-	/** Communities that kept a label via core-survival. */
-	claimed: number;
-	/** Communities sent to the namer (unnamed, size >= MIN_CLUSTER_SIZE). */
-	named: number;
-	/** Labeling records actually appended (idempotent dedupe may shrink). */
-	appended: number;
-}
-
 /** The graph-family format version this build writes and understands
  *  (the format.json sidecar — src/store/graph-format.ts). */
 export const CURRENT_GRAPH_FORMAT_VERSION = 1;

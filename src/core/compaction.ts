@@ -36,7 +36,7 @@ import type { PlanTree } from "./contracts/plan.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
-import { newMessageId } from "./native-messages.ts";
+import { danglingQuestionOf, newMessageId } from "./native-messages.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
 // ─── constants (the tunables, owner-approved) ────────────────────────────────
@@ -49,9 +49,6 @@ export const KEEP_RECENT_TOKENS = 20_000;
 /** The reserve subtracted from the model's contextWindow when the window
  * (not the user's threshold) is the binding constraint (pi's default). */
 export const COMPACTION_RESERVE_TOKENS = 16_384;
-
-/** Factory default for the settings threshold (owner ruling: 150k). */
-export const DEFAULT_COMPACTION_THRESHOLD_TOKENS = 150_000;
 
 /** Tool-result truncation when serializing the span for the summarizer
  * (pi's mirror: long job/research results don't need verbatim inclusion
@@ -186,21 +183,24 @@ export function estimateTokens(messages: readonly EstimableMessage[]): number {
  * walk stops on a toolResult, the KEPT region extends to the assistant
  * message carrying its call (keeping the result means keeping the call).
  * This is the provider protocol's shape law: dropping a call while
- * keeping its result strands an orphan the provider rejects. A PENDING
- * question/problem call (no result yet — the pose→answer window) sits at
- * the transcript end and is always kept: the walk never crosses it.
+ * keeping its result strands an orphan the provider rejects. A pending
+ * question keeps its calling assistant and the entire following tail,
+ * even over budget, so a concurrent dismissal stays verbatim.
  *
  * Returns 0 when everything must be summarized (the whole history is the
  * span — valid), or messages.length when there is nothing meaningful to
  * cut (kept budget covers everything — caller checks before compacting).
  */
 export function compactionCutIndex(messages: readonly LhMessage[], keepRecentTokens = KEEP_RECENT_TOKENS): number {
+	const pending = danglingQuestionOf(messages);
+	const pendingIndex = pending ? assistantIndexOfCall(messages, pending.toolCallId, messages.length) : -1;
 	let kept = 0;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (kept >= keepRecentTokens) {
 			// The cut candidate: extend past orphaned tool results to the
 			// assistant message carrying their calls.
 			let cut = i + 1;
+			if (pendingIndex !== -1) cut = Math.min(cut, pendingIndex);
 			while (cut < messages.length && (messages[cut] as { role?: string }).role === "toolResult") {
 				const callIndex = assistantIndexOfCall(messages, (messages[cut] as ToolResultMessage).toolCallId, cut);
 				if (callIndex === -1) break; // no call found (defensive): stop extending

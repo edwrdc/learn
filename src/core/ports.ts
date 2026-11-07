@@ -41,8 +41,8 @@ export interface ChatStore {
 	getChat(id: string): Promise<ChatRecord | null>;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): Promise<ChatSummary[]>;
-	/** Persist the full native message list (the record IS the agent
-	 * state — Wave B, owner-approved 2026-09-26). */
+	/** Upsert supplied native messages by id. Omitted messages remain;
+	 * callers can append without replaying a transcript snapshot. */
 	saveMessages(id: string, messages: LhMessage[]): Promise<void>;
 	/** Bump the record's activity timestamp after an ACCEPTED transcript
 	 *  write (turn, answer, dismissal). Settings, renames and tree edits
@@ -65,9 +65,9 @@ export interface ChatStore {
 	 * stays put, so sidebar order never churns on a rename. */
 	renameChat(id: string, title: string): Promise<ChatRecord>;
 	/** Delete the session record entirely (session-deletion wave 6, owner
-	 *  2026-09-22). False when the id is unknown. The graph-ledger purge and
-	 *  job cleanup are the caller's choreography (core/graph-deletion.ts +
-	 *  the DELETE route), not the store's. */
+	 *  2026-09-22). False when the id is unknown; removal failures throw.
+	 *  The graph-ledger purge and job cleanup are the caller's choreography
+	 *  (core/graph-deletion.ts + the DELETE route), not the store's. */
 	deleteChat(id: string): Promise<boolean>;
 }
 

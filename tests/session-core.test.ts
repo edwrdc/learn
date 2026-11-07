@@ -25,7 +25,7 @@ import { absorbed, pendingCallTool, SessionModel } from "../src/lib/chat/session
 import type { ChatInput } from "../src/core/input-events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
-import { projectView } from "../src/core/index.ts";
+import { activeProblemOf, danglingQuestionOf, projectView } from "../src/core/index.ts";
 import { dismissedAnswer } from "../src/core/question-core.ts";
 import { buildAnswer, type QuestionData } from "../src/core/question-core.ts";
 
@@ -122,6 +122,451 @@ function partial(blocks: unknown[], stopReason?: string): Record<string, unknown
 function model(opts: Partial<ConstructorParameters<typeof SessionModel>[0]> = {}): SessionModel {
 	return new SessionModel({ chatId: "chat_x", initialMessages: [], ...opts });
 }
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: Error) => void;
+	const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+	return { promise, resolve, reject };
+}
+
+function heldResponse(status = 200) {
+	const reading = deferred<void>();
+	const body = deferred<string>();
+	const response = new Response(new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			reading.resolve();
+			controller.enqueue(new TextEncoder().encode(await body.promise));
+			controller.close();
+		},
+	}, { highWaterMark: 0 }), { status });
+	return { response, reading: reading.promise, resolve: body.resolve };
+}
+
+const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+describe("dismissal recovery", () => {
+	for (const kind of ["question", "problem"] as const) {
+		const answer = dismissedAnswer("quiz", "Pick a planet");
+		const initialMessages = kind === "question"
+			? [assistantWithCall("a1", "call-q1", "quiz")] : poseRecord();
+		const dismiss = (m: SessionModel) => kind === "question"
+			? m.dismissQuestion("call-q1", answer) : m.dismissProblem("call-p1");
+		const pending = (m: SessionModel) => kind === "question"
+			? danglingQuestionOf(m.getState().nativeMessages) : activeProblemOf(m.getState().nativeMessages);
+
+		for (const outcome of ["success", "refusal", "network"] as const) {
+			it(`${kind} dismissal after attachment error sends the silent request and handles ${outcome}`, async () => {
+				const requests: Array<{ url: string; init?: RequestInit }> = [];
+				const m = model({ initialMessages, fetch: (async (input, init) => {
+					requests.push({ url: String(input), init });
+					if (String(input).endsWith("/stream")) return new Response("attach failed", { status: 500 });
+					if (outcome === "network") throw new Error("offline");
+					return outcome === "refusal" ? new Response("refused", { status: 503 }) : Response.json({ ok: true });
+				}) as typeof fetch });
+				await m.resumeStream(false);
+				assert.equal(m.status, "error");
+				assert.ok(pending(m));
+				const dismissing = dismiss(m);
+				assert.equal(requests.length, 2, "the error state permits the dismissal POST");
+				assert.equal(pending(m), null, "dismissal hides the dock optimistically");
+				await dismissing;
+				assert.deepEqual(requests.map((r) => r.url), ["/api/chats/chat_x/stream", "/api/chats/chat_x/dismiss"]);
+				assert.equal(requests[1]!.init?.method, "POST");
+				assert.deepEqual(requests[1]!.init?.headers, { "Content-Type": "application/json" });
+				assert.deepEqual(JSON.parse(String(requests[1]!.init?.body)), { input: kind === "question"
+					? { type: "dismiss", toolCallId: "call-q1", answer }
+					: { type: "dismiss-problem", problemCallId: "call-p1" } });
+				assert.equal(m.status, "error", "silent dismissal does not start a turn");
+				assert.equal(m.getState().error?.message, outcome === "success"
+					? "attach failed" : outcome === "refusal" ? "The dismissal failed (503)." : "offline");
+				m.setMessages(initialMessages);
+				assert.ok(pending(m), "the durable record can replace the optimistic dismissal");
+			});
+		}
+
+		for (const operation of ["send", "reattach"] as const) {
+			for (const outcome of ["error", "pending", "settled"] as const) {
+				it(`${kind} dismissal failure cannot change a newer ${operation} view that is ${outcome}`, async () => {
+					const dismissal = deferred<Response>();
+					const response = deferred<Response>();
+					let dismissalInit: RequestInit | undefined;
+					const m = model({ initialMessages, fetch: (async (input, init) => {
+						const url = String(input);
+						if (url.endsWith("/dismiss")) {
+							dismissalInit = init;
+							return dismissal.promise;
+						}
+						if (url === (operation === "send" ? "/api/chat" : "/api/chats/chat_x/stream")) return response.promise;
+						if (url === "/api/chats/chat_x") return Response.json({ messages: [] });
+						if (url.endsWith("/stream")) return sseResponse("[DONE]");
+						throw new Error(`unexpected fetch: ${url}`);
+					}) as typeof fetch });
+					const dismissing = dismiss(m);
+					assert.equal(pending(m), null);
+					const newer = operation === "send" ? m.send({ type: "text", text: "next" }) : m.resumeStream(false);
+					assert.equal(m.status, "submitted");
+					const finishNewer = () => response.resolve(outcome === "error"
+						? new Response("newer view failed", { status: 503 })
+						: operation === "send" ? Response.json({ ok: true }) : sseResponse("[DONE]"));
+					if (outcome !== "pending") {
+						finishNewer();
+						await newer;
+					}
+					const before = m.getState();
+					assert.equal(before.error?.message ?? null, outcome === "error" ? "newer view failed" : null);
+					assert.equal(before.status, outcome === "error" ? "error" : outcome === "pending" ? "submitted" : "ready");
+					assert.equal(dismissalInit?.method, "POST");
+					assert.equal(dismissalInit?.signal, undefined, "a newer view must not cancel the durable dismissal POST");
+					dismissal.resolve(new Response("refused", { status: 503 }));
+					await dismissing;
+					assert.deepEqual(m.getState(), before, "the older failure cannot change the newer view");
+					if (outcome === "pending") {
+						finishNewer();
+						await newer;
+						assert.equal(m.getState().error, null);
+						assert.equal(m.status, "ready");
+					}
+				});
+			}
+		}
+
+		for (const failure of ["refusal", "network"] as const) {
+			for (const stop of [false, true]) {
+				it(`${kind} current dismissal ${failure} remains visible ${stop ? "after stop" : "without stop"}`, async () => {
+					const dismissal = deferred<Response>();
+					let dismissalInit: RequestInit | undefined;
+					const m = model({ initialMessages, fetch: (async (input, init) => {
+						if (String(input).endsWith("/stream")) return sseResponse("[DONE]");
+						dismissalInit = init;
+						return dismissal.promise;
+					}) as typeof fetch });
+					await m.resumeStream(false);
+					const dismissing = dismiss(m);
+					assert.equal(pending(m), null);
+					if (stop) m.stop();
+					assert.equal(dismissalInit?.method, "POST");
+					assert.equal(dismissalInit?.signal, undefined, "stop must not cancel the durable dismissal POST");
+					if (failure === "network") dismissal.reject(new Error("offline"));
+					else dismissal.resolve(new Response("refused", { status: 503 }));
+					await dismissing;
+					assert.equal(m.getState().error?.message, failure === "network" ? "offline" : "The dismissal failed (503).");
+					assert.equal(m.status, "ready", "the silent request never starts a turn");
+				});
+			}
+		}
+
+		for (const busy of ["submitted", "streaming"] as const) {
+			it(`${kind} dismissal stays blocked while ${busy}`, async () => {
+				const attachment = deferred<Response>();
+				let requests = 0;
+				const m = model({ initialMessages, fetch: (async () => {
+					requests++;
+					return attachment.promise;
+				}) as typeof fetch });
+				const attaching = m.resumeStream(false);
+				let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+				if (busy === "streaming") {
+					attachment.resolve(new Response(new ReadableStream<Uint8Array>({ start(controller) {
+						stream = controller;
+						controller.enqueue(new TextEncoder().encode(sse({ type: "tool_execution_end", toolCallId: "other", isError: false })));
+					} })));
+					await flush();
+				}
+				assert.equal(m.status, busy);
+				const before = m.getState();
+				await dismiss(m);
+				assert.equal(requests, 1, "busy dismissal makes no request");
+				assert.deepEqual(m.getState(), before);
+				if (stream) stream.close();
+				else attachment.resolve(sseResponse("[DONE]"));
+				await attaching;
+			});
+		}
+	}
+});
+
+describe("session view lifecycle", () => {
+	for (const failure of ["refusal", "network", "attach"] as const) {
+		it(`permits a new send after ${failure} failure, but not while submitted`, async () => {
+			let posts = 0;
+			const m = model({ fetch: (async (input) => {
+				const url = String(input);
+				if (url === "/api/chat") {
+					posts++;
+					if (posts === 1 && failure === "network") throw new Error("offline");
+					return posts === 1 && failure === "refusal"
+						? new Response("refused", { status: 503 }) : Response.json({ ok: true });
+				}
+				if (url.endsWith("/stream")) return posts === 1
+					? new Response("attach failed", { status: 500 }) : sseResponse("[DONE]");
+				return Response.json({ messages: [] });
+			}) as typeof fetch });
+			const first = m.send({ type: "text", text: "first" });
+			await m.send({ type: "text", text: "blocked" });
+			await first;
+			assert.equal(posts, 1);
+			assert.equal(m.status, "error");
+			await m.send({ type: "text", text: "second" });
+			assert.equal(posts, 2);
+			assert.equal(m.status, "ready");
+			assert.equal(m.getState().error, null);
+		});
+	}
+
+	for (const pendingPoll of [false, true]) {
+		it(`stop cancels a 409 retry ${pendingPoll ? "during the jobs request" : "during the wait"}`, async (t) => {
+			t.mock.timers.enable({ apis: ["setTimeout"] });
+			const jobs = deferred<Response>();
+			const urls: string[] = [];
+			let jobsSignal: RequestInit["signal"];
+			const m = model({ pollMs: 10, waitMaxMs: 20, fetch: (async (input, init) => {
+				const url = String(input);
+				urls.push(url);
+				if (url.startsWith("/api/jobs")) {
+					jobsSignal = init?.signal;
+					return jobs.promise;
+				}
+				return urls.length === 1 ? new Response("busy", { status: 409 }) : Response.json({ ok: true });
+			}) as typeof fetch });
+			const sending = m.send({ type: "text", text: "queued" });
+			let settled = false;
+			void sending.then(() => { settled = true; });
+			await flush();
+			if (pendingPoll) {
+				t.mock.timers.tick(10);
+				await flush();
+				assert.equal(urls.length, 2, "the jobs request is pending");
+			}
+			m.stop();
+			await flush();
+			if (pendingPoll) assert.equal(jobsSignal?.aborted, true);
+			else assert.equal(settled, true, "stop releases the retry wait without advancing time");
+			jobs.resolve(Response.json({ turnInFlight: false }));
+			t.mock.timers.tick(30);
+			await sending;
+			assert.equal(urls.filter((url) => url === "/api/chat").length, 1, "no retry POST after stop");
+			assert.equal(urls.length, pendingPoll ? 2 : 1, "no later request after stop");
+			assert.equal(m.status, "ready");
+			assert.equal(m.getState().error, null);
+		});
+	}
+
+	it("a live send still retries the same input after a jobs hiccup and a busy turn", async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const posts: RequestInit[] = [];
+		let polls = 0;
+		const m = model({ pollMs: 10, waitMaxMs: 50, fetch: (async (input, init) => {
+			const url = String(input);
+			if (url === "/api/chat") {
+				posts.push(init!);
+				return posts.length === 1 ? new Response("busy", { status: 409 }) : Response.json({ ok: true });
+			}
+			if (url.startsWith("/api/jobs")) {
+				polls++;
+				if (polls === 1) throw new Error("offline");
+				return Response.json({ turnInFlight: polls < 3 });
+			}
+			if (url.endsWith("/stream")) return sseResponse("[DONE]");
+			return Response.json({ messages: [newUserMessage("retry me")] });
+		}) as typeof fetch });
+		const sending = m.send({ type: "text", text: "retry me" });
+		for (let poll = 0; poll < 3; poll++) {
+			await flush();
+			t.mock.timers.tick(10);
+		}
+		await sending;
+		assert.equal(polls, 3);
+		assert.equal(posts.length, 2);
+		assert.equal(posts[0]!.body, posts[1]!.body);
+		assert.ok(posts.every((post) => post.signal === undefined));
+		assert.equal(m.status, "ready");
+		assert.equal(m.getState().error, null);
+		assert.equal(m.getState().nativeMessages.length, 1, "the accepted record absorbs the optimistic input");
+	});
+
+	for (const supersede of [false, true]) {
+		for (const result of [409, 503, "network"] as const) {
+			it(`ignores a late POST ${result} after ${supersede ? "a newer reattach" : "stop"}`, async () => {
+				const post = deferred<Response>();
+				const stream = deferred<Response>();
+				let postSignal: RequestInit["signal"];
+				const m = model({ waitMaxMs: 0, fetch: (async (input, init) => {
+					if (String(input) === "/api/chat") {
+						postSignal = init?.signal;
+						return post.promise;
+					}
+					return stream.promise;
+				}) as typeof fetch });
+				const sending = m.send({ type: "text", text: "old" });
+				assert.equal(postSignal, undefined, "an already-sent POST is not abortable");
+				if (!supersede) m.stop();
+				const newer = supersede ? m.resumeStream(false) : Promise.resolve();
+				const expected = m.getState();
+				if (result === "network") post.reject(new Error("offline"));
+				else post.resolve(new Response("old refusal", { status: result }));
+				await sending;
+				assert.deepEqual(m.getState(), expected);
+				stream.resolve(sseResponse("[DONE]"));
+				await newer;
+			});
+		}
+
+		for (const operation of ["send", "reattach"] as const) {
+			it(`ignores a late ${operation} error body after ${supersede ? "a newer reattach" : "stop"}`, async () => {
+				const errorBody = heldResponse(503);
+				const stream = deferred<Response>();
+				let calls = 0;
+				const m = model({ fetch: (async () => ++calls === 1 ? errorBody.response : stream.promise) as typeof fetch });
+				const older = operation === "send" ? m.send({ type: "text", text: "old" }) : m.resumeStream(false);
+				await errorBody.reading;
+				if (!supersede) m.stop();
+				const newer = supersede ? m.resumeStream(false) : Promise.resolve();
+				const expected = m.getState();
+				errorBody.resolve("stale refusal");
+				await older;
+				assert.deepEqual(m.getState(), expected);
+				stream.resolve(sseResponse("[DONE]"));
+				await newer;
+			});
+		}
+	}
+
+	for (const pendingBody of [false, true]) {
+		it(`drains a successful POST ack after stop ${pendingBody ? "during its body" : "before its response"}`, async () => {
+			const post = deferred<Response>();
+			const ack = heldResponse();
+			let drained = false;
+			void ack.reading.then(() => { drained = true; });
+			let calls = 0;
+			const m = model({ fetch: (async () => { calls++; return post.promise; }) as typeof fetch });
+			const sending = m.send({ type: "text", text: "accepted" });
+			if (pendingBody) {
+				post.resolve(ack.response);
+				await ack.reading;
+			}
+			m.stop();
+			post.resolve(ack.response);
+			await flush();
+			assert.equal(drained, true, "the unabortable submit drains its ack");
+			ack.resolve("ok");
+			await sending;
+			assert.equal(calls, 1, "a stopped view does not attach");
+			assert.equal(m.status, "ready");
+			assert.equal(m.getState().error, null);
+		});
+	}
+
+	it("ignores a stopped reattach record body without clearing the current messages", async () => {
+		const recordBody = heldResponse();
+		let calls = 0;
+		const m = model({ initialMessages: [newUserMessage("current")], fetch: (async () => {
+			calls++;
+			return recordBody.response;
+		}) as typeof fetch });
+		const attaching = m.resumeStream();
+		await recordBody.reading;
+		m.stop();
+		const expected = m.getState();
+		recordBody.resolve(JSON.stringify({ messages: [newUserMessage("stale")] }));
+		await attaching;
+		assert.deepEqual(m.getState(), expected);
+		assert.equal(calls, 1, "a stopped reattach opens no stream");
+	});
+
+	it("stale stream events and cleanup cannot change a newer view", async () => {
+		let oldBody!: ReadableStreamDefaultController<Uint8Array>;
+		const oldResponse = new Response(new ReadableStream<Uint8Array>({ start(c) { oldBody = c; } }));
+		const newerResponse = deferred<Response>();
+		let calls = 0;
+		const m = model({ fetch: (async () => ++calls === 1 ? oldResponse : newerResponse.promise) as typeof fetch });
+		const older = m.resumeStream(false);
+		await flush();
+		const newer = m.resumeStream(false);
+		const expected = m.getState();
+		oldBody.enqueue(new TextEncoder().encode(sse(partial([{ type: "text", text: "stale" }]), "[DONE]")));
+		oldBody.close();
+		await older;
+		assert.deepEqual(m.getState(), expected);
+		newerResponse.resolve(sseResponse(partial([{ type: "text", text: "current" }]), "[DONE]"));
+		await newer;
+		assert.equal(m.status, "ready");
+		assert.equal(m.getState().messages.at(-1)!.parts.at(-1)!.text, "current");
+	});
+
+	for (const record of ["skip", "success", "failure"] as const) {
+		for (const outcome of ["question", "output", "error"] as const) {
+			it(`a ${record} record reattach rebuilds ${outcome} execution state from replay`, async () => {
+				const recordResponse = deferred<Response>();
+				let oldBody!: ReadableStreamDefaultController<Uint8Array>;
+				let newBody!: ReadableStreamDefaultController<Uint8Array>;
+				const oldResponse = new Response(new ReadableStream<Uint8Array>({ start(c) { oldBody = c; } }));
+				const newResponse = new Response(new ReadableStream<Uint8Array>({ start(c) { newBody = c; } }));
+				const tool = outcome === "question" ? "quiz" : "read_file";
+				const start = {
+					type: "message_start",
+					message: { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: tool, arguments: {} }] },
+				};
+				const execution = {
+					type: "tool_execution_end", toolCallId: "call-1", isError: outcome === "error",
+					result: { content: [{ type: "text", text: "result" }], details: { source: "replay" } },
+				};
+				let streams = 0;
+				const m = model({ fetch: (async (input) => String(input).endsWith("/stream")
+					? (++streams === 1 ? oldResponse : newResponse) : recordResponse.promise) as typeof fetch });
+				const part = () => m.getState().messages.flatMap((message) => message.parts)
+					.find((part) => part.toolCallId === "call-1")!;
+				const expectedState = outcome === "question" ? "input-available"
+					: outcome === "error" ? "output-error" : "output-available";
+				const older = m.resumeStream(false);
+				oldBody.enqueue(new TextEncoder().encode(sse(start, execution)));
+				await flush();
+				assert.equal(part().state, expectedState, "the old stream has executed the call");
+				const newer = m.resumeStream(record !== "skip");
+				if (record !== "skip") {
+					assert.equal(part().state, expectedState, "keep the visible live state while the record is pending");
+					recordResponse.resolve(record === "success"
+						? Response.json({ messages: [] }) : new Response("unavailable", { status: 503 }));
+				}
+				newBody.enqueue(new TextEncoder().encode(sse(start)));
+				await flush();
+				try {
+					assert.equal(part().state, "input-streaming", "partial replay must not inherit an old execution");
+					newBody.enqueue(new TextEncoder().encode(sse(execution)));
+					await flush();
+					assert.equal(part().state, expectedState, "the new replay applies its own execution");
+					const expected = m.getState();
+					oldBody.enqueue(new TextEncoder().encode(sse(partial([{ type: "text", text: "stale" }]), "[DONE]")));
+					await older;
+					assert.deepEqual(m.getState(), expected, "late old-reader cleanup preserves the new execution");
+				} finally {
+					newBody.close();
+					await newer;
+					oldBody.close();
+					await older;
+				}
+			});
+		}
+	}
+
+	it("stop during the settled stream close does not fire a stale settle hook", async () => {
+		const closing = deferred<void>();
+		const closed = deferred<void>();
+		let settled = 0;
+		const response = new Response(new ReadableStream<Uint8Array>({
+			start(controller) { controller.enqueue(new TextEncoder().encode(sse({ type: "turn-settled" }))); },
+			cancel() { closing.resolve(); return closed.promise; },
+		}));
+		const m = model({ onReattachSettled: () => { settled++; }, fetch: (async () => response) as typeof fetch });
+		const attaching = m.resumeStream(false);
+		await closing.promise;
+		m.stop();
+		closed.resolve();
+		await attaching;
+		assert.equal(settled, 0);
+		assert.equal(m.status, "ready");
+	});
+});
 
 // ─── the 409 identity-retry ────────────────────────────────────────────────
 

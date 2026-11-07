@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
+import { freePort } from "../electron/free-port.cjs";
 import { probeEnv } from "./smoke-demo-runtime.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -32,17 +32,6 @@ function isolatedCopy() {
 	}
 	fs.cpSync(SOURCE, isolated, { recursive: true });
 	return isolated;
-}
-
-function freePort() {
-	return new Promise((resolve, reject) => {
-		const srv = net.createServer();
-		srv.listen(0, "127.0.0.1", () => {
-			const { port } = srv.address();
-			srv.close(() => resolve(port));
-		});
-		srv.on("error", reject);
-	});
 }
 
 /** fetch with a deadline that stays armed: a body which stops writing is aborted too. */

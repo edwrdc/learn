@@ -14,6 +14,16 @@ import { stopBrowserService } from "../scripts/smoke-demo-runtime.mjs";
 const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url));
 const mainSource = readFileSync(mainFile, "utf8");
 const requireMain = createRequire(mainFile);
+const freePortFile = fileURLToPath(new URL("../electron/free-port.cjs", import.meta.url));
+const freePortSource = readFileSync(freePortFile, "utf8");
+
+/** Run the real port helper in this fixture's realm against the fake net, so
+ *  the assigned port stays the fixture's 54321. */
+function freePortModule(getDep: (id: string) => unknown) {
+	const module = { exports: {} as { freePort: () => Promise<number> } };
+	runInNewContext(freePortSource, { require: getDep, module }, { filename: freePortFile });
+	return module.exports;
+}
 
 function helperFixture(connected = true, channel = true) {
 	let allowAppReady!: () => void;
@@ -58,6 +68,7 @@ function helperFixture(connected = true, channel = true) {
 		require: (id: string) => id === "electron" ? { app, BrowserWindow: FakeWindow }
 			: id === "node:net" ? net
 			: id === "./browser-service-readiness.cjs" ? { waitForBrowserService }
+			: id === "./free-port.cjs" ? freePortModule((dep: string) => dep === "node:net" ? net : requireMain(dep))
 			: requireMain(id),
 		process, __dirname: dirname(mainFile), AbortController,
 		console: { log: (line: string) => logs.push(line), error: (...parts: unknown[]) => errors.push(parts.join(" ")) },

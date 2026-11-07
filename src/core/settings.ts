@@ -18,10 +18,11 @@
  * Sanitizer contract (mirrors render-settings.ts discipline): whatever
  * arrives from disk or the network passes through sanitizeUserSettings
  * before use — never trusted raw. Strict on known fields, PRESERVES
- * unknown keys verbatim (a newer record must never be destroyed by an
- * older app reading it). Invalid known values degrade gracefully:
- * out-of-range numbers CLAMP, wrong-typed/invalid fields DROP (resolve to
- * factory default), never throw.
+ * unknown TOP-LEVEL keys verbatim (a newer record must never be destroyed
+ * by an older app reading it); a known section is rebuilt from its known
+ * fields only, so unknown sub-keys inside it drop. Invalid known values
+ * degrade gracefully: out-of-range numbers CLAMP, wrong-typed/invalid
+ * fields DROP (resolve to factory default), never throw.
  *
  * Browser-safe: pure logic + types only, no node imports. The resolved
  * (fully concrete) view lives in settings-resolution.ts.
@@ -611,8 +612,9 @@ function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
 /**
  * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
  * known fields validated strictly (invalid ones drop/clamp per module doc),
- * UNKNOWN KEYS PRESERVED VERBATIM (a newer record must survive an older
- * app). Never throws. Non-objects → null.
+ * UNKNOWN TOP-LEVEL KEYS PRESERVED VERBATIM (a newer record must survive an
+ * older app); a known section keeps its known sub-keys only. Never throws.
+ * Non-objects → null.
  */
 export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -639,17 +641,13 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
-		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
-			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
-		}
 	}
-	// Unknown top-level keys ride along untouched (forward-compat). One
-	// known-DEAD key is stripped instead of riding: `chat` (the old
-	// default-settings section) died with per-session models (owner,
-	// 2026-09-28) — a fossil copy on disk must never resurrect through
-	// reads (and any later write flushes it from the file for good).
+	if (r.compaction !== null && typeof r.compaction === "object" && !Array.isArray(r.compaction)) {
+		out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
+	}
+	// Unknown top-level keys ride along (forward-compat); known ones are skipped so a dropped or malformed section cannot re-enter unvalidated.
 	for (const [key, value] of Object.entries(r)) {
-		if (key === "chat" || key === "customEndpoint") continue;
+		if (["version", "general", "agent", "appearance", "models", "customEndpoint", "graph", "compaction", "chat"].includes(key)) continue;
 		if (!(key in out)) out[key] = value;
 	}
 	return out;

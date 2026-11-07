@@ -21,6 +21,7 @@ import type { JobUsage } from "../../core/contracts.ts";
 import type { SearchProvider } from "../../core/search.ts";
 import type { PiEngine } from "../models.ts";
 import type { GraphToolContext } from "../tools/graph.ts";
+import type { AppToolResult } from "../tool-adapter.ts";
 import type { HeadlessApi } from "./headless.ts";
 
 /** The roles the durable background runner drives. */
@@ -242,4 +243,8 @@ export function initialState(kind: BackgroundKind): RunState {
 export interface RoleRunIdentity {
 	chatId: string;
 	jobId: string;
+}
+
+export function textResult(text: string): AppToolResult {
+	return { content: [{ type: "text", text }] };
 }

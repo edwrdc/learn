@@ -38,6 +38,59 @@ function assertMonotonic(values, direction, what) {
 	}
 }
 
+async function openChainTable(page) {
+	await page.goto("/", { ready: '[data-testid="open-chain-table"]' });
+	page.click('[data-testid="open-chain-table"]');
+	await page.waitForJs(`!!document.querySelector('[data-testid=chain-table]')`, 5_000, "chain table");
+}
+
+/** Expand the first multi-node cluster and return its key and node count. */
+function selectableCluster(page) {
+	const group = readGroups(page).find((entry) => entry.count >= 2);
+	assert.ok(group, "no multi-node cluster to delete");
+	page.click(`[data-testid="cluster-toggle-${group.key}"]`);
+	page.waitForJs(`!!document.querySelector('[data-testid^="chain-row-"]')`, 5_000, "the expanded cluster rows");
+	return { key: group.key, count: group.count };
+}
+
+/** Swap DELETE for scripted success/conflict/network answers and record the
+ *  calls and graph revisions the dialog produces. */
+function deleteGate(page, { base = 100, failAt = 0, mode = "conflict" } = {}) {
+	page.js(`(() => {
+		const native = window.fetch.bind(window);
+		const calls = (window.__deleteCalls = []);
+		const script = (window.__deleteScript = { base: ${base}, failAt: ${failAt}, mode: ${JSON.stringify(mode)} });
+		window.__revisions = [];
+		window.addEventListener("lh:graph-revision", (event) => window.__revisions.push(event.detail.graphRevision));
+		window.fetch = function (input, init) {
+			const method = (init && init.method) || (input && input.method) || "GET";
+			const raw = typeof input === "string" ? input : (input && input.url) || "";
+			if (method !== "DELETE") return native(input, init);
+			calls.push(raw);
+			if (calls.length === script.failAt) {
+				if (script.mode === "network") return Promise.reject(new Error("synthetic offline"));
+				return Promise.resolve(Response.json({ code: "extraction_running", error: "raw server line" }, { status: 409 }));
+			}
+			return Promise.resolve(Response.json({ graphRevision: script.base + calls.length }));
+		};
+		return true;
+	})()`);
+}
+
+function readDeleteDialog(page) {
+	return page.js(`(() => {
+		const dialog = document.querySelector('[data-testid=delete-node-dialog]');
+		return {
+			dialog: !!dialog,
+			title: dialog?.querySelector('h2')?.innerText ?? null,
+			names: dialog?.querySelector('[data-testid=node-names-code]')?.innerText.replace(/\\s+/g, " ").trim() ?? null,
+			failure: dialog?.querySelector('[data-testid=node-delete-failure]')?.innerText.replace(/\\s+/g, " ").trim() ?? null,
+			retry: !!dialog?.querySelector('[data-testid=node-delete-retry]'),
+			selection: document.querySelector('[data-testid=chain-selected-summary]')?.innerText ?? null,
+		};
+	})()`);
+}
+
 /** The first singleton chain row (one member) currently rendered, or null. */
 function readSingleton(page) {
 	return page.js(`(() => {
@@ -406,6 +459,125 @@ export async function run(run, check) {
 			assert.equal(label, `Delete ${chain.count} selected ${chain.count === 1 ? "node" : "nodes"}`, "the Delete accessible name lost the old selected-count contract");
 			page.screenshot("deferred-09-chain-delete-label");
 			return { count: chain.count, label };
+		} finally {
+			page.close();
+		}
+	});
+
+	await check("deferred: a partial chain delete keeps the dialog on the remaining nodes and retries without re-deleting", async () => {
+		const page = browser(run, "deferred-chain-partial-delete");
+		try {
+			await openChainTable(page);
+			const cluster = selectableCluster(page);
+			const nodeNames = page.js(`(() => {
+				const map = {};
+				for (const chip of document.querySelectorAll('[data-testid^="prop-chip-"]')) map[chip.getAttribute('data-testid').replace('prop-chip-', '')] = chip.innerText.trim();
+				return map;
+			})()`);
+			page.click(`[data-testid="cluster-checkbox-${cluster.key}"]`);
+			await page.waitForJs(`document.querySelector('[data-testid=chain-selected-summary]')?.innerText.startsWith(${JSON.stringify(`${cluster.count} nodes`)})`, 5_000, "the full cluster selection");
+			deleteGate(page, { base: 100, failAt: 2, mode: "conflict" });
+			page.click('[data-testid="chain-delete"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=delete-node-dialog]')`, 5_000, "delete confirmation");
+			const before = readDeleteDialog(page);
+			assert.equal(before.title, `Delete ${cluster.count} nodes?`, "the confirmation did not list the whole selection");
+			page.click('[data-testid="node-delete-confirm"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=node-delete-failure]')`, 15_000, "the partial-failure line");
+
+			const partial = readDeleteDialog(page);
+			const calls = page.js("window.__deleteCalls").map((url) => decodeURIComponent(url.split("/").at(-1)));
+			assert.equal(calls.length, 2, `the partial run did not stop at the conflict: ${JSON.stringify(calls)}`);
+			assert.equal(partial.dialog, true, "the partial delete closed the dialog");
+			assert.equal(partial.title, `Delete ${cluster.count - 1} nodes?`, "the dialog did not shrink to the remaining nodes");
+			assert.equal(partial.retry, true, "the partial delete hid the retry control");
+			assert.ok(partial.failure.includes("An extraction is running"), `the conflict copy drifted: ${partial.failure}`);
+			assert.ok(partial.selection.startsWith(`${cluster.count - 1} nodes →`), `the selection kept the deleted node: ${partial.selection}`);
+			assert.ok(before.names.startsWith(nodeNames[calls[0]]), `the confirmation did not start at the first delete: ${before.names}`);
+			assert.ok(!partial.names.includes(nodeNames[calls[0]]), `the deleted node stayed in the dialog: ${partial.names}`);
+			assert.ok(partial.names.startsWith(nodeNames[calls[1]]), `the failed node did not lead the remainder: ${partial.names}`);
+			assert.ok(partial.names.includes(`and ${cluster.count - 9} more`), `the remaining count drifted: ${partial.names}`);
+			assert.deepEqual(page.js("window.__revisions"), [101], "the partial delete lost or duplicated its graph revision");
+
+			page.js("window.__deleteScript.failAt = 0; true");
+			page.click('[data-testid="node-delete-retry"]');
+			await page.waitForJs(`!document.querySelector('[data-testid=delete-node-dialog]')`, 30_000, "the retried delete closing on success");
+			const retried = page.js("window.__deleteCalls").map((url) => decodeURIComponent(url.split("/").at(-1)));
+			assert.equal(retried.length, cluster.count + 1, `the retry did not delete exactly the remainder: ${JSON.stringify(retried)}`);
+			assert.equal(retried[2], retried[1], "the retry did not start at the conflicted node");
+			assert.ok(!retried.slice(2).includes(retried[0]), "the retry re-deleted the node that succeeded");
+			assert.deepEqual(page.js("window.__revisions"), [101, 101 + cluster.count], "the full success lost or duplicated its graph revision");
+			assert.equal(page.exists('[data-testid="chain-selection-bar"]'), false, "the deleted nodes stayed selected");
+			page.screenshot("deferred-10-chain-partial-delete");
+			return { count: cluster.count, partial: partial.title, retried: retried.length };
+		} finally {
+			page.close();
+		}
+	});
+
+	await check("deferred: a network failure on the first chain delete keeps every node and retries from it", async () => {
+		const page = browser(run, "deferred-chain-network-delete");
+		try {
+			await openChainTable(page);
+			const cluster = selectableCluster(page);
+			page.click(`[data-testid="cluster-checkbox-${cluster.key}"]`);
+			await page.waitForJs(`document.querySelector('[data-testid=chain-selected-summary]')?.innerText.startsWith(${JSON.stringify(`${cluster.count} nodes`)})`, 5_000, "the full cluster selection");
+			deleteGate(page, { base: 100, failAt: 1, mode: "network" });
+			page.click('[data-testid="chain-delete"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=delete-node-dialog]')`, 5_000, "delete confirmation");
+			const before = readDeleteDialog(page);
+			page.click('[data-testid="node-delete-confirm"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=node-delete-failure]')`, 15_000, "the network-failure line");
+
+			const failed = readDeleteDialog(page);
+			assert.equal(page.js("window.__deleteCalls.length"), 1, "the failed delete kept calling the server");
+			assert.equal(failed.dialog, true, "the failed delete closed the dialog");
+			assert.equal(failed.title, before.title, "the failed delete changed the node list");
+			assert.equal(failed.names, before.names, "the failed delete dropped node names");
+			assert.ok(failed.failure.includes("network error"), `the network copy drifted: ${failed.failure}`);
+			assert.equal(page.js("window.__revisions.length"), 0, "a failed-only run dispatched a graph revision");
+
+			page.js("window.__deleteScript.failAt = 0; true");
+			page.click('[data-testid="node-delete-retry"]');
+			await page.waitForJs(`!document.querySelector('[data-testid=delete-node-dialog]')`, 30_000, "the retried delete closing on success");
+			const retried = page.js("window.__deleteCalls").map((url) => decodeURIComponent(url.split("/").at(-1)));
+			assert.equal(retried.length, cluster.count + 1, `the retry did not delete exactly the selection: ${JSON.stringify(retried)}`);
+			assert.equal(retried[1], retried[0], "the retry did not start at the failed node");
+			assert.deepEqual(page.js("window.__revisions"), [101 + cluster.count], "the retried success lost or duplicated its graph revision");
+			assert.equal(page.exists('[data-testid="chain-selection-bar"]'), false, "the deleted nodes stayed selected");
+			return { count: cluster.count, retried: retried.length };
+		} finally {
+			page.close();
+		}
+	});
+
+	await check("deferred: a network failure mid-sequence keeps the remaining nodes and retries from the failed node", async () => {
+		const page = browser(run, "deferred-chain-partial-network");
+		try {
+			await openChainTable(page);
+			const cluster = selectableCluster(page);
+			page.click(`[data-testid="cluster-checkbox-${cluster.key}"]`);
+			await page.waitForJs(`document.querySelector('[data-testid=chain-selected-summary]')?.innerText.startsWith(${JSON.stringify(`${cluster.count} nodes`)})`, 5_000, "the full cluster selection");
+			deleteGate(page, { base: 100, failAt: 2, mode: "network" });
+			page.click('[data-testid="chain-delete"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=delete-node-dialog]')`, 5_000, "delete confirmation");
+			page.click('[data-testid="node-delete-confirm"]');
+			await page.waitForJs(`!!document.querySelector('[data-testid=node-delete-failure]')`, 15_000, "the network-failure line");
+
+			const partial = readDeleteDialog(page);
+			assert.equal(partial.dialog, true, "the partial network failure closed the dialog");
+			assert.equal(partial.title, `Delete ${cluster.count - 1} nodes?`, "the dialog did not shrink to the remaining nodes");
+			assert.ok(partial.failure.includes("network error"), `the network copy drifted: ${partial.failure}`);
+			assert.deepEqual(page.js("window.__revisions"), [101], "the partial network failure lost its graph revision");
+
+			page.js("window.__deleteScript.failAt = 0; true");
+			page.click('[data-testid="node-delete-retry"]');
+			await page.waitForJs(`!document.querySelector('[data-testid=delete-node-dialog]')`, 30_000, "the retried delete closing on success");
+			const retried = page.js("window.__deleteCalls").map((url) => decodeURIComponent(url.split("/").at(-1)));
+			assert.equal(retried.length, cluster.count + 1, `the retry did not delete exactly the remainder: ${JSON.stringify(retried)}`);
+			assert.equal(retried[2], retried[1], "the retry did not start at the failed node");
+			assert.ok(!retried.slice(2).includes(retried[0]), "the retry re-deleted the node that succeeded");
+			assert.deepEqual(page.js("window.__revisions"), [101, 101 + cluster.count], "the full success lost or duplicated its graph revision");
+			return { count: cluster.count, failed: retried[1] };
 		} finally {
 			page.close();
 		}

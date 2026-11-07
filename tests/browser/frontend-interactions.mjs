@@ -10,7 +10,9 @@ import * as toolContent from "./frontend-suite-tool-content.mjs";
 import * as deferred from "./frontend-suite-deferred.mjs";
 import * as notesImport from "./frontend-suite-notes-import.mjs";
 import * as activity from "./frontend-suite-activity.mjs";
+import * as dispatch from "./frontend-suite-dispatch.mjs";
 import * as coverage from "./frontend-suite-coverage.mjs";
+import * as compaction from "./frontend-suite-compaction.mjs";
 
 const args = process.argv.slice(2);
 const argValue = (name, fallback) => {
@@ -27,6 +29,7 @@ function seedChat(dataDir) {
 	const record = JSON.parse(fs.readFileSync(file, "utf8"));
 	record.settings = { model: { provider: "custom-endpoint", id: modelPicker.RETIRED_MODEL }, thinkingLevel: "off" };
 	fs.writeFileSync(file, `${JSON.stringify(record, null, "\t")}\n`);
+	compaction.seedCompactionChat(dataDir);
 }
 
 async function setSlots(run) {
@@ -75,8 +78,10 @@ try {
 	await research.run(run, check);
 	await modelPicker.configureScriptedProvider(run);
 	await setSlots(run);
+	await compaction.run(run, check);
 	await modelPicker.run(run, check);
 	await activity.run(run, check);
+	await dispatch.run(run, check);
 	await toolContent.run(run, check);
 	await deferred.run(run, check);
 	await notesImport.run(run, check);

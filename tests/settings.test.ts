@@ -79,6 +79,7 @@ describe("sanitizeUserSettings", () => {
 				mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
 			},
 			graph: { enabled: false },
+			compaction: { thresholdTokens: 96_000 },
 		};
 		assert.deepEqual(sanitizeUserSettings(record), record);
 	});
@@ -95,6 +96,42 @@ describe("sanitizeUserSettings", () => {
 		assert.equal(out.version, CURRENT_SETTINGS_VERSION);
 		assert.deepEqual((out as Record<string, unknown>).futureSection, { knob: 3 });
 		assert.deepEqual(out.general, { autoUpdate: true });
+	});
+
+	it("drops malformed known sections instead of preserving them as unknown keys", () => {
+		for (const section of ["general", "agent", "appearance", "models", "customEndpoint", "graph", "compaction", "chat"]) {
+			for (const value of [undefined, null, false, 42, "invalid", []]) {
+				assert.deepEqual(
+					sanitizeUserSettings({ version: 1, [section]: value, futureSection: { knob: 3 } }),
+					{ version: 1, futureSection: { knob: 3 } },
+					`${section} = ${String(value)}`,
+				);
+			}
+		}
+	});
+
+	it("does not restore models or custom endpoints whose object contents were rejected", () => {
+		assert.deepEqual(sanitizeUserSettings({
+			version: 1,
+			models: { strong: { model: { provider: 42, id: "invalid" } }, cheap: "invalid" },
+			customEndpoint: { baseUrl: "invalid" },
+			chat: { model: { provider: "old", id: "retired" } },
+			futureSection: [1, { enabled: false }],
+		}), { version: 1, futureSection: [1, { enabled: false }] });
+	});
+
+	it("sanitizes compaction independently of the graph section", () => {
+		for (const graph of [undefined, {}, { enabled: true }, { enabled: false }, null, false, []]) {
+			for (const [thresholdTokens, expected] of [[1, 32_000], [31_999.9, 32_000], [32_000, 32_000], [96_000.9, 96_000], [1_000_000, 1_000_000]]) {
+				assert.deepEqual(
+					sanitizeUserSettings({ graph, compaction: { thresholdTokens } })?.compaction,
+					{ thresholdTokens: expected },
+				);
+			}
+			for (const thresholdTokens of [0, -5, NaN, Infinity, -Infinity, "96000", null, true, {}, []]) {
+				assert.deepEqual(sanitizeUserSettings({ graph, compaction: { thresholdTokens } })?.compaction, {});
+			}
+		}
 	});
 
 	it("wrong-typed fields DROP (resolve to factory), never crash", () => {

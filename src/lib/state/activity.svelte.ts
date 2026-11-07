@@ -1,18 +1,9 @@
 /** The background-agents feed: one GET /api/activity, refetched on
  *  activity/jobs announcements (trailing 250ms), reconnect, and visibility. */
-import { type JobKind, type JobRecord, type CallUsage } from "@/src/core";
+import type { JobKind } from "@/src/core";
 import { formatElapsed, toBlobs, type ActivityBlob, type ActivityFeed, type FeedExtraction, type FeedJob } from "./activity";
 export { formatElapsed, toBlobs } from "./activity";
 import { serverEvents } from "./server-events";
-
-interface FeedUsage extends NonNullable<JobRecord["usage"]> {
-	lastStep?: CallUsage;
-}
-
-
-
-
-
 
 const EMPTY: ActivityFeed = { jobs: [], extractions: [] };
 

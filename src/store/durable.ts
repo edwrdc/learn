@@ -1,7 +1,7 @@
 /**
  * THE DURABLE CHAT STORE.
  *
- * One SQLite database per PUBLIC chat id at PATHS.durable/<chatId>/. The
+ * One SQLite database per PUBLIC chat id at PATHS.data/durable/<chatId>/. The
  * database has exactly ONE Harness owner in this process (the handle map
  * below — globalThis because Next dev hands every route its own module
  * instance). The chat's own transcript is the ROOT conversation; job and
@@ -47,15 +47,6 @@ export const CONTINUATION_KIND = "lh.continuation";
  *  request hook hides the `lh.continuation` ENTRY, so a learner message
  *  with the same text (string or structured) keeps reaching the provider. */
 export const CONTINUATION_TEXT = "[continue]";
-
-/** Every entry kind this app writes. Durable reserves the `pi.` prefix. */
-export type LhEntryKind =
-	| "lh.user"
-	| "lh.assistant"
-	| "lh.tool-result"
-	| "lh.marker"
-	| "lh.edit"
-	| typeof CONTINUATION_KIND;
 
 /** The `data` payload of an app-written entry. */
 export interface LhEntryData {
@@ -437,8 +428,7 @@ export async function appendEntries(chatId: string, drafts: readonly EntryDraft[
 /** Append the record messages the transcript does not hold yet, keyed by
  *  app message id; a message whose content changed is written as a
  *  ContextEdit over the entry that owns it (entries are immutable). The old
- *  store's saveMessages callers pass the WHOLE desired list, so this is its
- *  exact upsert contract. */
+ *  store's saveMessages contract leaves omitted messages unchanged. */
 export async function appendMessages(chatId: string, messages: readonly LhMessage[]): Promise<void> {
 	const runtime = await openChatRuntime(chatId);
 	const { messages: current, entryOf } = projectTranscript(await readEntries(runtime));

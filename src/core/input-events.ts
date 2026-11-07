@@ -38,7 +38,7 @@ import {
 	newUserMessage,
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
-import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { toolQuestionKind } from "./pending.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -241,9 +241,4 @@ export function inputAppends(
 function dismissalConclusion(record: { messages: LhMessage[] }): LhMessage[] {
 	const problemCallId = pendingProblemDismissalOf(record.messages);
 	return problemCallId ? concludedByDismissalPair(problemCallId) : [];
-}
-
-/** Is this tool name a question tool (dock-owned, answer-gated)? */
-export function isQuestionTool(name: string): boolean {
-	return (QUESTION_TOOLS as readonly string[]).includes(name);
 }

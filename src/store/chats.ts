@@ -234,10 +234,9 @@ async function listChats(): Promise<ChatSummary[]> {
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-/** Persist the full native message list. The record IS the transcript, so
- *  only the messages the durable store does not hold yet are appended (the
- *  callers pass the whole desired list). SILENT by the events law: callers
- *  emit their own record change. */
+/** Upsert supplied native messages by id; omitted messages remain.
+ *  New ids append, changed messages edit their existing entries.
+ *  SILENT by the events law: callers emit their own record change. */
 async function saveMessages(id: string, messages: LhMessage[]): Promise<void> {
 	await mutateMeta(id, async (meta) => {
 		await appendMessages(id, messages);
@@ -299,8 +298,8 @@ async function renameChat(id: string, title: string): Promise<ChatRecord> {
 /** Hard-delete the session: close the runtime FIRST (no new work while it
  *  closes, admitted commits settled), then remove its database, journals,
  *  and the legacy backup, then the metadata file. False when the id is
- *  unknown. The graph-ledger purge and job cleanup are the caller's
- *  choreography (core/graph-deletion.ts + the DELETE route). */
+ *  unknown; removal failures throw. The graph-ledger purge and job cleanup
+ *  are the caller's choreography (core/graph-deletion.ts + the DELETE route). */
 async function deleteChat(id: string): Promise<boolean> {
 	// The metadata queue owns the whole removal: a mutation that arrives
 	// afterwards re-reads the (now absent) file inside the same lock and
@@ -309,15 +308,11 @@ async function deleteChat(id: string): Promise<boolean> {
 		const file = chatFile(id);
 		const hadRecord = fs.existsSync(file);
 		const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
-		try {
-			await closeChatRuntime(id);
-			removeChatRuntimeFiles(id);
-			if (hadRecord) fs.unlinkSync(file);
-			if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
-			return hadRecord || hadRuntime;
-		} catch {
-			return false;
-		}
+		await closeChatRuntime(id);
+		removeChatRuntimeFiles(id);
+		if (hadRecord) fs.unlinkSync(file);
+		if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
+		return hadRecord || hadRuntime;
 	});
 }
 

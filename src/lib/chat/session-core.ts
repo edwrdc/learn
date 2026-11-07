@@ -54,21 +54,22 @@ function localId(): string {
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const t = setTimeout(resolve, ms);
-		signal?.addEventListener(
-			"abort",
-			() => {
-				clearTimeout(t);
-				reject(new DOMException("Aborted", "AbortError"));
-			},
-			{ once: true },
-		);
+		const abort = () => {
+			clearTimeout(t);
+			reject(new DOMException("Aborted", "AbortError"));
+		};
+		const t = setTimeout(() => {
+			signal?.removeEventListener("abort", abort);
+			resolve();
+		}, ms);
+		if (signal?.aborted) abort();
+		else signal?.addEventListener("abort", abort, { once: true });
 	});
 }
 
-async function turnInFlight(model: SessionModel): Promise<boolean | null> {
+async function turnInFlight(model: SessionModel, signal?: AbortSignal): Promise<boolean | null> {
 	try {
-		const res = await model.fetch(`/api/jobs?chatId=${encodeURIComponent(model.chatId)}`);
+		const res = await model.fetch(`/api/jobs?chatId=${encodeURIComponent(model.chatId)}`, { signal });
 		if (!res.ok) return null;
 		return ((await res.json()) as { turnInFlight?: boolean }).turnInFlight === true;
 	} catch {
@@ -242,6 +243,7 @@ export class SessionModel {
 	// The single live consume (POST response or reattach stream): a newer
 	// consume cancels the older — one reader at a time.
 	private consumeAbort: AbortController | null = null;
+	private turnGeneration = 0;
 	/** Synchronous ready check for the gate (send/read mount logic). */
 	readyRef = true;
 
@@ -308,7 +310,6 @@ export class SessionModel {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body,
-			signal,
 		};
 		let response = await this.fetch("/api/chat", init);
 		let waited = 0;
@@ -318,7 +319,9 @@ export class SessionModel {
 			await delay(this.pollMs, signal);
 			waited += this.pollMs;
 			if (signal?.aborted) return response;
-			if ((await turnInFlight(this)) !== false) continue;
+			const running = await turnInFlight(this, signal);
+			if (signal?.aborted) return response;
+			if (running !== false) continue;
 			response = await this.fetch("/api/chat", init); // may 409 again → loop
 		}
 		return response;
@@ -441,16 +444,18 @@ export class SessionModel {
 
 	/** Consume one SSE body to its [DONE] terminal. The turn-settled
 	 *  terminal (stream-route only) fires the settle hook and ends. */
-	async consumeStream(res: Response): Promise<void> {
+	async consumeStream(res: Response, signal?: AbortSignal): Promise<void> {
 		if (!res.body) throw new Error("The turn stream body is empty.");
 		const reader = res.body.getReader();
 		let sawEvent = false;
 		try {
 			for await (const event of sseEvents(reader)) {
+				signal?.throwIfAborted();
 				if (event.type === "turn-settled") {
 					// The raced-settle terminal: no turn to attach to — the
 					// record is current; the settle hook refetches.
 					await reader.cancel().catch(() => {});
+					signal?.throwIfAborted();
 					this.onReattachSettled?.();
 					return;
 				}
@@ -461,9 +466,11 @@ export class SessionModel {
 				}
 			}
 		} finally {
-			this.streamingIds = new Set();
-			this.executions = new Map();
-			if (this.statusValue !== "error") this.setStatus("ready");
+			if (!signal?.aborted) {
+				this.streamingIds = new Set();
+				this.executions = new Map();
+				if (this.statusValue !== "error") this.setStatus("ready");
+			}
 		}
 	}
 
@@ -481,6 +488,7 @@ export class SessionModel {
 	 * through the SAME consume path.
 	 */
 	async resumeStream(refetchRecordFirst = true): Promise<void> {
+		this.turnGeneration++;
 		this.consumeAbort?.abort();
 		const controller = new AbortController();
 		this.consumeAbort = controller;
@@ -504,6 +512,8 @@ export class SessionModel {
 			this.mutate(() => {
 				this.tail = [];
 				this.streamingMessageId = null;
+				this.streamingIds = new Set();
+				this.executions = new Map();
 			});
 		}
 		this.setStatus("submitted");
@@ -512,12 +522,17 @@ export class SessionModel {
 				const recordRes = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}`, {
 					signal: controller.signal,
 				});
+				controller.signal.throwIfAborted();
 				if (recordRes.ok) {
 					const record = (await recordRes.json()) as { messages?: LhMessage[] };
+					controller.signal.throwIfAborted();
 					if (Array.isArray(record.messages)) {
 						this.mutate(() => {
 							this.base = record.messages!;
 							this.tail = [];
+							this.streamingMessageId = null;
+							this.streamingIds = new Set();
+							this.executions = new Map();
 						});
 					}
 				} else {
@@ -526,16 +541,19 @@ export class SessionModel {
 					this.mutate(() => {
 						this.tail = [];
 						this.streamingMessageId = null;
+						this.streamingIds = new Set();
+						this.executions = new Map();
 					});
 				}
 			}
 			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/stream`, {
 				signal: controller.signal,
 			});
+			controller.signal.throwIfAborted();
 			if (!res.ok) throw new Error((await res.text()) || "Failed to attach to the running turn.");
-			await this.consumeStream(res);
+			await this.consumeStream(res, controller.signal);
 		} catch (err) {
-			if ((err as Error).name === "AbortError") return; // a newer consume won
+			if (controller.signal.aborted || (err as Error).name === "AbortError") return;
 			this.setError((err as Error).message);
 			this.setStatus("error");
 		}
@@ -548,7 +566,8 @@ export class SessionModel {
 	 * server's 409 + identity retry covers the wake-race window).
 	 */
 	async send(input: ChatInput): Promise<void> {
-		if (!this.readyRef) return;
+		if (!this.readyRef && this.statusValue !== "error") return;
+		this.turnGeneration++;
 		this.consumeAbort?.abort();
 		const controller = new AbortController();
 		this.consumeAbort = controller;
@@ -576,19 +595,9 @@ export class SessionModel {
 			this.tail = [...this.tail, ...optimistic];
 		});
 		try {
-			// SUBMITS ARE NOT ABORTABLE BY VIEW TEARDOWN (owner, 2026-10-10 —
-			// the dead-session-start postmortem): the POST must NOT ride
-			// consumeAbort. Diet A's abort-on-unmount (session.ts's stop())
-			// fires on a dev double-mount — it killed
-			// the ?prompt first send ~8ms in (POST aborted, never retried:
-			// the page's sentInitial guard had already flipped), leaving the
-			// session dead until a second message, which then persisted
-			// WITHOUT the first — the optimistic tail rode a record that never
-			// contained it. The POST is a ~100ms ack since Diet B; it cannot
-			// starve the connection pool, so it needs no teardown guard. The
-			// STREAM consume stays on the controller — releasing that held
-			// connection is Diet A's whole job.
-			const res = await this.postInputEvent(input);
+			// View teardown must not drop a submitted input by aborting its POST.
+			const res = await this.postInputEvent(input, controller.signal);
+			if (controller.signal.aborted && !res.ok) return;
 			if (res.status === 409) {
 				this.setError("A turn is already running — try again in a moment.");
 				this.setStatus("error");
@@ -614,7 +623,7 @@ export class SessionModel {
 			if (this.consumeAbort !== controller) return;
 			await this.resumeStream(true);
 		} catch (err) {
-			if ((err as Error).name === "AbortError") return; // stop() or a newer consume won
+			if (controller.signal.aborted || (err as Error).name === "AbortError") return;
 			this.setError((err as Error).message);
 			this.setStatus("error");
 		}
@@ -676,7 +685,8 @@ export class SessionModel {
 	 * durable record wins: the error surfaces, the record-changed sync
 	 * (or any later refetch) replaces the optimistic append with truth. */
 	async dismissQuestion(toolCallId: string, answer: QuestionAnswerData): Promise<void> {
-		if (!this.readyRef) return;
+		if (!this.readyRef && this.statusValue !== "error") return;
+		const generation = this.turnGeneration;
 		const tool = pendingCallTool([...this.base, ...this.tail], toolCallId) ?? "quiz";
 		this.mutate(() => {
 			this.tail = [...this.tail, { ...newAnswerResult(toolCallId, tool, answer), id: localId() }];
@@ -689,7 +699,7 @@ export class SessionModel {
 			});
 			if (!res.ok) throw new Error(`The dismissal failed (${res.status}).`);
 		} catch (err) {
-			this.setError((err as Error).message);
+			if (this.turnGeneration === generation) this.setError((err as Error).message);
 		}
 	}
 
@@ -698,7 +708,8 @@ export class SessionModel {
 	 *  the SILENT route persists it (no turn, no wake). The composer
 	 *  returns; the conclude synthesis rides the user's next input. */
 	async dismissProblem(problemCallId: string): Promise<void> {
-		if (!this.readyRef) return;
+		if (!this.readyRef && this.statusValue !== "error") return;
+		const generation = this.turnGeneration;
 		this.mutate(() => {
 			this.tail = [...this.tail, { ...newProblemDismissedMarker(problemCallId), id: localId() }];
 		});
@@ -710,7 +721,7 @@ export class SessionModel {
 			});
 			if (!res.ok) throw new Error(`The dismissal failed (${res.status}).`);
 		} catch (err) {
-			this.setError((err as Error).message);
+			if (this.turnGeneration === generation) this.setError((err as Error).message);
 		}
 	}
 

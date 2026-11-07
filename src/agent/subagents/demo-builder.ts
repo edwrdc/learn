@@ -1,11 +1,12 @@
 import { Type } from "typebox";
-import type { AppTool, AppToolResult } from "../tool-adapter.ts";
+import type { AppTool } from "../tool-adapter.ts";
 import {
 	backgroundRun,
 	type DemoRunState,
 	type DemoVerification,
 	type RoleRunIdentity,
 	type RoleStateIo,
+	textResult,
 } from "./durable-run.ts";
 import type { DemoResult } from "../../core/contracts.ts";
 import { getHeadless, type DemoRunResult, type HeadlessApi } from "./headless.ts";
@@ -95,10 +96,6 @@ const runDemoInput = Type.Object({
 		}),
 	),
 });
-
-function textResult(text: string): AppToolResult {
-	return { content: [{ type: "text", text }] };
-}
 
 /** The probe value is not persisted (it is an arbitrary JSON value the model
  *  asked for); the verification facts are. */
