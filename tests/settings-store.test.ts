@@ -16,6 +16,7 @@ import path from "node:path";
 import { after, afterEach, describe, it } from "node:test";
 import { SETTINGS_FILE } from "../config.ts";
 import { readSettings, writeSettings } from "../src/store/settings.ts";
+import { resolveSettings } from "../src/core/settings-resolution.ts";
 
 // Snapshot any pre-existing record; restore in after() so the worktree's
 // own dev state survives a test run.
@@ -47,6 +48,39 @@ describe("the settings store", () => {
 		const out = readSettings();
 		assert.ok(out);
 		assert.deepEqual(out.graph, { enabled: false });
+	});
+
+	it("sanitizes independent sections on disk reads and writes without losing unknown keys", () => {
+		for (const graph of [undefined, { enabled: false }]) {
+			for (const [thresholdTokens, compaction, effectiveThreshold] of [
+				[-5, {}, 150_000],
+				[1, { thresholdTokens: 32_000 }, 32_000],
+				[96_000.9, { thresholdTokens: 96_000 }, 96_000],
+			] as const) {
+				const raw = {
+					version: 2,
+					general: [],
+					agent: null,
+					appearance: false,
+					models: { strong: "invalid" },
+					customEndpoint: { baseUrl: "invalid" },
+					graph,
+					compaction: { thresholdTokens },
+					futureSection: { knob: [1, false] },
+				};
+				const expected = { version: 2, ...(graph ? { graph } : {}), compaction, futureSection: raw.futureSection };
+				fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+				const disk = JSON.stringify(raw);
+				fs.writeFileSync(SETTINGS_FILE, disk, "utf-8");
+				const read = readSettings();
+				assert.deepEqual(read, expected);
+				assert.equal(resolveSettings(read).compaction.thresholdTokens, effectiveThreshold);
+				assert.equal(fs.readFileSync(SETTINGS_FILE, "utf-8"), disk, "reads do not rewrite the stored record");
+				assert.deepEqual(writeSettings(raw), expected);
+				assert.deepEqual(JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8")), expected);
+				assert.deepEqual(readSettings(), expected);
+			}
+		}
 	});
 
 	it("a chat section on disk is IGNORED — the field died with per-session models (owner, 2026-09-28)", () => {
