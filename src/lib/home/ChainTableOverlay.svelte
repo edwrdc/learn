@@ -136,7 +136,8 @@
 	}
 
 	function onDeleted(ids: string[], revision: number) {
-		deleting = null;
+		const remaining = deleting?.filter((node) => !ids.includes(node.id)) ?? [];
+		deleting = remaining.length > 0 ? remaining : null;
 		setSelection(new Set([...selection].filter((id) => !ids.includes(id))));
 		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision: revision } }));
 	}
