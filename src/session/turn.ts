@@ -38,7 +38,6 @@ import { searchAvailable, searchProvider } from "../tools/index.ts";
 import { providerKeyPresent } from "../settings/index.ts";
 import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../settings/model/index.ts";
 import {
-	extractionEnabled,
 	resolveConversationSpec,
 	resolveRoleSpec,
 } from "../settings/model/index.ts";
@@ -258,7 +257,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		const record = await stores.chatStore.getChat(chatId);
 		// GRAPH GATE: the write channel dies with the master switch; practice
 		// sessions write nothing (v1: the session is the deliverable).
-		if (services().upkeep && record !== null && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+		if (services().upkeep && record !== null && record.kind !== "practice" && effective.graph.enabled) {
 			await triggerExtraction(stores, services().extraction, chatId, effective.graph.extractionChunkTokens);
 		}
 		// PARKED DISMISSAL: a dismissal that arrived

@@ -13,7 +13,7 @@ import {
 	validateChatSettings,
 	validateModelsSettings,
 } from "../src/settings/model-catalog.ts";
-import type { EffectiveSlot } from "../src/settings/model/resolution.ts";
+import type { EffectiveModelSpec } from "../src/settings/model/resolution.ts";
 import type { SettingsValidation } from "../src/settings/model-catalog.ts";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { DEFAULT_THINKING_ORDER } from "../src/settings/model/settings.ts";
@@ -260,7 +260,7 @@ describe("the settings validation gate", () => {
 
 	it("clampChatLevel: the body's model, else the strong slot, translates the pin", () => {
 		const glm = { provider: "openrouter", id: "z-ai/glm-5.3-flash" };
-		const strong: EffectiveSlot = { provider: "openrouter", id: "z-ai/glm-5.3-flash" };
+		const strong: EffectiveModelSpec = { provider: "openrouter", id: "z-ai/glm-5.3-flash" };
 		// the body's own model wins
 		assert.deepEqual(
 			clampChatLevel({ model: { provider: "openrouter", id: "qwen/qwen3.8-max-0902" }, thinkingLevel: "xhigh" as const }, strong),

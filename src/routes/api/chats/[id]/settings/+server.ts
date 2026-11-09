@@ -1,7 +1,7 @@
-import { clampChatLevel, parseSettingsBody, validateChatSettings } from "@/src/settings";
+import { clampChatLevel, validateChatSettings } from "@/src/settings";
+import { parseModelChoice } from "@/src/settings/model";
 import { effectiveSettings, stores } from "@/src/stores";
 import { getChat } from "@/src/session";
-import type { ChatSettings } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
 
 /**
@@ -16,19 +16,16 @@ import type { RequestEvent } from "./$types";
  * interlude 2026-09-22): a pinned level clamps to the named model's
  * nearest supported and the clamped value is stored. Effective next turn
  * by construction (agents are stateless per turn).
- *
- * The body parsing itself is shared with the draft route
- * (src/server/settings-body.ts, default-settings wave 2026-09-18).
  */
 export async function PUT({ request: req, params }: RequestEvent) {
 	const { id } = params;
 	if (!(await getChat(id))) return Response.json({ error: "Not found" }, { status: 404 });
 
 	const body = await req.json().catch(() => null);
-	const parsed = parseSettingsBody(body);
+	const parsed = parseModelChoice(body);
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 
-	const verdict = validateChatSettings(parsed.settings);
+	const verdict = validateChatSettings(parsed.value);
 	if (!verdict.ok) {
 		return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
 	}
@@ -38,7 +35,7 @@ export async function PUT({ request: req, params }: RequestEvent) {
 	// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
 	// level never rejects — it clamps to the named model's nearest
 	// supported (body model, else the record's strong slot).
-	const settings = clampChatLevel(parsed.settings, effectiveSettings().models.strong);
+	const settings = clampChatLevel(parsed.value, effectiveSettings().models.strong);
 	await stores.chatStore.saveSettings(id, settings);
 	return Response.json({ settings });
 }

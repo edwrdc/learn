@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { COMPACTION_THRESHOLD_FLOOR, MODEL_SLOTS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelCatalogEntry, type ModelsSettings, type ModelSlotName } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
-	import { JOB_KINDS } from "@/src/tools/model";
+	import { JOB_KINDS, SEARCH_ENGINES, type SearchEngineId } from "@/src/tools/model";
 	import { prettyModel } from "$lib/format";
 	import { watchSettings } from "$lib/state/settings-signal";
 	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL, type SegmentInfo } from "./compose";
@@ -19,7 +19,6 @@
 		cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 		vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 	};
-	const SEARCH_ENGINES = ["tavily", "brave"] as const;
 	const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 	let {
@@ -43,7 +42,7 @@
 	let catalog = $state<ModelCatalogEntry[] | null>(null);
 	let slots = $state<ModelsBody["slots"] | null>(null);
 	let search = $state<{ available: boolean; engine: string | null; reason: string } | null>(null);
-	let engineKeys = $state<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
+	let engineKeys = $state<Partial<Record<SearchEngineId, boolean>>>({});
 	let prompts = $state<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
 	let openSegment = $state<string | null>(null);
 	let segmentDraft = $state<Record<string, string>>({});
@@ -79,11 +78,8 @@
 		fetch("/api/keys")
 			.then((r) => r.json())
 			.then((body: { keys: Array<{ id: string; present: boolean }> }) => {
-				const present: Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>> = {};
-				for (const id of SEARCH_ENGINES) {
-					const envVar = id === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY";
-					present[id] = body.keys.some((k) => k.id === envVar && k.present);
-				}
+				const present: Partial<Record<SearchEngineId, boolean>> = {};
+				for (const { id, envVar } of SEARCH_ENGINES) present[id] = body.keys.some((k) => k.id === envVar && k.present);
 				engineKeys = present;
 			})
 			.catch(() => {});
@@ -231,12 +227,12 @@
 		</Controls>
 	{/each}
 	{@const engine = agent?.search?.engine ?? null}
-	{@const anyKey = engineKeys.tavily === true || engineKeys.brave === true}
+	{@const anyKey = SEARCH_ENGINES.some((e) => engineKeys[e.id] === true)}
 	{@const searchOpen = openMenu?.target === "search"}
 	<Controls kind="row" label="Search engine" hint={search?.reason ?? undefined} testid="search-engine-row" dimmed={!anyKey}>
 		<span class="relative flex items-center gap-2">
 			<button type="button" aria-label="Search engine" aria-expanded={searchOpen} data-testid="search-engine-trigger" onclick={() => { if (anyKey) openMenu = searchOpen ? null : { target: "search", kind: "engine" }; }} class="flex h-7 min-w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors {anyKey ? 'hover:border-muted-foreground/50' : 'cursor-not-allowed'}">
-				<span class="min-w-0 flex-1 truncate">{engine === "tavily" ? "Tavily" : engine === "brave" ? "Brave" : "Automatic"}</span>
+				<span class="min-w-0 flex-1 truncate">{SEARCH_ENGINES.find((e) => e.id === engine)?.label ?? "Automatic"}</span>
 				<span aria-hidden="true" class="text-muted-foreground">▾</span>
 			</button>
 			{#if searchOpen}
@@ -244,9 +240,9 @@
 					<button type="button" data-testid="engine-option-auto" onclick={() => { onSectionChange(composeSearchEngine(agent, null)); openMenu = null; }} class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted {engine === null ? 'bg-muted/60 text-card-foreground' : 'text-card-foreground'}">
 						<span>Automatic</span><span class="text-muted-foreground">{engine === null ? "✓" : ""}</span>
 					</button>
-					{#each SEARCH_ENGINES as id (id)}
+					{#each SEARCH_ENGINES as { id, label } (id)}
 						<button type="button" data-testid={`engine-option-${id}`} onclick={() => { onSectionChange(composeSearchEngine(agent, id)); openMenu = null; }} class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted {engine === id ? 'bg-muted/60 text-card-foreground' : 'text-card-foreground'}">
-							<span>{id === "tavily" ? "Tavily" : "Brave"}</span>
+							<span>{label}</span>
 							<span class="text-muted-foreground">{engineKeys[id] ? "✓ key" : "· no key"}</span>
 						</button>
 					{/each}

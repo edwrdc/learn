@@ -1,5 +1,6 @@
 import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings } from "@/src/settings/model";
 import type { KeyAction } from "@/src/settings/model";
+import type { SearchEngineId } from "@/src/tools/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
 export const THINKING_LABEL: Record<string, string> = {
@@ -65,7 +66,7 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
 
 export function composeSearchEngine(
 	agent: AgentSettings | undefined,
-	engine: "tavily" | "brave" | null,
+	engine: SearchEngineId | null,
 ): AgentSettings {
 	if (engine === null) {
 		if (!agent?.search) return { ...agent } as AgentSettings;

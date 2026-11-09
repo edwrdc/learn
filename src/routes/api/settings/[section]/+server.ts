@@ -1,121 +1,55 @@
 /**
- * PUT /api/settings/[section] — section-scoped record writes
- * (settings-storage wave, 2026-09-19). One PUT replaces ONE section
- * replace-whole (absent fields = absent overrides — the house settings
- * discipline, same as the per-chat and defaults routes); sections are
- * independent, so partial writes can never clobber each other.
+ * PUT /api/settings/[section] — replaces ONE section of settings.json
+ * (absent fields = absent overrides); other sections and unknown keys ride
+ * along untouched. The body is parsed strictly by the settings schema; a
+ * section may add a catalog check and a transform below.
  *
- *   section ∈ general | chat | agent | appearance | graph | compaction
- *   Body: the complete desired section object. Parse + validate strictly
- *   (server/settings-body.ts): a bad shape/type is a 400 carrying the
- *   supported list where one exists. The chat and models sections
- *   additionally pass the catalog gate (validateChatSettings /
- *   validateModelsSettings — unknown provider/model = 400). Thinking
- *   levels never reject a write (owner, interlude 2026-09-22): a pinned
- *   level CLAMPS to the named model's nearest supported level and the
- *   clamped value is stored — model swaps just work, same as the
- *   defaults route. The agent section additionally validates prompt
- *   switches — under the orphan-heal contract (interlude 2026-09-26): an
- *   ON switch with its override file present is valid as-is; an ON whose
- *   file is gone (deleted outside the app, a disk wipe, or a record from
- *   before the delete-clears-switch fix) is an ORPHAN and is healed to
- *   OFF (the key drops) inside the same write — never a 400. Invariant:
- *   a user can never get stuck unable to write settings, and switch
- *   state never contradicts file reality for long (the delete route
- *   clears the switch by construction; this is the backstop).
+ * Thinking levels never reject a write (owner, interlude 2026-09-22): a
+ * pinned level CLAMPS to the named model's nearest supported level.
  *
- * The static siblings (defaults, prompts) take precedence over this
- * dynamic segment — Next resolves static routes first, so "prompts" never
- * lands here.
+ * Prompt switches heal instead of rejecting (interlude 2026-09-26): an ON
+ * switch whose override file is gone (or whose segment left the source
+ * tree) drops to OFF inside the same write, so a user can never get stuck
+ * unable to write settings.
  */
 
-import type { AgentSettings, ModelsSettings } from "@/src/settings/model";
-import type { ChatSettings } from "@/src/session/model";
-import { SETTINGS_SECTIONS, clampChatLevel, clampModelsLevels, promptOverrides, readSettings, validateChatSettings, validateModelsSettings, writeSettings, type SettingsBodyResult } from "@/src/settings";
+import { CURRENT_SETTINGS_VERSION, isSettingsSection, parseSection, SETTINGS_SECTIONS, type AgentSettings, type ModelsSettings, type SettingsSection } from "@/src/settings/model";
+import { clampModelsLevels, promptOverrides, readSettings, validateModelsSettings, writeSettings } from "@/src/settings";
 import { allSegmentPaths } from "@/src/session";
-import { effectiveSettings } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
-/** One parser, result type erased to the common envelope. */
-type AnySectionParser = (body: unknown) => SettingsBodyResult<unknown>;
+type Refusal = { error: string; supported?: string[] };
+
+/** Per-section checks and transforms after the shape parse. */
+const SECTION_WRITES: { [S in SettingsSection]?: (value: never) => { ok: true; value: unknown } | ({ ok: false } & Refusal) } = {
+	models: (value: ModelsSettings) => {
+		const verdict = validateModelsSettings(value);
+		return verdict.ok ? { ok: true, value: clampModelsLevels(value) } : { ok: false, error: verdict.error, supported: verdict.supported };
+	},
+	agent: (value: AgentSettings) => {
+		const segments = new Set(allSegmentPaths());
+		const orphans = Object.entries(value.prompts ?? {})
+			.filter(([path, on]) => on && (!segments.has(path) || promptOverrides.readOverride(path) === null))
+			.map(([path]) => path);
+		if (orphans.length === 0) return { ok: true, value };
+		console.info(`[settings] healed orphaned prompt switch(es) to off: ${orphans.join(", ")}`);
+		const prompts = Object.fromEntries(Object.entries(value.prompts ?? {}).filter(([path]) => !orphans.includes(path)));
+		return { ok: true, value: { ...value, prompts } };
+	},
+};
 
 export async function PUT({ request, params }: RequestEvent) {
 	const { section } = params;
-	const parser = (SETTINGS_SECTIONS as Record<string, AnySectionParser>)[section];
-	if (!parser) {
-		return Response.json(
-			{ error: `unknown settings section "${section}"`, supported: Object.keys(SETTINGS_SECTIONS) },
-			{ status: 404 },
-		);
+	if (!isSettingsSection(section)) {
+		return Response.json({ error: `unknown settings section "${section}"`, supported: Object.keys(SETTINGS_SECTIONS) }, { status: 404 });
 	}
-	const body = await request.json().catch(() => null);
-	const parsed = parser(body);
-	if (!parsed.ok) {
-		return Response.json({ error: parsed.error }, { status: 400 });
-	}
-	let agentHealed: AgentSettings | undefined;
+	const parsed = parseSection(section, await request.json().catch(() => null));
+	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+	const write = SECTION_WRITES[section] as ((value: unknown) => ReturnType<NonNullable<(typeof SECTION_WRITES)["models"]>>) | undefined;
+	const checked = write ? write(parsed.value) : { ok: true as const, value: parsed.value };
+	if (!checked.ok) return Response.json({ error: checked.error, supported: checked.supported }, { status: 400 });
 
-	// Section-specific cross-validation (against the catalog / the prompt
-	// store) — the parsers only see shapes.
-	if (section === "chat") {
-		const verdict = validateChatSettings(parsed.settings as ChatSettings);
-		if (!verdict.ok) {
-			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
-		}
-	}
-	// Model slots wave (2026-09-20): the models section gets the same
-	// catalog gate the chat section gets — a slot must name a real
-	// provider+model and a thinking level it supports.
-	if (section === "models") {
-		const verdict = validateModelsSettings(parsed.settings as ModelsSettings);
-		if (!verdict.ok) {
-			return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
-		}
-	}
-	if (section === "agent") {
-		// Orphan-heal (contract fix, interlude 2026-09-26): an ON switch
-		// whose override file is gone (or whose segment left the source
-		// tree) is healed to OFF (key dropped) inside this write — never a
-		// 400. The old 400 trapped users: the record's own orphaned ON was
-		// mirrored back by every write while the disabled toggle couldn't
-		// reach the OFF escape hatch. An ON with a real file stays valid.
-		const agent = parsed.settings as AgentSettings;
-		const segments = new Set(allSegmentPaths());
-		const orphans: string[] = [];
-		for (const [path, on] of Object.entries(agent.prompts ?? {})) {
-			if (on && (!segments.has(path) || promptOverrides.readOverride(path) === null)) orphans.push(path);
-		}
-		if (orphans.length > 0) {
-			const prompts = { ...(agent.prompts ?? {}) };
-			for (const path of orphans) delete prompts[path];
-			agentHealed = { ...agent, prompts };
-			console.info(`[settings] healed orphaned prompt switch(es) to off: ${orphans.join(", ")}`);
-		}
-	}
-
-	// Clamp-on-write (owner ruling, interlude 2026-09-22): a model swap
-	// with a pinned thinking level NEVER errors — the pin clamps to the
-	// new model's nearest supported level (pi's nearest-clamp, the same
-	// translation piEngineForSpec applies at runtime) and the clamped
-	// value is what lands in the record. The chat section's bare levels
-	// clamp against the record's resolved strong slot (the chain's
-	// fallback); the models section's slots each carry their own model.
-	// The agent section lands HEALED when orphaned prompt switches were
-	// found above (the healed copy) — after every write the record and
-	// file reality agree.
-	const sectionOut =
-		section === "chat"
-			? clampChatLevel(parsed.settings as ChatSettings, effectiveSettings().models.strong)
-			: section === "models"
-				? clampModelsLevels(parsed.settings as ModelsSettings)
-				: section === "agent" && agentHealed
-					? agentHealed
-					: parsed.settings;
-
-	// Read-modify-write ONE section of the record; everything else rides
-	// along untouched (other sections, unknown keys — sanitize preserves).
-	const record = readSettings() ?? { version: 1 };
-	const next = { ...record, [section]: sectionOut };
+	const next = { ...(readSettings() ?? { version: CURRENT_SETTINGS_VERSION }), [section]: checked.value };
 	writeSettings(next);
 	return Response.json({ settings: next });
 }

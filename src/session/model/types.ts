@@ -5,6 +5,7 @@
  * is owned outright by its stream — cross-domain schema changes go through
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
+import type { ModelChoice } from "../../settings/model/index.ts";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import type { LhMessage } from "./transcript.ts";
 import type { Phase3 } from "./phases.ts";
@@ -73,15 +74,8 @@ export const CURRENT_CHAT_VERSION = 2;
  *  agents are stateless per turn, so a change takes effect on the next
  *  turn by construction. Background sub-agents are NEVER overridden
  *  (config-pinned: they're infrastructure, not conversation). */
-export interface ChatSettings {
-	/** pi-ai catalog coordinates: the provider that owns the model. Only
-	 *  "openrouter" is configured today; the field exists so a second
-	 *  provider needs no schema change. */
-	model?: { provider: string; id: string };
-	/** pi thinking level — must be in the chosen model's supported list
-	 *  (getSupportedThinkingLevels; enforced by the settings route). */
-	thinkingLevel?: ThinkingLevel;
-}
+/** A chat's own model settings, over the strong slot. */
+export type ChatSettings = ModelChoice;
 
 
 // ─── Background-extraction usage (the money channel, extraction side) ────────

@@ -23,7 +23,6 @@
  */
 
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
-import type { ChatSettings } from "../../session/model/index.ts";
 import type { SearchEngineId } from "../../tools/model/index.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
@@ -34,29 +33,16 @@ import {
 	type BackgroundModelRole,
 	type ModelRole,
 	type FactorySettings,
-	type GeneralSettings,
 	type CompactionSettings,
 	type GraphSettings,
-	type ModelSlot,
 	type ModelSlotName,
-	type RoleModelOverride,
+	type ModelChoice,
 	type UserSettings,
 } from "./settings.ts";
 
-/** A configured model slot: the tier's concrete model, with its optional
- *  thinking level. UNSET level is legal — the engine build resolves it
- *  from config.ts's DEFAULT_THINKING_ORDER (first entry the model
- *  supports; owner, 2026-09-22). A slot is CONFIGURED iff its model is
- *  present; a level-only slot is inert (kept on disk, resolved as null). */
-export interface EffectiveSlot {
-	provider: string;
-	id: string;
-	thinkingLevel?: ThinkingLevel;
-}
-
-/** A fully-resolved model pin for one role — same shape/level semantics
- *  as EffectiveSlot; undefined means the role's whole chain came up
- *  empty and whatever needs it refuses honestly. */
+/** A resolved model pin: a configured slot, or one role's whole chain.
+ *  An unset level is legal — the engine build picks the first entry of
+ *  DEFAULT_THINKING_ORDER the model supports. */
 export interface EffectiveModelSpec {
 	provider: string;
 	id: string;
@@ -68,7 +54,6 @@ export type EffectiveAppearance = FactorySettings["appearance"];
 
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {
-	general: Required<GeneralSettings>;
 	agent: {
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
@@ -87,7 +72,7 @@ export interface EffectiveSettings {
 	 *  NULL when the tier holds no model (no factory floor — BYOK all the
 	 *  way down, owner 2026-09-22). These are the tier-level views the
 	 *  picker captions and the per-need refusal gates read. */
-	models: Record<ModelSlotName, EffectiveSlot | null>;
+	models: Record<ModelSlotName, EffectiveModelSpec | null>;
 	appearance: EffectiveAppearance;
 	graph: Required<GraphSettings>;
 	/** Compaction (owner round 14): resolved concrete — absent record
@@ -95,65 +80,30 @@ export interface EffectiveSettings {
 	compaction: Required<CompactionSettings>;
 }
 
-/** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
- *  model override over the STRONG slot, each field independent (a bare
- *  chat thinking level rides the strong slot's model). null = no model
- *  anywhere — the turn gate refuses with the 503 models_not_configured
- *  envelope. */
-export function resolveConversationSpec(
-	chat: ChatSettings | undefined,
-	strong: EffectiveSlot | null,
-): EffectiveModelSpec | null {
-	const model = chat?.model ?? (strong ? { provider: strong.provider, id: strong.id } : undefined);
-	if (!model) return null;
-	return {
-		provider: model.provider,
-		id: model.id,
-		thinkingLevel: chat?.thinkingLevel ?? strong?.thinkingLevel,
-	};
-}
-
-/** Full-chain resolution for ANY role (BYOK, owner 2026-09-22):
- *  per-role override (background roles only) → SLOT → NOTHING. The
- *  conversation pair (prober/teacher) resolves the same chain MINUS the
- *  role override (their override is the chat's own settings — the
- *  chat-handler overlays it itself). undefined = the chain came up
- *  empty; the per-need refusal gates fire on exactly that. This is the
- *  engine wiring's one call. */
-export function resolveRoleSpec(role: ModelRole, record: UserSettings | null): EffectiveModelSpec | undefined {
-	const bg = BACKGROUND_MODEL_ROLES as readonly string[];
-	const override = bg.includes(role) ? record?.agent?.models?.[role as BackgroundModelRole] : undefined;
-	return resolveModelSpec(role, override, record?.models);
-}
-
-/** Resolve one slot to its configured view, or null when the tier holds
- *  no model (a thinkingLevel-only slot is inert — the level has nothing
- *  to ride without the factory floor). */
-export function resolveSlot(slot: ModelSlot | undefined): EffectiveSlot | null {
-	if (!slot?.model) return null;
-	return { provider: slot.model.provider, id: slot.model.id, thinkingLevel: slot.thinkingLevel };
-}
-
-/** Resolve one role's spec — the BYOK chain (owner 2026-09-22): role
- *  override → SLOT → NOTHING, each field independent (an override may
- *  borrow only the slot's model, or only its thinking budget — a level
- *  with no model anywhere stays unset and the engine build resolves it
- *  from DEFAULT_THINKING_ORDER). undefined = no model resolved; the
- *  per-need refusal gates fire on exactly that. */
-export function resolveModelSpec(
-	role: ModelRole,
-	override: RoleModelOverride | undefined,
-	slots?: Partial<Record<ModelSlotName, ModelSlot>>,
-): EffectiveModelSpec | undefined {
-	const slotName = ROLE_SLOT[role] as ModelSlotName | undefined;
-	const slot = slotName ? slots?.[slotName] : undefined;
-	const model = override?.model ?? slot?.model;
+/** `top` over `base`, each field independent; undefined when neither names
+ *  a model (a level alone cannot run). */
+function overlay(top: ModelChoice | undefined, base: ModelChoice | undefined): EffectiveModelSpec | undefined {
+	const model = top?.model ?? base?.model;
 	if (!model) return undefined;
-	return {
-		provider: model.provider,
-		id: model.id,
-		thinkingLevel: override?.thinkingLevel ?? slot?.thinkingLevel,
-	};
+	return { provider: model.provider, id: model.id, thinkingLevel: top?.thinkingLevel ?? base?.thinkingLevel };
+}
+
+/** The conversation pair's chain (BYOK, owner 2026-09-22): the chat's own
+ *  settings over the STRONG slot. null = no model anywhere — the turn gate
+ *  refuses with the models_not_configured envelope. */
+export function resolveConversationSpec(chat: ModelChoice | undefined, strong: EffectiveModelSpec | null): EffectiveModelSpec | null {
+	const base = strong ? { model: { provider: strong.provider, id: strong.id }, thinkingLevel: strong.thinkingLevel } : undefined;
+	return overlay(chat, base) ?? null;
+}
+
+/** One role's chain (BYOK, owner 2026-09-22): its override (background
+ *  roles only) → its SLOT → nothing. undefined = the chain came up empty;
+ *  the per-need refusal gates fire on exactly that. */
+export function resolveRoleSpec(role: ModelRole, record: UserSettings | null): EffectiveModelSpec | undefined {
+	const override = (BACKGROUND_MODEL_ROLES as readonly string[]).includes(role)
+		? record?.agent?.models?.[role as BackgroundModelRole]
+		: undefined;
+	return overlay(override, record?.models?.[ROLE_SLOT[role]]);
 }
 
 /** Resolve the whole record. `record` may be null (first boot) — every
@@ -169,13 +119,10 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 	const factoryAppearance = FACTORY_SETTINGS.appearance;
 	const factoryMd = factoryAppearance.mdRendering;
 	const models = {} as Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
-	for (const role of BACKGROUND_MODEL_ROLES) {
-		models[role] = resolveModelSpec(role, agent.models?.[role], modelsSection);
-	}
+	for (const role of BACKGROUND_MODEL_ROLES) models[role] = overlay(agent.models?.[role], modelsSection[ROLE_SLOT[role]]);
+	const slots = {} as Record<ModelSlotName, EffectiveModelSpec | null>;
+	for (const slot of MODEL_SLOTS) slots[slot] = overlay(undefined, modelsSection[slot]) ?? null;
 	return {
-		general: {
-			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
-		},
 		agent: {
 			models,
 			tools: agent.tools ?? {},
@@ -183,11 +130,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			search: agent.search ?? {},
 			graphTools: agent.graphTools ?? {},
 		},
-		models: {
-			strong: resolveSlot(modelsSection.strong),
-			cheap: resolveSlot(modelsSection.cheap),
-			vision: resolveSlot(modelsSection.vision),
-		},
+		models: slots,
 		appearance: {
 			mode: appearance.mode ?? factoryAppearance.mode,
 			background: appearance.background ?? factoryAppearance.background,
@@ -220,24 +163,6 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 }
 
 // ─── Graph channel gates (the settings wave's seam honoring) ─────────────────
-
-/**
- * The WRITE channel gate (extraction + its auditor): dies with the master
- * switch. Used by the chat-handler's post-turn trigger. (Wave 7: the master
- * switch is the ONLY graph setting left — the section collapsed.)
- */
-export function extractionEnabled(graph: { enabled: boolean }): boolean {
-	return graph.enabled;
-}
-
-/**
- * The RENDERING gate (owner, 2026-10-06): graph off = the home shows the
- * chains view, not the canvas. Display-only by construction — every data
- * path (ledgers, extraction, tools) never consults this.
- */
-export function renderingEnabled(graph: { rendering: boolean }): boolean {
-	return graph.rendering;
-}
 
 /**
  * The PROBER GRAPH TOOLS gate (wave 7, owner ruling 2026-09-23): the

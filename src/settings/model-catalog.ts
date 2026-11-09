@@ -33,7 +33,7 @@ import type {
 	RolePins,
 	SlotPins,
 } from "./model/models.ts";
-import type { EffectiveModelSpec, EffectiveSlot } from "./model/resolution.ts";
+import type { EffectiveModelSpec } from "./model/resolution.ts";
 import { AUTH_PROVIDER_KEYS } from "./model/auth-keys.ts";
 import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelsSettings } from "./model/settings.ts";
 
@@ -53,7 +53,7 @@ export type ModelDto = ModelCatalogEntry;
  * engine build (reported as absent here).
  */
 export function catalogDefaultsFor(
-	strong: EffectiveSlot | null,
+	strong: EffectiveModelSpec | null,
 ): CatalogDefaults | null {
 	const model = strong ? { provider: strong.provider, id: strong.id } : undefined;
 	if (!model) return null;
@@ -106,7 +106,7 @@ export function catalogSlots(): SlotPins {
 	const slots = effectiveSettings().models;
 	const pins = {} as SlotPins;
 	for (const name of ["strong", "cheap", "vision"] as const) {
-		const slot: EffectiveSlot | null = slots[name];
+		const slot: EffectiveModelSpec | null = slots[name];
 		pins[name] = slot
 			? {
 					model: { provider: slot.provider, id: slot.id },
@@ -298,7 +298,7 @@ export function clampModelsLevels(settings: ModelsSettings): ModelsSettings {
  *  slot (the conversation chain's fallback — what a settings-less chat
  *  would run). No model anywhere → rides unchecked (runtime clamps at
  *  engine build; the turn gate refuses the model-less chat anyway). */
-export function clampChatLevel(settings: ChatSettings, strong: EffectiveSlot | null): ChatSettings {
+export function clampChatLevel(settings: ChatSettings, strong: EffectiveModelSpec | null): ChatSettings {
 	if (settings.thinkingLevel === undefined) return settings;
 	const provider = settings.model?.provider ?? strong?.provider;
 	const id = settings.model?.id ?? strong?.id;

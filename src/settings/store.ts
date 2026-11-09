@@ -4,30 +4,20 @@
  * LH_DATA_DIR seam — read-modify-write, NOT a ledger. Non-secret product
  * preferences only; secrets stay in auth.json / .env.local.
  *
- * This adapter OWNS the lazy migrations:
- *  1. schema-version bumps (CURRENT_SETTINGS_VERSION) slot in here — the
- *     chain is empty today (v1 is the first shape); pure additions never
- *     bump, so an up-to-date file is always a no-op pass-through.
- *    (The legacy default-settings.json fold died with the chat section —
- *     per-session models, owner 2026-09-28.)
- *
- * Everything off disk is sanitized (core/settings.ts) before it reaches a
- * caller; everything written was already validated by the routes
- * (settings-body.ts) and is sanitized here again — the file can never hold
- * a value that would silently shift a knob.
+ * Everything off disk is sanitized (model/schema.ts) before it reaches a
+ * caller; everything written was already validated by the routes and is
+ * sanitized here again — the file can never hold a value that would
+ * silently shift a knob.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { SETTINGS_FILE } from "../platform/index.ts";
-import {
-	sanitizeUserSettings,
-	type UserSettings,
-} from "./model/settings.ts";
+import { sanitizeUserSettings } from "./model/schema.ts";
+import type { UserSettings } from "./model/settings.ts";
 import type { SettingsStore } from "./model/ports.ts";
 
-/** The persisted record, or null when none exists (first boot). Runs the
- *  migration chain on every read — cheap: a no-op file check when current. */
+/** The persisted record, or null when none exists (first boot). */
 export function readSettings(): UserSettings | null {
 	let raw: string;
 	try {
@@ -43,9 +33,6 @@ export function readSettings(): UserSettings | null {
 	}
 	const record = sanitizeUserSettings(parsed);
 	if (!record) return null;
-	// Version chain (empty today): a future v2 migration slots in here —
-	// `if (record.version > CURRENT_SETTINGS_VERSION) …`. Unknown NEWER
-	// versions pass through untouched (the sanitizer preserved unknowns).
 	return record;
 }
 

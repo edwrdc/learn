@@ -454,3 +454,11 @@ describe("test isolation (the suite must never touch real user data)", () => {
 		promptOverrides.deleteOverride("system-prompt.md");
 	});
 });
+
+describe("PUT /api/settings/[section]", () => {
+	it("refuses the retired chat section instead of accepting and dropping it", async () => {
+		const res = await putSection("chat", { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		assert.equal(res.status, 404);
+		assert.match(((await res.json()) as { error: string }).error, /unknown settings section "chat"/);
+	});
+});

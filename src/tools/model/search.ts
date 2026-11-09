@@ -30,8 +30,14 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** The engine ids this wave ships (the catalog: curated keys + adapters). */
-export type SearchEngineId = "tavily" | "brave";
+/** The search engines, in preference order (both keyed, no pin → the first
+ *  wins; owner decision 2026-09-20: Tavily first). */
+export const SEARCH_ENGINES = [
+	{ id: "tavily", envVar: "TAVILY_API_KEY", label: "Tavily" },
+	{ id: "brave", envVar: "BRAVE_API_KEY", label: "Brave" },
+] as const;
+
+export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
 
 /** A live search engine: an id (for status/labels) + one operation. The
  *  adapters own their wire protocol (fetch, timeouts, error mapping) —

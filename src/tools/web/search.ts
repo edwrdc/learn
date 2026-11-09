@@ -19,7 +19,7 @@
  * tool depends on the PORT only and tests never touch the network.
  */
 
-import type { SearchEngineId, SearchHit, SearchProvider, SearchStatus } from "../model/search.ts";
+import { SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../model/search.ts";
 import { keyValue } from "../../settings/index.ts";
 import { effectiveSettings } from "../../stores.ts";
 
@@ -108,20 +108,16 @@ export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): Searc
 	};
 }
 
-/** The engines this wave ships, in PREFERENCE order (both keys present,
- *  no explicit pin → the first live engine wins; owner decision
- *  2026-09-20: Tavily first — the AI-native search API the wave chose). */
-const ENGINE_ORDER: ReadonlyArray<{ id: SearchEngineId; envVar: string }> = [
-	{ id: "tavily", envVar: "TAVILY_API_KEY" },
-	{ id: "brave", envVar: "BRAVE_API_KEY" },
-];
-
 /** The engine's key (env-or-file; env wins) — null when the engine is
  *  not keyed, which by owner decision means NOT LIVE. */
 function engineKey(id: SearchEngineId): string | null {
-	const envVar = ENGINE_ORDER.find((e) => e.id === id)?.envVar;
+	const envVar = SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
 	const value = envVar ? keyValue(envVar) : undefined;
 	return value ? value : null;
+}
+
+function engineKeys(): Partial<Record<SearchEngineId, string>> {
+	return Object.fromEntries(SEARCH_ENGINES.map((e) => [e.id, engineKey(e.id) ?? undefined]));
 }
 
 /** Resolve the search state PURELY from the given pins (testable): the
@@ -138,13 +134,13 @@ export function resolveSearchEngineFor(
 			return {
 				available: false,
 				engine: null,
-				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${pinned === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY"} key`,
+				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${SEARCH_ENGINES.find((e) => e.id === pinned)?.envVar} key`,
 				key: null,
 			};
 		}
 		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
 	}
-	for (const { id } of ENGINE_ORDER) {
+	for (const { id } of SEARCH_ENGINES) {
 		const key = keys[id] ?? null;
 		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key };
 	}
@@ -162,10 +158,7 @@ export function resolveSearchEngineFor(
 export function searchStatus(): SearchStatus {
 	const { available, engine, reason } = resolveSearchEngineFor(
 		effectiveSettings().agent.search?.engine,
-		{
-			tavily: engineKey("tavily") ?? undefined,
-			brave: engineKey("brave") ?? undefined,
-		},
+		engineKeys(),
 	);
 	return { available, engine, reason };
 }
@@ -180,10 +173,7 @@ export function searchAvailable(): boolean {
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
 export function searchProvider(): SearchProvider | null {
-	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, {
-		tavily: engineKey("tavily") ?? undefined,
-		brave: engineKey("brave") ?? undefined,
-	});
+	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, engineKeys());
 	if (!resolved.available || !resolved.key) return null;
 	return resolved.engine === "tavily" ? tavilyProvider(resolved.key) : braveProvider(resolved.key);
 }

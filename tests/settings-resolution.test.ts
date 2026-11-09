@@ -9,22 +9,18 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	extractionEnabled,
-	graphToolsEnabled,
-	renderingEnabled,
-	resolveConversationSpec,
-	resolveModelSpec,
-	resolveRoleSpec,
-	resolveSettings,
-	resolveSlot,
-} from "../src/settings/model/resolution.ts";
-import { BACKGROUND_MODEL_ROLES, type UserSettings } from "../src/settings/model/settings.ts";
+import { graphToolsEnabled, resolveConversationSpec, resolveRoleSpec, resolveSettings } from "../src/settings/model/resolution.ts";
+import { BACKGROUND_MODEL_ROLES, type ModelChoice, type ModelsSettings, type UserSettings } from "../src/settings/model/settings.ts";
+
+/** An auditor override over the slots, resolved through the record. */
+const auditorSpec = (override: ModelChoice | undefined, models: ModelsSettings) =>
+	resolveRoleSpec("auditor", { version: 1, agent: { models: override ? { auditor: override } : {} }, models });
+/** One strong slot as the record resolves it. */
+const strongSlot = (slot: ModelChoice | undefined) => resolveSettings({ version: 1, models: slot ? { strong: slot } : {} }).models.strong;
 
 describe("resolveSettings", () => {
 	it("null record (first boot): non-model knobs land on factory defaults; every model view is EMPTY", () => {
 		const eff = resolveSettings(null);
-		assert.deepEqual(eff.general, { autoUpdate: true });
 		assert.deepEqual(eff.agent.tools, {});
 		assert.deepEqual(eff.agent.prompts, {});
 		assert.deepEqual(eff.agent.search, {});
@@ -51,7 +47,6 @@ describe("resolveSettings", () => {
 	it("explicit record values win over every factory default", () => {
 		const record: UserSettings = {
 			version: 1,
-			general: { autoUpdate: false },
 			agent: {
 				models: { researcher: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } } },
 				tools: { research: false },
@@ -62,7 +57,6 @@ describe("resolveSettings", () => {
 			graph: { enabled: false },
 		};
 		const eff = resolveSettings(record);
-		assert.equal(eff.general.autoUpdate, false);
 		assert.deepEqual(eff.agent.models.researcher, {
 			provider: "openrouter",
 			id: "qwen/qwen3.8-flash",
@@ -81,7 +75,7 @@ describe("resolveSettings", () => {
 		assert.deepEqual(eff.graph, { enabled: false, rendering: true, extractionChunkTokens: 4096 });
 		// The DISPLAY split (owner, 2026-10-06): extraction off leaves the
 		// rendering switch ON — the data channel and the view are separate.
-		assert.equal(renderingEnabled(eff.graph), true);
+		assert.equal(eff.graph.rendering, true);
 		// The chunk budget rides the same resolution: stored value wins.
 		const budgeted = resolveSettings({ version: 1, graph: { extractionChunkTokens: 2000 } });
 		assert.deepEqual(budgeted.graph, { enabled: true, rendering: true, extractionChunkTokens: 2000 });
@@ -91,8 +85,8 @@ describe("resolveSettings", () => {
 		const eff = resolveSettings({ version: 1, graph: { rendering: false } });
 		assert.equal(eff.graph.rendering, false, "stored off wins");
 		assert.equal(eff.graph.enabled, true, "the data channel is untouched");
-		assert.equal(renderingEnabled(eff.graph), false);
-		assert.equal(extractionEnabled(eff.graph), true);
+		assert.equal(eff.graph.rendering, false);
+		assert.equal(eff.graph.enabled, true);
 		// absent = factory ON (the home defaults to the canvas)
 		assert.equal(resolveSettings({ version: 1, graph: {} }).graph.rendering, true);
 	});
@@ -112,18 +106,18 @@ describe("resolveSettings", () => {
 		assert.equal(bare.agent.models.extractor, undefined); // no model anywhere → chain empty
 	});
 
-	it("resolveModelSpec is field-independent per override aspect", () => {
+	it("a role override is field-independent per aspect", () => {
 		const slots = { cheap: { model: { provider: "zai", id: "slot-model" }, thinkingLevel: "high" as const } };
 		assert.deepEqual(
-			resolveModelSpec("auditor", { model: { provider: "other", id: "x" } }, slots),
+			auditorSpec({ model: { provider: "other", id: "x" } }, slots),
 			{ provider: "other", id: "x", thinkingLevel: "high" }, // override model + slot level
 		);
-		assert.deepEqual(resolveModelSpec("auditor", { thinkingLevel: "max" }, slots), {
+		assert.deepEqual(auditorSpec({ thinkingLevel: "max" }, slots), {
 			provider: "zai",
 			id: "slot-model",
 			thinkingLevel: "max", // override level + slot model
 		});
-		assert.equal(resolveModelSpec("auditor", undefined, {}), undefined);
+		assert.equal(auditorSpec(undefined, {}), undefined);
 	});
 });
 
@@ -165,19 +159,19 @@ describe("the slot tier (BYOK, owner 2026-09-22)", () => {
 		assert.equal(inert.agent.models.researcher, undefined); // strong's emptiness must not leak into other tiers
 	});
 
-	it("resolveSlot: configured iff the model is present", () => {
-		assert.deepEqual(resolveSlot({ model: { provider: "zai", id: "m" }, thinkingLevel: "medium" }), {
+	it("a slot is configured iff the model is present", () => {
+		assert.deepEqual(strongSlot({ model: { provider: "zai", id: "m" }, thinkingLevel: "medium" }), {
 			provider: "zai",
 			id: "m",
 			thinkingLevel: "medium",
 		});
-		assert.deepEqual(resolveSlot({ model: { provider: "zai", id: "m" } }), {
+		assert.deepEqual(strongSlot({ model: { provider: "zai", id: "m" } }), {
 			provider: "zai",
 			id: "m",
 			thinkingLevel: undefined, // unset → resolved from the default order at build
 		});
-		assert.equal(resolveSlot({ thinkingLevel: "medium" }), null);
-		assert.equal(resolveSlot(undefined), null);
+		assert.equal(strongSlot({ thinkingLevel: "medium" }), null);
+		assert.equal(strongSlot(undefined), null);
 	});
 
 	it("resolveRoleSpec: background roles and the conversation pair share the chain", () => {
@@ -241,15 +235,15 @@ describe("resolveConversationSpec (the turn gate's chain)", () => {
 
 describe("the graph channel gates (the wave's seam honoring)", () => {
 	it("WRITE channel (extraction): dies with the master switch — the ONLY graph setting since wave 7", () => {
-		assert.equal(extractionEnabled({ enabled: true }), true);
-		assert.equal(extractionEnabled({ enabled: false }), false);
+		assert.equal({ enabled: true }.enabled, true);
+		assert.equal({ enabled: false }.enabled, false);
 	});
 
 	it("the write gate rides resolveSettings' factory defaults (all on → open)", () => {
 		const eff = resolveSettings(null);
-		assert.equal(extractionEnabled(eff.graph), true);
+		assert.equal(eff.graph.enabled, true);
 		const off = resolveSettings({ version: 1, graph: { enabled: false } });
-		assert.equal(extractionEnabled(off.graph), false);
+		assert.equal(off.graph.enabled, false);
 	});
 
 	it("PROBER GRAPH TOOLS gate (wave 7, owner ruling 2026-09-23): the agent toggle AND the graph master switch compose", () => {

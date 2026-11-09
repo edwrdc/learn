@@ -15,7 +15,9 @@ import { describe, it } from "node:test";
 import { bareQuestionTools } from "../src/session/agents.ts";
 import { createProberTools, type ProberToolContext } from "../src/session/tools/registry.ts";
 import { jobStore } from "../src/jobs/store.ts";
-import { parseAgentSettingsBody } from "../src/settings/settings-body.ts";
+import { parseSection } from "../src/settings/model/schema.ts";
+
+const parseAgentSettingsBody = (body: unknown) => parseSection("agent", body);
 import { chatStore } from "../src/session/store.ts";
 import type { AgentSettings } from "../src/settings/model/settings.ts";
 
@@ -40,19 +42,19 @@ describe("the tool-toggle bridge (the P2 seam)", () => {
 describe("parseAgentSettingsBody: tool keys validate at write time", () => {
 	const parse = (tools: Record<string, boolean>) =>
 		parseAgentSettingsBody({ tools }) as
-			| { ok: true; settings: AgentSettings }
+			| { ok: true; value: AgentSettings }
 			| { ok: false; error: string };
 
 	it("a valid job-tool delta parses", async () => {
 		const r = parse({ research: false, pdf: false });
 		assert.equal(r.ok, true);
-		assert.deepEqual(r.ok && r.settings.tools, { research: false, pdf: false });
+		assert.deepEqual(r.ok && r.value.tools, { research: false, pdf: false });
 	});
 
 	it("the quizzing-mechanics key (explain) is writable (owner 2026-09-27)", async () => {
 		const r = parse({ explain: true });
 		assert.equal(r.ok, true);
-		assert.deepEqual(r.ok && r.settings.tools, { explain: true });
+		assert.deepEqual(r.ok && r.value.tools, { explain: true });
 	});
 
 	it("unknown keys are rejected with the supported list (the quiz wedge never persists)", async () => {

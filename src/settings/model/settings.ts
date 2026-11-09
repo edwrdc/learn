@@ -30,8 +30,7 @@
 
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
-import { sanitizeCustomEndpoint, CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
-import type { ChatSettings } from "../../session/model/index.ts";
+import { CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
 import type { SearchEngineId } from "../../tools/model/index.ts";
 
 /** Every agent role in the app. The conversation pair (prober/teacher)
@@ -64,12 +63,12 @@ export const BACKGROUND_MODEL_ROLES = [
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
 
-/** A per-role model/thinking override — every field independent (absent
- *  field = that aspect falls back to config.ts's pin for the role). */
-export interface RoleModelOverride {
-	/** The model swap: both coordinates or neither (mirrors ChatSettings.model). */
+/** A model pick — a chat's own settings, a slot, or a background role's
+ *  override. Each field is independent; an absent one falls back along the
+ *  resolution chain. */
+export interface ModelChoice {
+	/** Both coordinates or neither. */
 	model?: { provider: string; id: string };
-	/** The thinking budget swap. */
 	thinkingLevel?: ThinkingLevel;
 }
 
@@ -201,26 +200,11 @@ export class ProviderKeyMissingError extends Error {
 	}
 }
 
-/** One slot's stored state. BYOK (owner, 2026-09-22): the WRITE side
- *  requires model (a level alone can never run — no factory floor); the
- *  sanitizer keeps whatever is on disk, but RESOLUTION treats a slot
- *  without a model as unset (inert level, no phantom default). */
-export interface ModelSlot {
-	/** The model swap: both coordinates or neither. */
-	model?: { provider: string; id: string };
-	/** The thinking budget swap. */
-	thinkingLevel?: ThinkingLevel;
-}
-
 /** The `models` settings section (owner decision 2026-09-20: a dedicated
  *  section — slots are engine-level choices, not one session's). All slots
  *  optional: an absent slot means every role of its tier runs whatever the
  *  deeper tiers of the chain resolve to (per-role override → factory pin). */
-export interface ModelsSettings {
-	strong?: ModelSlot;
-	cheap?: ModelSlot;
-	vision?: ModelSlot;
-}
+export type ModelsSettings = Partial<Record<ModelSlotName, ModelChoice>>;
 
 /** First-run gate (model-slots wave, owner 2026-09-20): the app refuses
  *  to start chats until the user has actively picked all three slots —
@@ -245,17 +229,10 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	pdfReader: "vision",
 };
 
-/** General settings — app-level behavior. Version DISPLAY and plans login
- *  live outside the record (package.json / auth.json) by owner decision. */
-export interface GeneralSettings {
-	/** Auto-update the app (default ON). Mechanism ships in a later wave. */
-	autoUpdate?: boolean;
-}
-
 /** Agent settings — everything about the non-conversation machinery. */
 export interface AgentSettings {
 	/** Background-role model/thinking overrides (absent role = config pin). */
-	models?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
+	models?: Partial<Record<BackgroundModelRole, ModelChoice>>;
 	/** Tool toggles keyed by tool id (absent key = enabled). User-level
 	 *  only — no per-chat override (owner decision 2026-09-19). */
 	tools?: Record<string, boolean>;
@@ -377,7 +354,6 @@ export interface CompactionSettings {
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
 	version: number;
-	general?: GeneralSettings;
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
@@ -398,7 +374,6 @@ export interface UserSettings {
  *  prompts default off — hence their absence here. */
 export interface FactorySettings {
 	version: number;
-	general: Required<GeneralSettings>;
 	appearance: {
 		mode: "dark" | "light";
 		background: string | null;
@@ -417,7 +392,6 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true },
 	appearance: {
 		mode: "dark",
 		background: null, // the dark default (#141414) lives in the mode's derivation curve
@@ -435,232 +409,7 @@ export const FACTORY_SETTINGS: FactorySettings = {
  *  in its rejection, the sanitizer clamps to it). */
 export const EXTRACTION_CHUNK_TOKENS_FLOOR = 500;
 
-// ─── Sanitizer ─────────────────────────────────────────────────────────────
-
-const PROSE_FONT_MIN = 12;
-const PROSE_FONT_MAX = 24;
-
-const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
-
-/** #rgb / #rrggbb (case-insensitive) — the only color format we accept. */
-export function isHexColor(value: string): boolean {
-	return /^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value);
-}
-
-/** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
- *  anything else becomes null (the factory/per-mode default). */
-function sanitizeHexOrNull(value: unknown): string | null {
-	if (value === null) return null;
-	if (typeof value === "string" && isHexColor(value)) return value;
-	return null;
-}
-
-const boolOrDrop = (value: unknown): boolean | undefined =>
-	typeof value === "boolean" ? value : undefined;
-
-function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
-	const out: GeneralSettings = {};
-	const autoUpdate = boolOrDrop(raw.autoUpdate);
-	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
-	return out;
-}
-
-const THINKING_LEVELS: readonly ThinkingLevel[] = [
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-];
-
-function sanitizeRoleOverride(raw: unknown): RoleModelOverride | undefined {
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-	const r = raw as Record<string, unknown>;
-	const out: RoleModelOverride = {};
-	if (
-		typeof r.model === "object" &&
-		r.model !== null &&
-		!Array.isArray(r.model) &&
-		typeof (r.model as Record<string, unknown>).provider === "string" &&
-		typeof (r.model as Record<string, unknown>).id === "string"
-	) {
-		out.model = {
-			provider: (r.model as { provider: string }).provider,
-			id: (r.model as { id: string }).id,
-		};
-	}
-	if (typeof r.thinkingLevel === "string" && THINKING_LEVELS.includes(r.thinkingLevel as ThinkingLevel)) {
-		out.thinkingLevel = r.thinkingLevel as ThinkingLevel;
-	}
-	return Object.keys(out).length ? out : undefined;
-}
-
-/** The models section (model slots wave, 2026-09-20): each slot keeps
- *  only well-formed parts — the same shape rules as a role override, so a
- *  stale client can't park junk in a slot. */
-function sanitizeModels(raw: Record<string, unknown>): ModelsSettings {
-	const out: ModelsSettings = {};
-	for (const slot of MODEL_SLOTS) {
-		const cleaned = sanitizeRoleOverride(raw[slot]);
-		if (cleaned) out[slot] = cleaned;
-	}
-	return out;
-}
-
-function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-	const out: Record<string, boolean> = {};
-	for (const [key, value] of Object.entries(raw)) {
-		if (typeof value === "boolean") out[key] = value;
-	}
-	return Object.keys(out).length ? out : undefined;
-}
-
-function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
-	const out: AgentSettings = {};
-	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
-		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
-		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {
-			if ((BACKGROUND_MODEL_ROLES as readonly string[]).includes(role)) {
-				const cleaned = sanitizeRoleOverride(override);
-				if (cleaned) models[role as BackgroundModelRole] = cleaned;
-			}
-		}
-		if (Object.keys(models).length) out.models = models;
-	}
-	const tools = sanitizeBooleanMap(raw.tools);
-	if (tools) out.tools = tools;
-	const prompts = sanitizeBooleanMap(raw.prompts);
-	if (prompts) out.prompts = prompts;
-	// Search preference: lenient read side (an unknown engine id drops;
-	// the write side's parser is strict — a stale client can't brick the
-	// record, it just loses the pin and auto-detection resumes).
-	if (raw.search !== null && typeof raw.search === "object" && !Array.isArray(raw.search)) {
-		const engine = (raw.search as Record<string, unknown>).engine;
-		if (engine === "tavily" || engine === "brave") out.search = { engine };
-	}
-	// Prober graph tools (wave 7): its own agent-section subsection —
-	// lenient read side (a bad shape drops the key and the default ON
-	// resumes; the write side's parser is strict).
-	if (raw.graphTools !== null && typeof raw.graphTools === "object" && !Array.isArray(raw.graphTools)) {
-		const enabled = (raw.graphTools as Record<string, unknown>).enabled;
-		if (enabled === undefined) out.graphTools = {};
-		else if (typeof enabled === "boolean") out.graphTools = { enabled };
-	}
-	return out;
-}
-
-function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
-	const out: MdRenderingSettings = {};
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return out;
-	const r = raw as Record<string, unknown>;
-	if (typeof r.headingWeight === "number" && Number.isFinite(r.headingWeight)) {
-		out.headingWeight = clamp(Math.round(r.headingWeight), 100, 900);
-	}
-	if (r.boldColor !== undefined) out.boldColor = sanitizeHexOrNull(r.boldColor);
-	if (r.italicColor !== undefined) out.italicColor = sanitizeHexOrNull(r.italicColor);
-	return out;
-}
-
-function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
-	const out: AppearanceSettings = {};
-	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
-	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
-	if (raw.fontFamily !== undefined) {
-		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
-	}
-	if (typeof raw.proseFontSize === "number" && Number.isFinite(raw.proseFontSize)) {
-		out.proseFontSize = clamp(Math.round(raw.proseFontSize), PROSE_FONT_MIN, PROSE_FONT_MAX);
-	}
-	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
-	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
-	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);
-	return out;
-}
-
-function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
-	// Wave 7 collapse (owner ruling 2026-09-23): the section is the master
-	// switch ONLY. The dead rungs' keys (embedding/clustering/labeling/
-	// embeddingModel) in existing records are simply UNREAD and DROPPED by
-	// this reconstruction — the migration story: the next graph-section
-	// write (PUT is replace-whole) persists the collapsed shape, and no
-	// active code ever looks at the stale fields.
-	//
-	// extractionChunkTokens (extraction-UX redesign, 2026-09-24): the chunk
-	// budget — clamp-never-reject (the bd68486 discipline): a finite
-	// positive number floors to EXTRACTION_CHUNK_TOKENS_FLOOR (fractions
-	// floor to integers), anything else drops to the factory default at
-	// resolution. A disk record below the floor (older app, hand edit)
-	// clamps UP — the floor is a cost protection, not data to honor.
-	const out: GraphSettings = {};
-	const enabled = boolOrDrop(raw.enabled);
-	if (enabled !== undefined) out.enabled = enabled;
-	const rendering = boolOrDrop(raw.rendering);
-	if (rendering !== undefined) out.rendering = rendering;
-	const rawTokens = raw.extractionChunkTokens;
-	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
-		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
-	}
-	return out;
-}
-
-/** clamp-never-reject (the sanitizer's discipline): a finite positive
- *  number floors to COMPACTION_THRESHOLD_FLOOR, anything else drops (the
- *  factory default resolves at read time). Exported for the PUT parser's
- *  reject-with-rationale (the graph chunk-budget precedent). */
+/** The compaction threshold's floor (see CompactionSettings). */
 export const COMPACTION_THRESHOLD_FLOOR = 32_000;
 
-function sanitizeCompaction(raw: Record<string, unknown>): CompactionSettings {
-	const out: CompactionSettings = {};
-	const rawTokens = raw.thresholdTokens;
-	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
-		out.thresholdTokens = Math.max(COMPACTION_THRESHOLD_FLOOR, Math.floor(rawTokens));
-	}
-	return out;
-}
-
-/**
- * Coerce arbitrary JSON (disk file, network body) into a valid delta record:
- * known fields validated strictly (invalid ones drop/clamp per module doc),
- * UNKNOWN TOP-LEVEL KEYS PRESERVED VERBATIM (a newer record must survive an
- * older app); a known section keeps its known sub-keys only. Never throws.
- * Non-objects → null.
- */
-export function sanitizeUserSettings(raw: unknown): UserSettings | null {
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const r = raw as Record<string, unknown>;
-	const out: UserSettings = {
-		version: typeof r.version === "number" && Number.isInteger(r.version) && r.version >= 1 ? r.version : CURRENT_SETTINGS_VERSION,
-	};
-	if (r.general !== null && typeof r.general === "object" && !Array.isArray(r.general)) {
-		out.general = sanitizeGeneral(r.general as Record<string, unknown>);
-	}
-	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
-		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);
-	}
-	if (r.appearance !== null && typeof r.appearance === "object" && !Array.isArray(r.appearance)) {
-		out.appearance = sanitizeAppearance(r.appearance as Record<string, unknown>);
-	}
-	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
-		const models = sanitizeModels(r.models as Record<string, unknown>);
-		if (Object.keys(models).length) out.models = models;
-	}
-	if (r.customEndpoint !== undefined) {
-		const customEndpoint = sanitizeCustomEndpoint(r.customEndpoint);
-		if (customEndpoint) out.customEndpoint = customEndpoint;
-	}
-	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
-		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
-	}
-	if (r.compaction !== null && typeof r.compaction === "object" && !Array.isArray(r.compaction)) {
-		out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
-	}
-	// Unknown top-level keys ride along (forward-compat); known ones are skipped so a dropped or malformed section cannot re-enter unvalidated.
-	for (const [key, value] of Object.entries(r)) {
-		if (["version", "general", "agent", "appearance", "models", "customEndpoint", "graph", "compaction", "chat"].includes(key)) continue;
-		if (!(key in out)) out[key] = value;
-	}
-	return out;
-}
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
