@@ -12,16 +12,13 @@
  */
 import { services } from "@/src/boot";
 import { extractionStatuses } from "@/src/graph";
+import { readJson } from "@/src/platform";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request }: RequestEvent) {
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-	}
-	const chatId = (body as { chatId?: unknown }).chatId;
+	const json = await readJson(request);
+	if (json instanceof Response) return json;
+	const chatId = (json.body as { chatId?: unknown } | null)?.chatId;
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
 	}

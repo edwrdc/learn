@@ -4,3 +4,4 @@ export { fuzzyScore } from "./fuzzy.ts";
 export { stripModelValueDebris } from "./value-debris.ts";
 export { keyedLock, processState } from "./process.ts";
 export { tokensForChars } from "./tokens.ts";
+export { isSafeId, mintId } from "./ids.ts";

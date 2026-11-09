@@ -26,7 +26,7 @@
  */
 
 import type { QuestionAnswerData } from "./questions.ts";
-import type { LhMessage } from "./transcript.ts";
+import type { GraphContextPick, LhMessage } from "./transcript.ts";
 import {
 	activeProblemOf,
 	concludedByDismissalPair,
@@ -241,4 +241,34 @@ export function inputAppends(
 function dismissalConclusion(record: { messages: LhMessage[] }): LhMessage[] {
 	const problemCallId = pendingProblemDismissalOf(record.messages);
 	return problemCallId ? concludedByDismissalPair(problemCallId) : [];
+}
+
+/** POST /api/chats: an optional title, the practice kind, and up to 64
+ *  picked propositions (each carries what the learner saw at pick time). */
+export interface NewChat {
+	title: string;
+	kind?: "practice";
+	picks: GraphContextPick[];
+}
+
+export function parseNewChat(raw: unknown): NewChat {
+	const body = (raw ?? {}) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const rawPicks = (body.graphContext as { propositions?: unknown } | undefined)?.propositions;
+	const picks = Array.isArray(rawPicks)
+		? rawPicks
+				.filter(
+					(p): p is GraphContextPick =>
+						typeof p === "object" &&
+						p !== null &&
+						typeof (p as GraphContextPick).id === "string" &&
+						typeof (p as GraphContextPick).name === "string" &&
+						typeof (p as GraphContextPick).statement === "string",
+				)
+				.slice(0, 64)
+		: [];
+	return {
+		title: typeof body.title === "string" ? body.title : "",
+		...(body.kind === "practice" ? { kind: "practice" as const } : {}),
+		picks,
+	};
 }

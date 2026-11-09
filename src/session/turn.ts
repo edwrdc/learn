@@ -24,7 +24,7 @@ import { firstLineById } from "../graph/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { modelSnapshot, type ModelSnapshot, type PiEngine } from "../platform/index.ts";
+import { modelSnapshot, readJson, type ModelSnapshot, type PiEngine } from "../platform/index.ts";
 import {
 	deliverJobResult,
 	markSteerDelivered,
@@ -294,12 +294,9 @@ export interface ChatTurnInjection {
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(req: Request, turn?: ChatTurnInjection): Promise<Response> {
-	let body: { chatId?: unknown; input?: unknown };
-	try {
-		body = await req.json();
-	} catch {
-		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-	}
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
+	const body = (json.body ?? {}) as { chatId?: unknown; input?: unknown };
 	const chatId = typeof body.chatId === "string" ? body.chatId : "";
 	if (!chatId) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	let input: TurnInput;

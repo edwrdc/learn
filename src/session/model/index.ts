@@ -3,7 +3,7 @@ export type { CompactionDetails } from "./compaction.ts";
 export { graphCostSummary } from "./cost-summary.ts";
 export type { GraphCostSummary } from "./cost-summary.ts";
 export { findSessionTextMatches, stepSessionMatch } from "./find.ts";
-export { ChatInputError, parseDismissInput, parseUserSteerInput } from "./input-events.ts";
+export { ChatInputError, parseDismissInput, parseNewChat, parseUserSteerInput } from "./input-events.ts";
 export type { ChatInput, TurnInput } from "./input-events.ts";
 export { sessionMarkdown } from "./markdown.ts";
 export { firstSourceTextParts, messageAnchorId, messageIdFromHash, propositionSessionHref, textPartMessageId } from "./navigation.ts";

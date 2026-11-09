@@ -260,3 +260,30 @@ export function deleteKey(id: string): AuthKeyStatus {
 	deleteSecretVar(id);
 	return keyStatuses().find((s) => s.id === id)!;
 }
+
+/** A short-lived Deepgram token for one dictation run: the renderer never
+ *  holds the real key, and audio flows renderer → Deepgram directly. The TTL
+ *  is 300s because a run can outlast the 30s default; Deepgram checks the
+ *  token only at the WebSocket handshake. The key needs ≥ Member permission
+ *  to call /auth/grant (plain transcribe keys get FORBIDDEN). */
+export async function mintDictationToken(): Promise<{ ok: true; token: string } | { ok: false; status: 502 | 503; error: string }> {
+	const key = keyValue("DEEPGRAM_API_KEY");
+	if (!key) return { ok: false, status: 503, error: "No DEEPGRAM_API_KEY — add it to auth.json (desktop) or .env.local (dev)." };
+	let res: Response;
+	try {
+		res = await fetch("https://api.deepgram.com/v1/auth/grant", {
+			method: "POST",
+			headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" },
+			body: JSON.stringify({ ttl_seconds: 300 }),
+		});
+	} catch {
+		return { ok: false, status: 502, error: "Deepgram unreachable" };
+	}
+	if (!res.ok) {
+		const detail = await res.text();
+		return { ok: false, status: 502, error: `Deepgram token grant failed (${res.status}): ${detail.slice(0, 200)}` };
+	}
+	const data = (await res.json()) as { access_token?: string };
+	if (!data.access_token) return { ok: false, status: 502, error: "Deepgram grant returned no token" };
+	return { ok: true, token: data.access_token };
+}

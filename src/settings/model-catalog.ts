@@ -306,3 +306,18 @@ export function clampChatLevel(settings: ChatSettings, strong: EffectiveModelSpe
 	if (!provider || !id) return settings;
 	return { ...settings, thinkingLevel: clampLevelFor(provider, id, settings.thinkingLevel) };
 }
+
+/** A model choice the catalog accepts, with its thinking level clamped
+ *  (levels never reject a write), or the 400 refusal. */
+export type CheckedModels<T> = { ok: true; value: T } | { ok: false; error: string; supported?: string[] };
+
+export function checkModelsSettings(settings: ModelsSettings): CheckedModels<ModelsSettings> {
+	const verdict = validateModelsSettings(settings);
+	return verdict.ok ? { ok: true, value: clampModelsLevels(settings) } : verdict;
+}
+
+/** A chat's level clamps against its own model, else the strong slot's. */
+export function checkChatSettings(settings: ChatSettings, strong: EffectiveModelSpec | null): CheckedModels<ChatSettings> {
+	const verdict = validateChatSettings(settings);
+	return verdict.ok ? { ok: true, value: clampChatLevel(settings, strong) } : verdict;
+}

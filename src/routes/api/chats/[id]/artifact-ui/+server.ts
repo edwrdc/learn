@@ -10,17 +10,18 @@
  * { input: { messageId, inverted } } or targets no demo/visual steer.
  */
 import { setSteerUiInverted, type SteerDetails } from "@/src/jobs/model";
-import { getChat } from "@/src/session";
+import { requireChat } from "@/src/session";
+import { readJson } from "@/src/platform";
 import { stores } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req, params }: RequestEvent): Promise<Response> {
 	const { id } = params;
-	const chat = await getChat(id);
-	if (!chat) return Response.json({ error: "Unknown chat" }, { status: 404 });
-
-	const body = (await req.json().catch(() => null)) as { input?: unknown } | null;
-	const input = body?.input as { messageId?: unknown; inverted?: unknown } | null | undefined;
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
+	const input = (json.body as { input?: unknown } | null)?.input as { messageId?: unknown; inverted?: unknown } | null | undefined;
 	if (
 		!input ||
 		typeof input !== "object" ||

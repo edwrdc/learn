@@ -17,6 +17,7 @@
  * data/chats/<id>.json — see chats.ts, which owns the legacy import.
  */
 
+import { isSafeId } from "../platform/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -93,7 +94,7 @@ function harnessSettings() {
 
 /** Where a chat's runtime files live. */
 export function durableDir(chatId: string): string {
-	if (!/^[A-Za-z0-9_-]+$/.test(chatId)) throw new Error(`Invalid chat id: ${chatId}`);
+	if (!isSafeId(chatId)) throw new Error(`Invalid chat id: ${chatId}`);
 	return path.join(PATHS.data, "durable", chatId);
 }
 

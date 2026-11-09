@@ -1,5 +1,6 @@
 import { isTurnRunning } from "@/src/session";
 import { listJobs } from "@/src/jobs";
+import { isSafeId } from "@/src/platform/model";
 import type { RequestEvent } from "./$types";
 
 /**
@@ -16,7 +17,7 @@ export async function GET({ url }: RequestEvent) {
 	if (!chatId) {
 		return Response.json({ error: "chatId query parameter is required" }, { status: 400 });
 	}
-	if (!/^[A-Za-z0-9_-]+$/.test(chatId)) {
+	if (!isSafeId(chatId)) {
 		return Response.json({ error: "Invalid chatId" }, { status: 400 });
 	}
 	return Response.json({ jobs: listJobs(chatId), turnInFlight: await isTurnRunning(chatId) });

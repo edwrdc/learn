@@ -30,6 +30,7 @@
  * question gate holds steers; a POST would 409).
  */
 
+import { mintId } from "../../platform/model/index.ts";
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { isQuestionTool } from "../../tools/model/index.ts";
 import {
@@ -86,7 +87,7 @@ export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | Lh
 
 /** The app-wide message id shape (same as the UIMessage-era mint). */
 export function newMessageId(): string {
-	return `msg_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+	return mintId("msg");
 }
 
 /** The user-facing text blocks of a native message (string or text parts). */
@@ -168,7 +169,7 @@ export function newPlanBlockMessage(
 	block: unknown,
 ): LhMarkerMessage {
 	return {
-		id: `pb_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		id: mintId("pb"),
 		role: "custom",
 		customType: "plan-block",
 		content: "",

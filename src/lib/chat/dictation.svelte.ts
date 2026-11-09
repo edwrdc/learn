@@ -29,10 +29,10 @@ export function rmsToMeter(rms: number): number {
 
 async function mintFreshToken(): Promise<string> {
 	const res = await fetch("/api/stt/token");
-	const data = (await res.json()) as { token?: string; message?: string };
+	const data = (await res.json()) as { token?: string; error?: string };
 	if (!res.ok || !data.token) {
 		if (res.status === 503) throw new Error(DICTATION_KEYLESS);
-		throw new Error(data.message ?? `token route ${res.status}`);
+		throw new Error(data.error ?? `token route ${res.status}`);
 	}
 	return data.token;
 }

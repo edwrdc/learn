@@ -11,7 +11,7 @@
  * markers are invisible by the engine's law).
  */
 import { sessionMarkdown } from "@/src/session/model";
-import { getChat } from "@/src/session";
+import { requireChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 /** Filename-safe title (own module scope on purpose: tiny + pure). */
@@ -26,8 +26,8 @@ function slugify(title: string): string {
 
 export async function GET({ params }: RequestEvent): Promise<Response> {
 	const { id } = params;
-	const record = await getChat(id);
-	if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
+	const record = await requireChat(id);
+	if (record instanceof Response) return record;
 	const markdown = sessionMarkdown(record.messages, { title: record.title, anchors: false });
 	return new Response(markdown, {
 		headers: {

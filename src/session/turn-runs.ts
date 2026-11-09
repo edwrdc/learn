@@ -20,6 +20,7 @@
  * write-ahead record + liveness TTL recovery cover the next mount.
  */
 
+import { SSE_HEADERS } from "../platform/index.ts";
 import { processState } from "../platform/model/index.ts";
 import type { PiTurnHandle } from "./pi/durable-turn.ts";
 
@@ -62,10 +63,6 @@ export function abortTurn(chatId: string): { ok: true } | { ok: false; reason: "
  *  protocol end to end. */
 export function settledTurnResponse(): Response {
 	return new Response('data: {"type":"turn-settled"}\n\ndata: [DONE]\n\n', {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache, no-transform",
-			"X-Accel-Buffering": "no",
-		},
+		headers: SSE_HEADERS,
 	});
 }

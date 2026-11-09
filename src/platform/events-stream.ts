@@ -24,6 +24,7 @@
  * The closure shape (teardown assigned in start, called in cancel) is the
  * turn runner subscribe() pattern.
  */
+import { SSE_HEADERS } from "./http.ts";
 import { subscribe, type ServerEvent } from "./model/events.ts";
 
 /** One window's subscription as an SSE Response. */
@@ -72,10 +73,6 @@ export function eventsResponse(): Response {
 		},
 	});
 	return new Response(stream, {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache, no-transform",
-			"X-Accel-Buffering": "no",
-		},
+		headers: SSE_HEADERS,
 	});
 }

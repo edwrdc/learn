@@ -14,8 +14,8 @@ import { writeJsonAtomic } from "../platform/index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { SETTINGS_FILE } from "../platform/index.ts";
-import { sanitizeUserSettings } from "./model/schema.ts";
-import type { UserSettings } from "./model/settings.ts";
+import { sanitizeUserSettings, type SettingsSection } from "./model/schema.ts";
+import { CURRENT_SETTINGS_VERSION, type UserSettings } from "./model/settings.ts";
 import type { SettingsStore } from "./model/ports.ts";
 
 /** The persisted record, or null when none exists (first boot). */
@@ -43,6 +43,11 @@ export function writeSettings(raw: unknown): UserSettings {
 	if (!settings) throw new Error("settings record must be a JSON object");
 	writeJsonAtomic(SETTINGS_FILE, settings);
 	return settings;
+}
+
+/** Replace one section; the other sections ride along untouched. */
+export function writeSettingsSection(section: SettingsSection, value: unknown): UserSettings {
+	return writeSettings({ ...(readSettings() ?? { version: CURRENT_SETTINGS_VERSION }), [section]: value });
 }
 
 /** The typed adapter (core/ports.ts SettingsStore), for the composition root. */

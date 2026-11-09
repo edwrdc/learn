@@ -38,9 +38,8 @@ process.env.LH_DATA_DIR = TMP_DATA;
 
 const { PROMPTS_OVERRIDE_DIR } = await import("../src/platform/config.ts");
 const teacherAgent = await import("../src/session/agents.ts");
-const { allSegmentPaths, effectivePromptSegments } = await import("../src/session/prompts.ts");
+const { allSegmentPaths, effectivePromptSegments, promptOverrides } = await import("../src/session/prompts.ts");
 const { isValidSegmentPath } = await import("../src/settings/model/prompt-segments.ts");
-const { promptOverrides } = await import("../src/settings/prompt-overrides.ts");
 // Route-level pins drive the actual app/api handlers (framework-free
 // Request/Response), isolated under the same temp LH_DATA_DIR.
 const { PUT: putSettingsSection } = await import("../src/routes/api/settings/[section]/+server.ts");

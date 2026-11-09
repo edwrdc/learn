@@ -1,12 +1,13 @@
-import { compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage } from "@/src/session";
+import { compactionInFlight, deleteChatSession, isTurnRunning, requireChat, sessionCoverage } from "@/src/session";
+import { readJson } from "@/src/platform";
 import { stores } from "@/src/stores";
 import { type ChatDeleteMode } from "@/src/graph/model";
 import type { RequestEvent } from "./$types";
 
 export async function GET({ params }: RequestEvent) {
 	const { id } = params;
-	const chat = await getChat(id);
-	if (!chat) return Response.json({ error: "Not found" }, { status: 404 });
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
 	// turnInFlight lets a returning client re-attach to a running turn
 	// (chat-handler write-ahead + registry — see src/server/turn-liveness.ts).
 	// coverage (extraction-UX redesign, 2026-09-24): the chat view's ring
@@ -36,13 +37,15 @@ export async function GET({ params }: RequestEvent) {
  */
 export async function PUT({ request: req, params }: RequestEvent) {
 	const { id } = params;
-	if (!(await getChat(id))) return Response.json({ error: "Not found" }, { status: 404 });
-	const body = (await req.json().catch(() => null)) as { title?: unknown } | null;
-	if (typeof body?.title !== "string" || body.title.trim() === "") {
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
+	const title = (json.body as { title?: unknown } | null)?.title;
+	if (typeof title !== "string" || title.trim() === "") {
 		return Response.json({ error: "title must be a non-empty string" }, { status: 400 });
 	}
-	const title = body.title.trim();
-	const record = await stores.chatStore.renameChat(id, title);
+	const record = await stores.chatStore.renameChat(id, title.trim());
 	return Response.json({ title: record.title });
 }
 

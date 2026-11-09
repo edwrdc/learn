@@ -1,7 +1,7 @@
 export { activityFeed } from "./activity.ts";
 export { backgroundRun, configureBackgroundRuns, setBackgroundRetire, setBackgroundRun } from "./durable-run.ts";
 export type { RoleRunIdentity, RoleStateIo, RunDescriptor, SubmitRunState } from "./durable-run.ts";
-export { withBgLlmSlot } from "./llm-slots.ts";
+export { BG_LLM_PERMITS, withBgLlmSlot } from "./llm-slots.ts";
 export { createJobRunner } from "./runner.ts";
 export { resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
 export { jobStore } from "./store.ts";

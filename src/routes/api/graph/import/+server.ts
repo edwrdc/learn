@@ -7,13 +7,12 @@
  * source record (the file's provenance + the run's usage), and runs
  * extractor → auditor → merger over the raw text.
  *
- * Small concurrency cap: the model calls are the slow part, and a burst of
- * 25 simultaneous runs would trip provider rate limits — a 3-wide worker
- * pool keeps the run registry (the dock's status chips) and the ledgers
- * healthy. The dock's chips + graph refetch track progress live through
+ * Files run as wide as the background LLM pool: a burst of simultaneous
+ * runs would trip provider rate limits. The dock's chips + graph refetch track progress live through
  * /api/graph/status, as with session runs.
  */
 import { services } from "@/src/boot";
+import { BG_LLM_PERMITS } from "@/src/jobs";
 import { NotesImportError } from "@/src/graph";
 import { ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError } from "@/src/settings/model";
 import { type EmissionStats } from "@/src/graph/model";
@@ -45,7 +44,7 @@ export async function POST({ request }: RequestEvent) {
 
 	const results: ImportResult[] = [];
 	const queue = files.map((file, requestIndex) => ({ file, requestIndex }));
-	const workers = Array.from({ length: Math.min(3, files.length) }, async () => {
+	const workers = Array.from({ length: Math.min(BG_LLM_PERMITS, files.length) }, async () => {
 		for (;;) {
 			const next = queue.shift();
 			if (!next) return;

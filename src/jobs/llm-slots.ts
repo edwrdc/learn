@@ -29,7 +29,7 @@ import { processState } from "../platform/model/index.ts";
 /** Total background LLM concurrency, process-wide, across ALL subsystems
  *  (owner ruling 2026-09-29: one shared pool — extraction chunks +
  *  extraction chunks). */
-const PERMIT_COUNT = 3;
+export const BG_LLM_PERMITS = 3;
 
 export interface LlmSlots {
 	active: number;
@@ -50,7 +50,7 @@ export async function withBgLlmSlot<T>(
 ): Promise<T> {
 	const slots = bgLlmSlots();
 	let freshTake = true;
-	if (slots.active >= PERMIT_COUNT) {
+	if (slots.active >= BG_LLM_PERMITS) {
 		freshTake = false;
 		await new Promise<void>((resolve, reject) => {
 			const ticket: { resolve: () => void; dead: boolean } = { resolve, dead: false };

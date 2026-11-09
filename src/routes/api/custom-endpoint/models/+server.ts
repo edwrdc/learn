@@ -7,10 +7,13 @@
  */
 
 import { discoverCustomEndpointModels } from "@/src/settings";
+import { readJson } from "@/src/platform";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request }: RequestEvent) {
-	const body = await request.json().catch(() => null);
+	const json = await readJson(request);
+	if (json instanceof Response) return json;
+	const body = json.body;
 	const result = await discoverCustomEndpointModels(body);
 	if (!result.ok) {
 		return Response.json({ error: result.error }, { status: result.status });

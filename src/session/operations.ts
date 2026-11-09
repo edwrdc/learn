@@ -1,6 +1,10 @@
-import { coverageOf, extractionStatuses, graphRevision, stopExtraction } from "../graph/index.ts";
-import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../graph/model/index.ts";
-import { type SessionCoverage } from "./model/types.ts";
+import { coverageOf, extractionStatuses, getGraph, graphRevision, stopExtraction } from "../graph/index.ts";
+import { chainsForSelection, deleteChatTraces, formatChainLine, type ChatDeleteMode, type ChatDeletionStats } from "../graph/model/index.ts";
+import { readSettings } from "../settings/index.ts";
+import { type ChatRecord, type SessionCoverage } from "./model/types.ts";
+import { titleFromPrompt } from "./model/title.ts";
+import { newGraphContextMessage } from "./model/transcript.ts";
+import type { NewChat } from "./model/input-events.ts";
 import { stores } from "../stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
@@ -18,6 +22,34 @@ import { withChatOperation } from "./chat-operations.ts";
  */
 
 export const { createChat, getChat, listChats } = stores.chatStore;
+
+/** The chat a route addresses, or the one 404 every chat route answers. */
+export async function requireChat(id: string): Promise<ChatRecord | Response> {
+	return (await getChat(id)) ?? Response.json({ error: "Unknown chat" }, { status: 404 });
+}
+
+/** Create a session. It owns its model from birth, stamped from the strong
+ *  slot (no slot: no stamp, and the turn gate refuses until setup). Picked
+ *  propositions become a graph-context marker before the first message,
+ *  with the reasoning chains among them from the current graph. */
+export async function startChat(init: NewChat): Promise<{ id: string; title: string }> {
+	const chat = createChat(titleFromPrompt(init.title), init.kind);
+	const strong = readSettings()?.models?.strong;
+	if (strong?.model) {
+		await stores.chatStore.saveSettings(chat.id, {
+			model: { provider: strong.model.provider, id: strong.model.id },
+			thinkingLevel: strong.thinkingLevel,
+		});
+	}
+	if (init.picks.length > 0) {
+		const graph = getGraph(stores.graphStore);
+		const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+		const pickedNodes = init.picks.map((p) => byId.get(p.id)).filter((n) => n !== undefined);
+		const chainLines = chainsForSelection(pickedNodes, graph.chains).map((c) => formatChainLine(c, Object.fromEntries(byId)));
+		await stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(init.picks, chainLines)]);
+	}
+	return { id: chat.id, title: chat.title };
+}
 export type { ChatDeleteMode, ChatDeletionStats } from "../graph/model/index.ts";
 
 /** How long the wind-down wait may take before the caller gets a retryable

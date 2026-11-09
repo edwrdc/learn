@@ -1,7 +1,8 @@
-import { clampChatLevel, validateChatSettings } from "@/src/settings";
+import { checkChatSettings } from "@/src/settings";
+import { readJson } from "@/src/platform";
 import { parseModelChoice } from "@/src/settings/model";
 import { effectiveSettings, stores } from "@/src/stores";
-import { getChat } from "@/src/session";
+import { requireChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 /**
@@ -19,23 +20,17 @@ import type { RequestEvent } from "./$types";
  */
 export async function PUT({ request: req, params }: RequestEvent) {
 	const { id } = params;
-	if (!(await getChat(id))) return Response.json({ error: "Not found" }, { status: 404 });
-
-	const body = await req.json().catch(() => null);
-	const parsed = parseModelChoice(body);
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
+	const parsed = parseModelChoice(json.body);
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
-
-	const verdict = validateChatSettings(parsed.value);
-	if (!verdict.ok) {
-		return Response.json({ error: verdict.error, supported: verdict.supported }, { status: 400 });
-	}
-
-	// Replace-whole persists the validated, level-clamped object — no
-	// merges, so a stale client can never resurrect a cleared override.
-	// Clamp-on-write (owner, interlude 2026-09-22): a pinned thinking
-	// level never rejects — it clamps to the named model's nearest
-	// supported (body model, else the record's strong slot).
-	const settings = clampChatLevel(parsed.value, effectiveSettings().models.strong);
+	const checked = checkChatSettings(parsed.value, effectiveSettings().models.strong);
+	if (!checked.ok) return Response.json({ error: checked.error, supported: checked.supported }, { status: 400 });
+	// Replace-whole: no merges, so a stale client can never resurrect a
+	// cleared override.
+	const settings = checked.value;
 	await stores.chatStore.saveSettings(id, settings);
 	return Response.json({ settings });
 }

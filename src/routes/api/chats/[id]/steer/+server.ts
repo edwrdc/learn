@@ -11,17 +11,20 @@
 // registry copy survives a question termination or abort and rides the
 // chat's next run.
 import { ChatInputError, newUserSteer, parseUserSteerInput } from "@/src/session/model";
-import { getChat } from "@/src/session";
+import { requireChat } from "@/src/session";
+import { readJson } from "@/src/platform";
 import { steerLiveChat } from "@/src/jobs";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request, params }: RequestEvent): Promise<Response> {
 	const { id } = params;
-	if (!(await getChat(id))) return Response.json({ error: "unknown chat" }, { status: 404 });
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
+	const json = await readJson(request);
+	if (json instanceof Response) return json;
 	let input;
 	try {
-		const body = (await request.json()) as { input?: unknown };
-		input = parseUserSteerInput(body?.input);
+		input = parseUserSteerInput((json.body as { input?: unknown } | null)?.input);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;

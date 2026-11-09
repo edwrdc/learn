@@ -20,20 +20,18 @@
 import { abortExtraction } from "@/src/graph";
 import { abortJob } from "@/src/jobs";
 import { abortTurn } from "@/src/session";
+import { readJson } from "@/src/platform";
+import { isSafeId } from "@/src/platform/model";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req }: RequestEvent) {
-	let body: unknown;
-	try {
-		body = await req.json();
-	} catch {
-		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-	}
-	const { kind, id } = (body ?? {}) as { kind?: string; id?: string };
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
+	const { kind, id } = (json.body ?? {}) as { kind?: string; id?: string };
 	if ((kind !== "job" && kind !== "extraction" && kind !== "turn") || typeof id !== "string" || id === "") {
 		return Response.json({ error: 'Body must be {kind: "job"|"extraction"|"turn", id: string}' }, { status: 400 });
 	}
-	if (!/^[A-Za-z0-9:_-]+$/.test(id)) {
+	if (!isSafeId(id)) {
 		return Response.json({ error: "Invalid id" }, { status: 400 });
 	}
 

@@ -1,36 +1,22 @@
 /**
- * THE canonical prompt-segment discovery + override resolution (P2
- * reconciliation, 2026-09-19). The agent layer owns it because composition
- * lives here: composeInstructions (teacher-agent.ts) composes through
- * effectivePromptSegments, and the discovery reads THIS layer's own tree
- * (src/agent/prompts — base, shared/, per-agent fragments) — the exact
- * rules the pre-P2 loader used, now in one place.
+ * The agents' prompt segments and the user's overrides of them.
  *
- * The architecture law pins the layout: the agent layer never imports the
- * store adapters, so the override-file READ lives here too (config-anchored
- * static file, same discipline as reading the source fragments); the
- * override-file CRUD (write/delete/list — the mutating store behind the
- * core port) stays in src/store/prompt-overrides.ts. Both sides share the
- * pure path grammar (src/core/prompt-segments.ts).
+ * SEGMENTS: the shared base (system-prompt.md), then every numeric-prefix
+ * *.md fragment in the agent's own directory (sorted by filename), then the
+ * shared/ fragments as a trailing appendix. The list is read from the source
+ * tree at runtime, so an override keyed to a segment the source no longer
+ * ships stops composing automatically.
  *
- * SEGMENTS: the SHARED base (src/agent/system-prompt.md), then every
- * numeric-prefix *.md fragment in the agent's own directory (sorted by
- * filename), then the shared/ fragments directory (composed by BOTH
- * agents as a trailing appendix — the 2026-09-27 reorder). The segment
- * list adapts to the code: an override keyed to a segment the source no
- * longer ships stops composing automatically.
- *
- * OVERRIDES: override files mirror the source layout under
- * config.PROMPTS_OVERRIDE_DIR — "system-prompt.md" at the root,
- * "shared/<file>", "teacher/<file>" / "prober/<file>". File presence is NOT
- * the override: the settings SWITCH is (owner decision) — the user keeps
- * their file and flips back to the source default to compare.
+ * OVERRIDES: files mirror the source layout under PROMPTS_OVERRIDE_DIR.
+ * File presence is NOT the override: the settings switch (agent.prompts) is,
+ * so a user can keep a file and flip back to the source default to compare.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { PATHS, PROMPTS_OVERRIDE_DIR } from "../platform/index.ts";
-import { FRAGMENT_RE, isValidSegmentPath, type PromptAgent, type PromptSegmentInfo } from "../settings/model/index.ts";
+import { PATHS, PROMPTS_OVERRIDE_DIR, writeFileAtomic } from "../platform/index.ts";
+import { FRAGMENT_RE, isValidSegmentPath, type AgentSettings, type PromptAgent, type PromptSegmentInfo } from "../settings/model/index.ts";
+import { readSettings, writeSettings } from "../settings/index.ts";
 
 const PROMPTS_DIR = path.join(PATHS.root, "src", "session", "prompts");
 
@@ -47,17 +33,49 @@ function overrideFileFor(segmentPath: string): string {
 	return path.join(PROMPTS_OVERRIDE_DIR, ...segmentPath.split("/"));
 }
 
-/** Read one override file, or null when absent/invalid — the composition
- *  side's reader (the store's readOverride is the same mirror layout,
- *  kept separate because the layers may not import each other). */
-export function readPromptOverride(segmentPath: string): string | null {
-	if (!isValidSegmentPath(segmentPath)) return null;
-	try {
-		return fs.readFileSync(overrideFileFor(segmentPath), "utf-8");
-	} catch {
-		return null;
-	}
-}
+/** The override files: only valid segment paths are read or written. */
+export const promptOverrides = {
+	/** Every override path on disk, POSIX-relative, sorted. */
+	listOverrides(): string[] {
+		const out: string[] = [];
+		const walk = (dir: string, prefix: string) => {
+			let entries: fs.Dirent[];
+			try {
+				entries = fs.readdirSync(dir, { withFileTypes: true });
+			} catch {
+				return; // no dir yet = no overrides
+			}
+			for (const entry of entries) {
+				const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+				if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+				else if (entry.isFile() && entry.name.endsWith(".md") && isValidSegmentPath(rel)) out.push(rel);
+			}
+		};
+		walk(PROMPTS_OVERRIDE_DIR, "");
+		return out.sort();
+	},
+	readOverride(segmentPath: string): string | null {
+		if (!isValidSegmentPath(segmentPath)) return null;
+		try {
+			return fs.readFileSync(overrideFileFor(segmentPath), "utf-8");
+		} catch {
+			return null;
+		}
+	},
+	writeOverride(segmentPath: string, text: string): void {
+		if (!isValidSegmentPath(segmentPath)) return;
+		writeFileAtomic(overrideFileFor(segmentPath), text);
+	},
+	/** Remove the override file if present; the switch is untouched. */
+	deleteOverride(segmentPath: string): void {
+		if (!isValidSegmentPath(segmentPath)) return;
+		try {
+			fs.unlinkSync(overrideFileFor(segmentPath));
+		} catch {
+			// absent already = done
+		}
+	},
+};
 
 /** List the SOURCE segments for one agent, in composition order — the
  *  shared base, then the agent's own fragments sorted by filename, then
@@ -113,7 +131,7 @@ export function effectivePromptSegments(
 		} catch {
 			sourceText = ""; // source unreadable — the agent loader would crash anyway
 		}
-		const overrideText = readPromptOverride(segment.path);
+		const overrideText = promptOverrides.readOverride(segment.path);
 		return {
 			path: segment.path,
 			sourceText,
@@ -131,4 +149,42 @@ export function allSegmentPaths(): string[] {
 		for (const segment of listSourceSegments(agent)) paths.add(segment.path);
 	}
 	return [...paths].sort();
+}
+
+/** Write a segment's override text; only a current source segment takes one
+ *  (anything else is a typo or a vanished fragment, never a silent orphan). */
+export function writePromptOverride(segmentPath: string, text: string): { ok: true } | { ok: false; error: string; supported: string[] } {
+	const segments = allSegmentPaths();
+	if (!segments.includes(segmentPath)) return { ok: false, error: `"${segmentPath}" is not a current source segment`, supported: segments };
+	promptOverrides.writeOverride(segmentPath, text);
+	return { ok: true };
+}
+
+/** Remove a segment's override and its switch together, so no ON switch is
+ *  left pointing at a missing file. The switch goes first: a crash between
+ *  the two leaves "off + file", a valid state. */
+export function deletePromptOverride(segmentPath: string): { switchCleared: boolean } {
+	const record = readSettings();
+	const prompts = record?.agent?.prompts;
+	const switchCleared = prompts?.[segmentPath] === true;
+	if (record?.agent && prompts && prompts[segmentPath] !== undefined) {
+		const { [segmentPath]: _dropped, ...rest } = prompts;
+		writeSettings({ ...record, agent: { ...record.agent, prompts: rest } });
+	}
+	promptOverrides.deleteOverride(segmentPath);
+	return { switchCleared };
+}
+
+/** An ON switch whose override file is gone (or whose segment left the
+ *  source tree) is written as OFF, so a settings write never gets stuck on
+ *  a wiped override. */
+export function healPromptSwitches(agent: AgentSettings): AgentSettings {
+	const segments = new Set(allSegmentPaths());
+	const orphans = Object.entries(agent.prompts ?? {})
+		.filter(([segmentPath, on]) => on && (!segments.has(segmentPath) || promptOverrides.readOverride(segmentPath) === null))
+		.map(([segmentPath]) => segmentPath);
+	if (orphans.length === 0) return agent;
+	console.info(`[settings] healed orphaned prompt switch(es) to off: ${orphans.join(", ")}`);
+	const prompts = Object.fromEntries(Object.entries(agent.prompts ?? {}).filter(([segmentPath]) => !orphans.includes(segmentPath)));
+	return { ...agent, prompts };
 }

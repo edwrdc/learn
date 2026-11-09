@@ -17,7 +17,7 @@ const { services } = await import("../src/boot.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { setBackgroundRun } = await import("../src/jobs/durable-run.ts");
 const { writeSettings } = await import("../src/settings/store.ts");
-const { promptOverrides } = await import("../src/settings/index.ts");
+const { promptOverrides } = await import("../src/session/prompts.ts");
 
 after(() => fs.rmSync(data, { recursive: true, force: true }));
 

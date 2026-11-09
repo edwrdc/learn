@@ -21,6 +21,7 @@
  * constructs it.
  */
 
+import { isSafeId, mintId } from "../platform/model/index.ts";
 import { writeJsonAtomic } from "../platform/index.ts";
 import { keyedLock } from "../platform/model/index.ts";
 import * as fs from "node:fs";
@@ -55,8 +56,10 @@ interface ParsedRecord {
 	legacyMessages?: LhMessage[];
 }
 
+const UNTITLED = "Untitled session";
+
 function chatFile(id: string): string {
-	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
+	if (!isSafeId(id)) throw new Error(`Invalid chat id: ${id}`);
 	return path.join(PATHS.chats, `${id}.json`);
 }
 
@@ -150,8 +153,8 @@ async function readChat(id: string): Promise<ChatRecord | null> {
 function createChat(title: string, kind?: "practice"): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
-		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
-		title: title.trim() || "Untitled session",
+		id: mintId("chat"),
+		title: title.trim() || UNTITLED,
 		createdAt: now,
 		updatedAt: now,
 		messages: [],
@@ -262,7 +265,7 @@ async function saveSettings(id: string, settings: ChatSettings): Promise<void> {
 async function renameChat(id: string, title: string): Promise<ChatRecord> {
 	const renamed = await mutateMeta(id, (meta) => ({
 		...meta,
-		title: title.trim() || "Untitled session",
+		title: title.trim() || UNTITLED,
 	}));
 	emit("chats-changed", {});
 	const record = await readChat(id);

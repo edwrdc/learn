@@ -20,21 +20,21 @@
  * fires both).
  */
 import { ChatInputError, parseDismissInput } from "@/src/session/model";
-import { getChat, isTurnRunning, parkDismissal, writeDismissal } from "@/src/session";
+import { isTurnRunning, parkDismissal, requireChat, writeDismissal } from "@/src/session";
+import { readJson } from "@/src/platform";
 import { stores } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req, params }: RequestEvent): Promise<Response> {
 	const { id } = params;
-	const chat = await getChat(id);
-	if (!chat) return Response.json({ error: "Unknown chat" }, { status: 404 });
+	const chat = await requireChat(id);
+	if (chat instanceof Response) return chat;
+	const json = await readJson(req);
+	if (json instanceof Response) return json;
 
 	let input;
 	try {
-		// The POST-family convention: the body is { input } (chatId lives in
-		// the URL here).
-		const body = (await req.json().catch(() => null)) as { input?: unknown } | null;
-		input = parseDismissInput(body?.input ?? null);
+		input = parseDismissInput((json.body as { input?: unknown } | null)?.input ?? null);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;

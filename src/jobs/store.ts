@@ -8,6 +8,7 @@
  * awaits, so they are atomic within the single-threaded event loop.
  */
 
+import { isSafeId, mintId } from "../platform/model/index.ts";
 import { writeJsonAtomic } from "../platform/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -21,7 +22,7 @@ import type { JobRecord } from "./model/types.ts";
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 
 function jobFile(id: string): string {
-	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid job id: ${id}`);
+	if (!isSafeId(id)) throw new Error(`Invalid job id: ${id}`);
 	return path.join(JOBS_DIR, `${id}.json`);
 }
 
@@ -32,7 +33,7 @@ function jobFile(id: string): string {
 function createJob(init: CreateJobInit): JobRecord {
 	const now = new Date().toISOString();
 	const record: JobRecord = {
-		id: `job_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		id: mintId("job"),
 		kind: init.kind,
 		chatId: init.chatId,
 		toolCallId: init.toolCallId,

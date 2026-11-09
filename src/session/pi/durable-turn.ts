@@ -23,6 +23,7 @@
  * durable transcript is the truth behind it.
  */
 
+import { SSE_HEADERS } from "../../platform/index.ts";
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import type {
 	ConversationView,
@@ -375,10 +376,6 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 /** The subscriber-shaped SSE response (GET /api/chats/[id]/stream). */
 export function piTurnResponse(handle: PiTurnHandle): Response {
 	return new Response(handle.subscribe(), {
-		headers: {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache, no-transform",
-			"X-Accel-Buffering": "no",
-		},
+		headers: SSE_HEADERS,
 	});
 }
