@@ -4,8 +4,9 @@
 	import { GRAPH_PAD, latestTree, TEXT_CAP_SCALE, type PopupMessage } from "./plan-layout";
 
 	let { messages }: { messages: readonly PopupMessage[] } = $props();
-	let seq = 0;
-	const markerId = `plan-margin-${++seq}`;
+
+	const uid = $props.id();
+	const markerId = `plan-margin-${uid}`;
 	const MARGIN_PAD = GRAPH_PAD + 16;
 	const tree = $derived(latestTree(messages));
 	const statuses = $derived(tree ? derivePlanStatuses(tree, messages as Parameters<typeof derivePlanStatuses>[1]) : null);

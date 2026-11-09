@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { plural } from "$lib/format";
 	import { formatTokens } from "$lib/format";
 	import { extractChat } from "$lib/api/graph";
 	import { ApiError } from "$lib/api/http";
@@ -60,7 +61,7 @@
 		{:else}
 			<span class="flex flex-col">
 				<span class="tabular-nums text-foreground">{formatTokens(coverage.uncoveredTokens)} tok uncovered</span>
-				<span class="tabular-nums text-muted-foreground">{coverage.uncoveredCount} message{coverage.uncoveredCount === 1 ? "" : "s"} unextracted</span>
+				<span class="tabular-nums text-muted-foreground">{plural(coverage.uncoveredCount, "message")} unextracted</span>
 			</span>
 		{/if}
 		<button

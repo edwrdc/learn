@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { blurAfterPointerClick } from "./enter-submits";
+	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { emitAppEvent, emitKeyAction, onAppEvent, onKeyAction } from "$lib/events";
 	import { abortProcess, fetchChat, fetchJobs as fetchChatJobs } from "$lib/api/chats";
 	import { renameSession } from "$lib/state/sessions";
@@ -36,13 +38,12 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import Reasoning from "./Reasoning.svelte";
 	import DictationBar from "./DictationBar.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
-	import { DictationController, joinDictation } from "./dictation.svelte";
+	import { afterDictation, DictationController, joinDictation } from "./dictation.svelte";
 	import { SessionView } from "./session.svelte";
 	import { StickToBottom } from "./stick.svelte";
 	import { CHAT_ACTIONS } from "./actions-context";
 	import { SESSION_MERMAID } from "./session-context";
 	import { sidebar } from "$lib/state/sidebar.svelte";
-	import { noProviderKey } from "$lib/state/keys.svelte";
 	import { serverEvents } from "$lib/state/server-events";
 	import { hint } from "$lib/hint";
 	import { toggleUserThinking } from "./thinking-store.svelte";
@@ -291,11 +292,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 
 	function onSend(): void {
 		if (pending || compacting) return;
-		if (!dictation.active) {
-			doSteerOrSend();
-			return;
-		}
-		void dictation.finish().then(() => doSteerOrSend());
+		afterDictation(doSteerOrSend);
 	}
 
 	function sendNext(): void {
@@ -543,16 +540,9 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		const offAbort = onKeyAction("abort-turn", onAbort);
 		const offToggleThinking = onKeyAction("toggle-user-thinking", () => toggleUserThinking());
 
-		let hashTicks = 0;
-		const hashTimer = window.location.hash
-			? window.setInterval(() => {
-					if (++hashTicks > 300) {
-						clearInterval(hashTimer);
-						return;
-					}
-					jumpToHash();
-				}, 64)
-			: undefined;
+		// An anchor arrival waits for its message to render.
+		const hashWait = window.location.hash && !jumpToHash() ? new MutationObserver(() => jumpToHash() && hashWait?.disconnect()) : null;
+		hashWait?.observe(document.body, { childList: true, subtree: true });
 		const onHash = () => {
 			lastJump = null;
 			if (flashTimer) clearTimeout(flashTimer);
@@ -567,7 +557,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			session.stop();
 			for (const timer of turnTimers) clearTimeout(timer);
 			clearTimeout(jobsDebounce);
-			if (hashTimer) clearInterval(hashTimer);
+			hashWait?.disconnect();
 			if (flashTimer) clearTimeout(flashTimer);
 			offRename();
 			offRenamed();
@@ -608,15 +598,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 {/snippet}
 
 {#snippet setupCta()}
-	{#if noProviderKey.value}
-		<div class="pointer-events-auto mb-2 flex justify-center">
-			<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
-		</div>
-	{:else if !configured}
-		<div class="pointer-events-auto mb-2 flex justify-center">
-			<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>
-		</div>
-	{/if}
+	<SetupCta {configured} onOpen={() => (setupOpen = true)} wrap="pointer-events-auto mb-2 flex justify-center" />
 {/snippet}
 
 <div class="flex h-dvh">
@@ -660,7 +642,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 					type="button"
 					data-testid="plan-chip"
 					onclick={(event) => {
-						if (event.detail !== 0) (event.currentTarget as HTMLElement).blur();
+						blurAfterPointerClick(event);
 						planOpen = true;
 					}}
 					{@attach hint("Open the full plan", { side: "bottom" })}

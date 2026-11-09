@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SetupCta from "$lib/settings/SetupCta.svelte";
+	import { plural } from "$lib/format";
 import { untrack } from "svelte";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
@@ -7,7 +9,7 @@ import { untrack } from "svelte";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { CornerDownLeft, Dumbbell } from "@lucide/svelte";
 	import type { TurnUsage } from "@/src/session/model";
-	import { DictationController, joinDictation } from "$lib/chat/dictation.svelte";
+	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
 	import StatsBar from "$lib/chat/StatsBar.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
@@ -60,11 +62,7 @@ import { untrack } from "svelte";
 	}
 
 	function start() {
-		if (!dictation.active) {
-			void begin();
-			return;
-		}
-		void dictation.finish().then(() => begin());
+		afterDictation(() => void begin());
 	}
 
 	onMount(() => {
@@ -106,18 +104,14 @@ import { untrack } from "svelte";
 						<div class="flex items-center gap-1.5">
 							<button type="button" data-testid="practice-props-chip" onclick={() => (chainSelectOpen = true)} class="flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors {practiceProps.length > 0 ? 'border-border bg-card text-foreground hover:bg-accent' : 'border-dashed border-border/80 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground'}">
 								<Dumbbell aria-hidden="true" class="size-3.5 text-muted-foreground" />
-								{practiceProps.length > 0 ? `${practiceProps.length} ${practiceProps.length === 1 ? "node" : "nodes"} selected` : "Pick nodes"}
+								{practiceProps.length > 0 ? `${plural(practiceProps.length, "node")} selected` : "Pick nodes"}
 							</button>
 							{#if practiceProps.length > 0}
 								<button type="button" data-testid="practice-props-clear" onclick={() => (practiceProps = [])} class="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Clear</button>
 							{/if}
 						</div>
 					{/if}
-					{#if noProviderKey.value}
-						<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
-					{:else if !configured}
-						<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>
-					{/if}
+					<SetupCta {configured} onOpen={() => (setupOpen = true)} />
 				</div>
 			{/if}
 			<form class="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg" onsubmit={(event) => { event.preventDefault(); start(); }}>

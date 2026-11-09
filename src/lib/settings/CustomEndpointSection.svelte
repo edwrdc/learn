@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
+	import { plural } from "$lib/format";
 	import type { CustomEndpointModel, CustomEndpointState as EndpointState } from "@/src/settings/model";
 	import { emitAppEvent } from "$lib/events";
 	import { discoverCustomModels, fetchCustomEndpoint, removeCustomEndpoint, saveCustomEndpoint } from "$lib/api/settings";
@@ -45,15 +47,8 @@
 	});
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			onOpenChange(false);
-		};
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => document.removeEventListener("keydown", onKeyDown, true);
+		if (!open) return;
+		return dismissLayer(() => onOpenChange(false), { clickOutside: false, capture: true });
 	});
 
 	$effect(() => {
@@ -150,7 +145,7 @@
 	const envOwnedKey = $derived(endpointState?.keySource === "env");
 	const configured = $derived(endpointState?.endpoint ?? null);
 	const status = $derived(
-		!configured ? "not configured" : !endpointState?.keyPresent ? "key missing" : configured.models.length === 1 ? "1 model" : `${configured.models.length} models`,
+		!configured ? "not configured" : !endpointState?.keyPresent ? "key missing" : plural(configured.models.length, "model"),
 	);
 </script>
 

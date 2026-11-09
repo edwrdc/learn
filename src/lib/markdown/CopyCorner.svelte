@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { blurAfterPointerClick } from "$lib/chat/enter-submits";
 	import { copyText } from "./copy";
 
 	let {
@@ -11,8 +12,7 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
 	async function onClick(event: MouseEvent) {
-		// Pointer clicks must not keep focus (the next Enter submits).
-		if (event.detail !== 0) (event.currentTarget as HTMLElement | null)?.blur();
+		blurAfterPointerClick(event);
 		const ok = await copyText(getText());
 		if (!ok) return;
 		copied = true;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { now } from "$lib/state/now.svelte";
 	import { getContext } from "svelte";
 	import { Check, Settings, X } from "@lucide/svelte";
 	import { type JobKind, type JobRecord } from "@/src/jobs/model";
@@ -11,7 +12,7 @@
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
 	const job = $derived(jobs.find((j) => j.toolCallId === toolCallId) ?? null);
 	const label = $derived(jobAgentLabel(kind));
-	const elapsed = $derived(job?.createdAt ? Math.max(0, Math.round((Date.now() - Date.parse(job.createdAt)) / 1000)) : null);
+	const elapsed = $derived(job?.createdAt ? Math.max(0, Math.round((now() - Date.parse(job.createdAt)) / 1000)) : null);
 </script>
 
 {#if !job || job.status === "running"}

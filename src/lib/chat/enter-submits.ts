@@ -30,6 +30,8 @@ export function enterSubmits(submit: () => void) {
 	};
 }
 
+/** A pointer click must not leave focus on the button: the next Enter
+ *  belongs to the window-level submit. Keyboard clicks keep focus. */
 export function blurAfterPointerClick(event: MouseEvent): void {
 	if (event.detail === 0) return;
 	(event.currentTarget as HTMLElement | null)?.blur();

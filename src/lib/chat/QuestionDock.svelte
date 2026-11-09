@@ -7,7 +7,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 	import { enterSubmits } from "./enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
-	import { finishDictation, isDictationActive, joinDictation, setDictationTarget } from "./dictation.svelte";
+	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import { cn } from "$lib/utils";
 
@@ -153,11 +153,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 	}
 	function submit() {
 		if (!canSubmit || compactionRunning) return;
-		if (!isDictationActive()) {
-			doSubmit();
-			return;
-		}
-		void finishDictation().then(doSubmit);
+		afterDictation(doSubmit);
 	}
 
 	$effect(() => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { COMPACTION_THRESHOLD_FLOOR, CURRENT_SETTINGS_VERSION, MODEL_SLOTS, THINKING_LEVELS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelsSettings, type ModelSlotName, type PromptSegmentInfo } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { JOB_KINDS, SEARCH_ENGINES, type SearchEngineId, type SearchStatus } from "@/src/tools/model";
@@ -83,24 +84,12 @@
 	}));
 
 	$effect(() => {
-		if (openMenu === null || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[data-testid^="slot-"], [data-testid="search-engine-trigger"]')) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) openMenu = null;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			openMenu = null;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (openMenu === null) return;
+		return dismissLayer(() => (openMenu = null), {
+			inside: () => [...document.querySelectorAll('[data-testid^="slot-"], [data-testid="search-engine-trigger"]')],
+			menus: true,
+			closeWithin: '[role="dialog"]',
+		});
 	});
 
 

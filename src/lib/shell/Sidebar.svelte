@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
 	import { listChats } from "$lib/api/chats";
 	import { renameSession } from "$lib/state/sessions";
@@ -155,24 +156,8 @@ import { type ChatListItem } from "@/src/session/model";
 	});
 
 	$effect(() => {
-		if (ctxChat === null || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Element | null;
-			if (target?.closest("[data-lh-menu]")) return;
-			if (ctxAnchor?.contains(target as Node)) return;
-			ctxChat = null;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			ctxChat = null;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (ctxChat === null) return;
+		return dismissLayer(() => (ctxChat = null), { inside: () => [ctxAnchor], menus: true });
 	});
 
 	function setFilter(filter: KindFilter) {

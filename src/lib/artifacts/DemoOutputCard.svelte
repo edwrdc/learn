@@ -7,7 +7,7 @@ import { untrack } from "svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { buildDemoSrcDoc, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState, type DemoBridgeState } from "./demo-bridge";
 	import { downloadFile, slugFilename } from "./download";
-	import { persistInverted } from "./artifact-ui";
+	import { INVERT_FILTER, InvertSwitch } from "./inverted.svelte";
 	import InvertDisc from "./InvertDisc.svelte";
 
 	let {
@@ -18,7 +18,7 @@ import { untrack } from "svelte";
 
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
 	const result = $derived(output as DemoResult | undefined);
-	let inverted = $state(untrack(() => initialInverted));
+	const invert = new InvertSwitch(untrack(() => initialInverted), () => actions?.chatId, () => messageId);
 	let bridge = $state<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
 	let frame = $state<HTMLIFrameElement | null>(null);
 
@@ -34,10 +34,6 @@ import { untrack } from "svelte";
 		return () => window.removeEventListener("message", onMessage);
 	});
 
-	function toggleInverted(next: boolean) {
-		inverted = next;
-		persistInverted(actions?.chatId, messageId, next);
-	}
 </script>
 
 {#if !result || typeof result.html !== "string" || typeof result.title !== "string"}
@@ -57,7 +53,7 @@ import { untrack } from "svelte";
 				<span class="truncate text-xs font-medium tracking-wide text-foreground">{result.title}</span>
 			</div>
 			<div class="flex shrink-0 items-center gap-1.5">
-				<Toggle checked={inverted} onChange={toggleInverted} label="Invert demo brightness" title="Invert colors">
+				<Toggle checked={invert.on} onChange={invert.set} label="Invert demo brightness" title="Invert colors">
 					{#snippet disc()}<InvertDisc class="size-3" />{/snippet}
 				</Toggle>
 				<button type="button" aria-label="Download demo as HTML" title="Download as HTML" onclick={() => downloadFile(`${slugFilename(result.title)}.html`, result.html, "text/html")} data-testid="demo-download" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -81,7 +77,7 @@ import { untrack } from "svelte";
 			srcdoc={srcDoc}
 			scrolling="no"
 			class="mt-2 w-full rounded-lg border bg-white"
-			style="height: {bridge.height ?? 360}px; box-sizing: content-box;{inverted ? ' filter: invert(1) hue-rotate(180deg);' : ''}"
+			style="height: {bridge.height ?? 360}px; box-sizing: content-box;{invert.on ? ` ${INVERT_FILTER};` : ''}"
 			data-testid="demo-iframe"
 		></iframe>
 	</div>

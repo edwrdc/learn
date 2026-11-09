@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { bindingForAction, formatBinding, KEYBOARD_ACTIONS } from "@/src/settings/model";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { cheatSheet } from "$lib/state/dialogs.svelte";
@@ -7,15 +8,8 @@
 	const labels: Record<(typeof scopes)[number], string> = { global: "Global", chat: "Chat", graph: "Graph view" };
 
 	$effect(() => {
-		if (!cheatSheet.open || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			cheatSheet.open = false;
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		if (!cheatSheet.open) return;
+		return dismissLayer(() => (cheatSheet.open = false), { clickOutside: false });
 	});
 </script>
 

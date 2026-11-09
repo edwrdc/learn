@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { getContext } from "svelte";
 	import { hint } from "$lib/hint";
 	import { formatUsd, prettyModel } from "$lib/format";
@@ -46,23 +47,8 @@
 	const effectiveLevel = $derived(storedLevel ?? (entry ? defaultOrderLevel(levels) : undefined));
 
 	$effect(() => {
-		if (open === null || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Element;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (container && !container.contains(target)) open = null;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			open = null;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (open === null) return;
+		return dismissLayer(() => (open = null), { inside: () => [container], menus: true });
 	});
 
 	/** A refused write shows the server's reason; anything else is the network. */

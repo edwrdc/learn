@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { deleteKey as removeKey, fetchKeys, saveKey as putKey } from "$lib/api/settings";
 import { untrack } from "svelte";
 	import { type AuthKeyStatus } from "@/src/settings/model";
@@ -34,36 +35,18 @@ import { untrack } from "svelte";
 
 	$effect(() => {
 		if (openRow === null && adding === null) return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			openRow = null;
-			adding = null;
-		};
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => document.removeEventListener("keydown", onKeyDown, true);
+		return dismissLayer(
+			() => {
+				openRow = null;
+				adding = null;
+			},
+			{ clickOutside: false, capture: true },
+		);
 	});
 
 	$effect(() => {
-		if (!addProviderOpen || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (addAnchor?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) addProviderOpen = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			addProviderOpen = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!addProviderOpen) return;
+		return dismissLayer(() => (addProviderOpen = false), { inside: () => [addAnchor], menus: true, closeWithin: '[role="dialog"]' });
 	});
 
 	function reload() {

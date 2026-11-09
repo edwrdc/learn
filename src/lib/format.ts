@@ -34,3 +34,8 @@ export function timeAgo(iso: string, now = new Date()): string {
 	const dd = String(date.getDate()).padStart(2, "0");
 	return `${date.getFullYear()}-${mm}-${dd}`;
 }
+
+/** "1 node", "3 nodes". */
+export function plural(count: number, noun: string): string {
+	return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}

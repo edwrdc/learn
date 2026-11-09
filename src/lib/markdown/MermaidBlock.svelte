@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { blurAfterPointerClick } from "$lib/chat/enter-submits";
 	import { browser } from "$app/environment";
 	import { getContext } from "svelte";
 	import { SESSION_MERMAID } from "$lib/chat/session-context";
@@ -6,35 +7,19 @@
 	import { hint } from "$lib/hint";
 	import CopyCorner from "./CopyCorner.svelte";
 	import MermaidError from "./MermaidError.svelte";
-	import { chartSize, MERMAID_FONT_SIZE, renderMermaid } from "./mermaid";
+	import { chartSize, MERMAID_FONT_SIZE } from "./mermaid";
+	import { MermaidRender } from "./mermaid-render.svelte";
 
 	let { chart, incomplete = false }: { chart: string; incomplete?: boolean } = $props();
 
 	const overlay = getContext<SessionMermaidApi | null>(SESSION_MERMAID) ?? null;
 
-	let svg = $state<string | null>(null);
-	let error = $state<string | null>(null);
-	let attempt = $state(0);
+	const render = new MermaidRender(() => (browser && !incomplete ? chart : undefined));
+	const svg = $derived(render.svg);
+	const error = $derived(render.error);
 	let holder = $state<HTMLDivElement | null>(null);
 	let capW = $state<number | null>(null);
 
-	$effect(() => {
-		if (!browser || incomplete) return;
-		attempt;
-		let cancelled = false;
-		svg = null;
-		error = null;
-		void renderMermaid(chart)
-			.then((rendered) => {
-				if (!cancelled) svg = rendered;
-			})
-			.catch((err: unknown) => {
-				if (!cancelled) error = err instanceof Error ? err.message : String(err);
-			});
-		return () => {
-			cancelled = true;
-		};
-	});
 
 	$effect(() => {
 		if (!svg || !holder) {
@@ -52,7 +37,7 @@
 		<span class="inline-block size-4 animate-spin rounded-full border border-current border-b-2 text-muted-foreground"></span>
 	</div>
 {:else if error !== null}
-	<MermaidError {chart} {error} retry={() => (attempt += 1)} />
+	<MermaidError {chart} {error} retry={render.retry} />
 {:else}
 	<div data-testid="md-mermaid" data-streamdown="mermaid" class="group/md relative my-4">
 		<div
@@ -72,7 +57,7 @@
 					{@attach hint("Open full-screen", { side: "bottom" })}
 					class="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
 					onclick={(event) => {
-						if (event.detail !== 0) (event.currentTarget as HTMLElement).blur();
+						blurAfterPointerClick(event);
 						overlay.openMermaid(chart);
 					}}
 				>

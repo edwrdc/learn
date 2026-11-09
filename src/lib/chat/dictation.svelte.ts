@@ -95,6 +95,13 @@ export function finishDictation(): Promise<void> {
 	return live?.finish() ?? Promise.resolve();
 }
 
+/** Run `next` now, or once a running dictation has landed its last words
+ *  (a submit must carry what was just spoken). */
+export function afterDictation(next: () => void): void {
+	if (live?.active) void live.finish().then(next);
+	else next();
+}
+
 export class DictationController {
 	phase = $state<DictationPhase>("idle");
 	error = $state<string | null>(null);
@@ -336,8 +343,4 @@ export class DictationController {
 	clearError = (): void => {
 		this.error = null;
 	};
-}
-
-export function isDictationActive(): boolean {
-	return live?.active === true;
 }

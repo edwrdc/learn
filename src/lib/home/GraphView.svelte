@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
+	import { now } from "$lib/state/now.svelte";
 	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
 	import { onDestroy, onMount } from "svelte";
 	import { FileText, ListTree, Loader2, Search, Settings, Upload, Waypoints } from "@lucide/svelte";
@@ -53,7 +55,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let costAnchor = $state<HTMLDivElement | null>(null);
 	let settingsAnchor = $state<HTMLDivElement | null>(null);
 	let labelTick = $state(0);
-	let now = $state(Date.now());
 	let rowIds = new Set<string>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 	let cameraTimer: ReturnType<typeof setTimeout> | undefined;
@@ -162,10 +163,8 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 		};
 		const onFind = () => searchInput?.focus();
 		offs.push(onAppEvent("graph-revision", onRevision), onAppEvent("chat-renamed", onRenamed), onKeyAction("find", onFind));
-		const timer = setInterval(() => (now = Date.now()), 1000);
 		return () => {
 			for (const off of offs) off();
-			clearInterval(timer);
 			clearTimeout(statusDebounce);
 			clearTimeout(saveTimer);
 		};
@@ -317,26 +316,14 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	});
 
 	$effect(() => {
-		if ((!costOpen && !settingsOpen) || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (costAnchor?.contains(target) || settingsAnchor?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			costOpen = false;
-			settingsOpen = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			costOpen = false;
-			settingsOpen = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!costOpen && !settingsOpen) return;
+		return dismissLayer(
+			() => {
+				costOpen = false;
+				settingsOpen = false;
+			},
+			{ inside: () => [costAnchor, settingsAnchor], menus: true },
+		);
 	});
 
 	onMount(() => {
@@ -477,7 +464,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 				<Loader2 class="size-3.5 shrink-0 animate-spin" />
 				<span class="capitalize">{run.phase}</span>
 				<span class="max-w-48 truncate text-foreground">{run.title}</span>
-				<span class="tabular-nums">{Math.max(0, Math.round((now - run.startedAt) / 1000))}s</span>
+				<span class="tabular-nums">{Math.max(0, Math.round((now() - run.startedAt) / 1000))}s</span>
 			</div>
 		{/each}
 	</div>

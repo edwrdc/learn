@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SetupCta from "$lib/settings/SetupCta.svelte";
+	import { plural } from "$lib/format";
 	import { fetchGraph } from "$lib/api/graph";
 import { untrack } from "svelte";
 	import { onMount } from "svelte";
@@ -15,7 +17,7 @@ import type { TurnUsage } from "@/src/session/model";
 	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
-	import { DictationController, joinDictation } from "$lib/chat/dictation.svelte";
+	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
 	import { noProviderKey } from "$lib/state/keys.svelte";
 
 	let { initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" } = $props();
@@ -76,11 +78,7 @@ import type { TurnUsage } from "@/src/session/model";
 	}
 
 	function handleSend() {
-		if (dictation.active) {
-			void dictation.finish().then(send);
-			return;
-		}
-		send();
+		afterDictation(send);
 	}
 
 	onMount(() => {
@@ -118,18 +116,14 @@ import type { TurnUsage } from "@/src/session/model";
 									<div class="flex items-center gap-1.5">
 										<button type="button" data-testid="practice-props-chip" onclick={openPicker} class="flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors {picks.length > 0 ? 'border-border bg-card text-foreground hover:bg-accent' : 'border-dashed border-border/80 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground'}">
 											<span aria-hidden="true" class="text-muted-foreground">◎</span>
-											{picks.length > 0 ? `${picks.length} ${picks.length === 1 ? "node" : "nodes"} selected` : "Pick nodes"}
+											{picks.length > 0 ? `${plural(picks.length, "node")} selected` : "Pick nodes"}
 										</button>
 										{#if picks.length > 0}
 											<button type="button" data-testid="practice-props-clear" onclick={() => (picks = [])} class="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Clear</button>
 										{/if}
 									</div>
 								{/if}
-								{#if noProviderKey.value}
-									<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
-								{:else if !configured}
-									<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>
-								{/if}
+								<SetupCta {configured} onOpen={() => (setupOpen = true)} />
 							</div>
 						{/if}
 						<div class="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">

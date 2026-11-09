@@ -5,8 +5,9 @@
 	import { GRAPH_PAD, TEXT_CAP_SCALE } from "./plan-layout";
 
 	let { data, onOpen }: { data: PlanBlockData; onOpen: () => void } = $props();
-	let seq = 0;
-	const markerId = `plan-block-${++seq}`;
+
+	const uid = $props.id();
+	const markerId = `plan-block-${uid}`;
 	const statusMap = $derived(new Map(data.nodes.map((n) => [n.id, n.status] as const)));
 	const statusOf = (id: string): PlanNodeStatus => statusMap.get(id) ?? "upcoming";
 </script>

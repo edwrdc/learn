@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { CURRENT_SETTINGS_VERSION } from "@/src/settings/model";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
@@ -43,15 +44,8 @@
 		if (settingsDialog.show) void userSettings.refresh();
 	});
 	$effect(() => {
-		if (!settingsDialog.show || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			settingsDialog.close();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		if (!settingsDialog.show) return;
+		return dismissLayer(() => settingsDialog.close(), { clickOutside: false });
 	});
 
 	async function write(section: "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {

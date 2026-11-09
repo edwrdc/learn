@@ -4,7 +4,7 @@
 	import { enterSubmits } from "./enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
-	import { finishDictation, isDictationActive, joinDictation, setDictationTarget } from "./dictation.svelte";
+	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";
 
 	let {
 		problemCallId,
@@ -48,11 +48,7 @@
 		onSubmit(text);
 	}
 	function submit() {
-		if (!isDictationActive()) {
-			doSubmit();
-			return;
-		}
-		void finishDictation().then(doSubmit);
+		afterDictation(doSubmit);
 	}
 </script>
 

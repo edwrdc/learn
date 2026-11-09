@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { ringFill } from "./coverage";
 	import { formatTokens, timeAgo } from "$lib/format";
 	import { hint } from "$lib/hint";
@@ -22,21 +23,8 @@
 		void store.refresh();
 	});
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			if (root && !root.contains(event.target as Node)) open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			open = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [root] });
 	});
 
 	const fill = $derived(graph && coverage ? ringFill(coverage.uncoveredTokens, graph.extractionChunkTokens) : 0);

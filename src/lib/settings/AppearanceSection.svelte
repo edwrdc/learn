@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import type { AppearanceSettings } from "@/src/settings/model";
 	import { appearance } from "$lib/state/appearance.svelte";
 	import { hint } from "$lib/hint";
@@ -43,24 +44,8 @@
 	}
 
 	$effect(() => {
-		if (!fontOpen || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (anchor?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) fontOpen = false;
-		};
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			fontOpen = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKey);
-		};
+		if (!fontOpen) return;
+		return dismissLayer(() => (fontOpen = false), { inside: () => [anchor], menus: true, closeWithin: '[role="dialog"]' });
 	});
 </script>
 

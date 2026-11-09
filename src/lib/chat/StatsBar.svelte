@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import type { Snippet } from "svelte";
 	import { contextWindow, sessionCost, turnCost, type TurnUsage } from "@/src/session/model";
 	import { formatTokens, formatUsd, prettyModel } from "$lib/format";
@@ -21,22 +22,8 @@
 	let bar = $state<HTMLDivElement | null>(null);
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			if (bar && !bar.contains(event.target as Node)) open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			open = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [bar] });
 	});
 
 	const limits = $derived(modelCatalog.value ? catalogLimits(modelCatalog.value) : undefined);

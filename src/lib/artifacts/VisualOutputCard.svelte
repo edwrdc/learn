@@ -8,7 +8,7 @@ import { untrack } from "svelte";
 	import type { SessionMermaidApi } from "$lib/chat/types";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { downloadFile } from "./download";
-	import { persistInverted } from "./artifact-ui";
+	import { INVERT_FILTER, InvertSwitch } from "./inverted.svelte";
 	import InvertDisc from "./InvertDisc.svelte";
 	import SvgImage from "./SvgImage.svelte";
 
@@ -21,7 +21,7 @@ import { untrack } from "svelte";
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
 	const overlay = getContext<SessionMermaidApi | null>(SESSION_MERMAID) ?? null;
 	const result = $derived(output as VisualResult | undefined);
-	let inverted = $state(untrack(() => initialInverted));
+	const invert = new InvertSwitch(untrack(() => initialInverted), () => actions?.chatId, () => messageId);
 
 	const natural = $derived.by(() => {
 		if (!result || typeof result.svg !== "string") return null;
@@ -33,10 +33,6 @@ import { untrack } from "svelte";
 		return Number.isFinite(n) && n > 0 ? n : null;
 	});
 
-	function toggleInverted(next: boolean) {
-		inverted = next;
-		persistInverted(actions?.chatId, messageId, next);
-	}
 </script>
 
 {#if !result || typeof result.svg !== "string"}
@@ -52,7 +48,7 @@ import { untrack } from "svelte";
 	<div class={natural !== null ? "my-4 mx-auto w-fit max-w-full" : "my-4 w-full"} data-testid="visual-card">
 		<div
 			class={natural !== null ? "w-fit max-w-full overflow-hidden rounded-lg bg-white" : "w-full overflow-hidden rounded-lg bg-white"}
-			style={inverted ? "filter: invert(1) hue-rotate(180deg)" : undefined}
+			style={invert.on ? INVERT_FILTER : undefined}
 			data-testid="visual-svg"
 		>
 			<SvgImage svg={result.svg} width={natural ?? undefined} class={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"} />
@@ -60,14 +56,14 @@ import { untrack } from "svelte";
 		<div class="mt-2 flex items-center justify-between gap-2">
 			<div class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
 			<div class="flex items-center gap-1.5">
-				<Toggle checked={inverted} onChange={toggleInverted} label="Invert figure brightness" title="Invert colors">
+				<Toggle checked={invert.on} onChange={invert.set} label="Invert figure brightness" title="Invert colors">
 					{#snippet disc()}<InvertDisc class="size-3" />{/snippet}
 				</Toggle>
 				<button type="button" aria-label="Download figure as SVG" title="Download as SVG" onclick={() => downloadFile("figure.svg", result.svg, "image/svg+xml")} data-testid="visual-download" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 					<Download class="size-3.5" />
 				</button>
 				{#if overlay}
-					<button type="button" aria-label="Open figure fullscreen" title="Open fullscreen" onclick={() => overlay.openFigure(result.svg, inverted)} data-testid="visual-open" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+					<button type="button" aria-label="Open figure fullscreen" title="Open fullscreen" onclick={() => overlay.openFigure(result.svg, invert.on)} data-testid="visual-open" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 						<Maximize class="size-3.5" />
 					</button>
 				{/if}

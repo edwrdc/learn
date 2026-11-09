@@ -52,7 +52,8 @@ export async function highlightCode(source: string, lang: string): Promise<strin
 		const { codeToHtml } = await highlighter;
 		const html = await codeToHtml(source, { lang: language, theme: "github-dark" });
 		return /<code[^>]*>([\s\S]*)<\/code>/.exec(html)?.[1] ?? null;
-	} catch {
+	} catch (error) {
+		console.error(`[highlight] ${language} failed:`, error);
 		return null;
 	}
 }

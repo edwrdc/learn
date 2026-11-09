@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
+	import { plural } from "$lib/format";
 	import { emitAppEvent } from "$lib/events";
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
 	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
@@ -145,22 +147,15 @@ import { fuzzyScore } from "@/src/platform/model";
 	}
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || deleting) return;
-			event.preventDefault();
-			event.stopPropagation();
-			onClose();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		if (!open) return;
+		return dismissLayer(onClose, { clickOutside: false });
 	});
 </script>
 
 {#if open}
 	<div data-testid="chain-table" class="chain-table-overlay absolute inset-0 z-40 flex h-full min-h-0 flex-col bg-background/85 backdrop-blur-sm">
 		<TopBar>
-			<span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{chains.length} {chains.length === 1 ? "chain" : "chains"} · {nodes.length} {nodes.length === 1 ? "node" : "nodes"}</span>
+			<span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{plural(chains.length, "chain")} · {plural(nodes.length, "node")}</span>
 			<div class="relative shrink-0">
 				<Search class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 				<input value={query} data-testid="chain-table-search" oninput={(event) => (query = (event.currentTarget as HTMLInputElement).value)} placeholder="Search nodes…" aria-label="Search nodes" spellcheck={false} class="lh-no-drag h-8 w-56 rounded-lg border bg-background pl-8 pr-3 text-xs outline-none placeholder:text-muted-foreground focus:border-ring" />
@@ -251,7 +246,7 @@ import { fuzzyScore } from "@/src/platform/model";
 		{#if selection.size > 0}
 			<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-4">
 				<div data-testid="chain-selection-bar" class="pointer-events-auto flex items-center gap-3 rounded-full border bg-card px-4 py-2 shadow-lg">
-					<span data-testid="chain-selected-summary" class="text-xs font-medium">{selection.size} {selection.size === 1 ? "node" : "nodes"} → {derivedChains.length} {derivedChains.length === 1 ? "chain" : "chains"}</span>
+					<span data-testid="chain-selected-summary" class="text-xs font-medium">{plural(selection.size, "node")} → {plural(derivedChains.length, "chain")}</span>
 					<button type="button" data-testid="chain-clear" onclick={() => setSelection(new Set())} class="rounded-full px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Clear</button>
 					{#if selectMode}
 						<button type="button" data-testid="chain-practice-done" onclick={() => { onClose(); }} aria-label={`Done picking — ${selection.size} ${selection.size === 1 ? "proposition" : "propositions"} selected`} class="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/80"><Dumbbell aria-hidden="true" class="size-3.5" />Done</button>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { fetchGraph } from "$lib/api/graph";
 	import { hasPracticeMeta, practiceMetaRows, practiceTargets } from "./practice-meta";
 
@@ -41,27 +42,8 @@
 	}
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (trigger?.contains(target) || box?.contains(target)) return;
-			open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			open = false;
-		};
-		const onScroll = () => (open = false);
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown);
-		window.addEventListener("scroll", onScroll, { capture: true, passive: true });
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown);
-			window.removeEventListener("scroll", onScroll, { capture: true });
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [trigger, box], capture: true, closeOnScroll: true });
 	});
 </script>
 

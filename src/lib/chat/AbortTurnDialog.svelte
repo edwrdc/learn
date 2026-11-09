@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { backdropDismiss } from "$lib/backdrop";
 
 	export type AbortMode = "turn" | "question" | "problem";
@@ -10,15 +11,8 @@
 	};
 
 	$effect(() => {
-		if (mode === null || typeof document === "undefined") return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			onClose();
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
+		if (mode === null) return;
+		return dismissLayer(onClose, { clickOutside: false });
 	});
 </script>
 

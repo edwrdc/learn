@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import { fetchKeys, fetchModelCatalog, saveKey as putKey, saveSettingsSection } from "$lib/api/settings";
 	import { ApiError } from "$lib/api/http";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
@@ -82,36 +83,23 @@
 	});
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (keyMenu) {
-				keyMenu = false;
-				return;
-			}
-			if (openMenu !== null) openMenu = null;
-			else onClose();
-		};
-		const onPointerDown = (event: PointerEvent) => {
-			if (!(event.target instanceof Element)) return;
-			const target = event.target;
-			if (keyMenu) {
-				if (target.closest("[data-lh-menu]") || target.closest('[data-testid="setup-key-provider"]')) return;
-				keyMenu = false;
-			}
-			if (openMenu === null) return;
-			const testid = openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
-			if (target.closest("[data-lh-menu]") || target.closest(`[data-testid="${testid}"]`)) return;
-			openMenu = null;
-		};
-		document.addEventListener("keydown", onKey);
-		document.addEventListener("pointerdown", onPointerDown);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			document.removeEventListener("pointerdown", onPointerDown);
-		};
+		if (!open) return;
+		return dismissLayer(onClose, { clickOutside: false });
+	});
+	$effect(() => {
+		if (!keyMenu) return;
+		return dismissLayer(() => (keyMenu = false), {
+			inside: () => [document.querySelector('[data-testid="setup-key-provider"]')],
+			menus: true,
+		});
+	});
+	$effect(() => {
+		if (openMenu === null) return;
+		const trigger = openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
+		return dismissLayer(() => (openMenu = null), {
+			inside: () => [document.querySelector(`[data-testid="${trigger}"]`)],
+			menus: true,
+		});
 	});
 
 	async function saveKey() {

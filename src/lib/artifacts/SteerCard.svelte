@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { plural } from "$lib/format";
 	import { Check, CircleX } from "@lucide/svelte";
 	import { isJobFailure, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/jobs/model";
 import { type LhMessage, type LhViewMessage } from "@/src/session/model";
@@ -53,7 +54,7 @@ import { type LhMessage, type LhViewMessage } from "@/src/session/model";
 				<span class="font-medium uppercase tracking-wide">PDF</span>
 				<span>reading complete</span>
 				{#if (data.result as PdfResult).pagesRead.length > 0}
-					<span>· read {(data.result as PdfResult).pagesRead.length} page{(data.result as PdfResult).pagesRead.length === 1 ? "" : "s"}</span>
+					<span>· read {plural((data.result as PdfResult).pagesRead.length, "page")}</span>
 				{/if}
 				<span class="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
 				<span class="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide brief</span>

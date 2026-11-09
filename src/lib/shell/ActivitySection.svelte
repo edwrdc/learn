@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { now } from "$lib/state/now.svelte";
 	import { abortProcess } from "$lib/api/chats";
 	import { ApiError } from "$lib/api/http";
 	import { Activity, Bot, FileText, PenTool, Play, Search, Square, Waypoints } from "@lucide/svelte";
@@ -10,12 +11,6 @@
 
 	let openBlob = $state<string | null>(null);
 	let abortStates = $state<Record<string, "pending" | "failed">>({});
-	let now = $state(Date.now());
-
-	$effect(() => {
-		const timer = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(timer);
-	});
 
 	const blobs = $derived(toBlobs(activity.value));
 	const totalCost = $derived.by(() => {
@@ -82,7 +77,7 @@
 						</span>
 						<span class="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
 							<span data-testid="activity-blob-cost">{blob.cost === null ? "—" : formatUsd(blob.cost)}</span>
-							<span data-testid="activity-blob-elapsed">{formatElapsed(now - blob.startedAt)}</span>
+							<span data-testid="activity-blob-elapsed">{formatElapsed(now() - blob.startedAt)}</span>
 						</span>
 					</button>
 					<button
@@ -101,7 +96,7 @@
 							<div class="mb-1.5 flex items-center gap-2">
 								<Icon class="size-3.5 text-muted-foreground" />
 								<span class="font-medium">{label}</span>
-								<span class="ml-auto tabular-nums text-muted-foreground">{formatElapsed(now - blob.startedAt)}</span>
+								<span class="ml-auto tabular-nums text-muted-foreground">{formatElapsed(now() - blob.startedAt)}</span>
 							</div>
 							<div class="flex flex-col gap-1 text-muted-foreground">
 								<div class="truncate text-card-foreground" title={blob.title}>{blob.title}</div>
