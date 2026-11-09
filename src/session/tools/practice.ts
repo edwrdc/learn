@@ -26,7 +26,7 @@ import { proberGraphTools, type GraphToolContext } from "../../graph/index.ts";
 import { activeProblemOf } from "../model/transcript.ts";
 import type { LhMessage } from "../model/transcript.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../../tools/index.ts";
-import { healEncodedArguments, healToolRecord } from "../../tools/index.ts";
+import { healEncodedArguments } from "../../tools/index.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -246,11 +246,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<
 	// toggle-filtered: problem/conclude are the session; these are
 	// exceptions the doctrine says to reach for rarely.
 	const jobs = ctx.jobs ? jobTools(ctx.jobs) : null;
-	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
-	// the standard argument heal over the WHOLE registry. problem/conclude
-	// keep their own (target-normalizing) prepareArguments as the composed
-	// inner pass; the double heal is idempotent by construction.
-	return healToolRecord({
+	return {
 		problem: problemTool(gate, ctx.graphNodes, seed),
 		conclude: concludeTool(gate, seed),
 		read: readTool,
@@ -260,5 +256,5 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<
 		...(jobs?.research ? { research: jobs.research } : {}),
 		...(jobs ? { pdf: jobs.pdf! } : {}),
 		...(ctx.graph ? proberGraphTools(ctx.graph) : {}),
-	});
+	};
 }

@@ -31,8 +31,8 @@ describe("the tool-toggle bridge (the P2 seam)", () => {
 	it("flows into the prober's registry; probe_done survives everything", () => {
 		const chatId = chatStore.createChat("Toggle bridge test").id;
 		const ctx: ProberToolContext = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
-		const names = toolNames(createProberTools(ctx, { ask_user_question: false }));
-		assert.ok(!names.includes("ask_user_question"), "the delta dropped the tool");
+		const names = toolNames(createProberTools(ctx, { research: false }));
+		assert.ok(!names.includes("research"), "the delta dropped the tool");
 		assert.ok(names.includes("probe_done"), "probe_done always-on");
 	});
 });

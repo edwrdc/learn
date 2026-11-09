@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronRight } from "@lucide/svelte";
-	import { toolActivityLabel } from "@/src/session/model";
+	import { toolActivityLabel } from "@/src/tools/model";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 
 	let { part }: { part: { type: string; state: string; toolCallId: string; input?: unknown } } = $props();

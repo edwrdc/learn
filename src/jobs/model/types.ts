@@ -12,7 +12,9 @@ import { newHandoffMessage } from "../../session/model/index.ts";
 
 // ─── Async sub-agent jobs (vision §2.5; plan.md Wave 0 protocol) ────────────
 
-export type JobKind = "research" | "demo" | "visual" | "pdf";
+import type { JobKind } from "../../tools/model/index.ts";
+
+export type { JobKind };
 export type JobStatus = "running" | "done" | "error";
 
 export interface JobRecord {

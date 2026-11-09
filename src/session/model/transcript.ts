@@ -33,7 +33,7 @@
  */
 
 import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
-import { QUESTION_TOOLS } from "./pending.ts";
+import { isQuestionTool } from "../../tools/model/index.ts";
 import {
 	CONCLUDE_ACK_TEXT,
 	HANDOFF_TEXT,
@@ -607,7 +607,7 @@ export function danglingQuestionOf(
 		}
 		for (const block of assistant.content) {
 			if (block.type !== "toolCall") continue;
-			if (!(QUESTION_TOOLS as readonly string[]).includes(block.name)) continue;
+			if (!isQuestionTool(block.name)) continue;
 			const result = results.get(block.id);
 			if (result === undefined || (!result.isError && result.details == null)) {
 				return { toolCallId: block.id, tool: block.name, input: block.arguments };

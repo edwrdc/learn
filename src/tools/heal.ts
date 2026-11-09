@@ -29,20 +29,12 @@ export { healEncodedArguments };
 
 /** Wrap ONE tool with the standard heal: the tool's own prepareArguments
  *  (options-unwrap, target normalization, …) runs first, then the heal
- *  against the tool's declared schema. Spread-safe (these are plain
- *  object literals) and idempotent. */
+ *  against the tool's declared schema. toRegistration applies it to every
+ *  tool. Idempotent. */
 export function withArgumentHeal(tool: AppTool<any>): AppTool<any> {
 	const inner = tool.prepareArguments;
 	return {
 		...tool,
 		prepareArguments: (args: unknown) => healEncodedArguments(inner ? inner(args) : args, tool.parameters),
 	};
-}
-
-/** The registry-wide form (the owner's "standard pattern everywhere"):
- *  wrap every tool in a tool record. Applied at the registry-assembly
- *  points — createProberTools, createTeacherTools, practiceTools,
- *  bareQuestionTools, the subagent sets — so no tool can ship unwrapped. */
-export function healToolRecord(tools: Record<string, AppTool<any>>): Record<string, AppTool<any>> {
-	return Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, withArgumentHeal(tool)]));
 }

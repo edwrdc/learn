@@ -25,6 +25,7 @@
  * model call is duplicated by that re-entry.
  */
 
+import { JOB_KINDS } from "../tools/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -52,7 +53,6 @@ import type { ModelRole } from "../settings/model/index.ts";
 import { accumulateJobUsage, type JobUsage, type UsageStepLike } from "./model/types.ts";
 import { createWebTools } from "../tools/index.ts";
 import { createPdfReadTools } from "../tools/index.ts";
-import { healToolRecord } from "../tools/index.ts";
 import { auditorGraphTools, type GraphToolContext } from "../graph/index.ts";
 import { toRegistrations, type AppTool, type AppToolResult } from "../tools/index.ts";
 import { bindRunEngine, unbindRunEngine, type PiEngine } from "../platform/index.ts";
@@ -110,8 +110,6 @@ interface RunRef {
 	kind: string;
 }
 
-/** The run kinds backed by a JobRecord (headless runs use synthetic ids). */
-const JOB_RUN_KINDS: readonly BackgroundKind[] = ["research", "demo", "visual", "pdf"];
 
 interface RunsState {
 	runs: JsonObject;
@@ -299,13 +297,7 @@ function roleTools(
 		}
 		case "demo":
 			return toRegistrations(
-				healToolRecord(
-					demoRoleTools(
-						roleState<DemoRunState>(conversation, deps),
-						deps.headless(),
-						deps.onActivity,
-					) as never,
-				),
+				demoRoleTools(roleState<DemoRunState>(conversation, deps), deps.headless(), deps.onActivity),
 			);
 		case "visual":
 			return toRegistrations(
@@ -322,8 +314,7 @@ function roleTools(
 			const input = descriptor.input as unknown as SubmitRunInput;
 			const submit = submitRoleTool(input, roleState<SubmitRunState>(conversation, deps));
 			if (descriptor.kind === "extract") return toRegistrations({ [submit.name]: submit });
-			const graphTools = healToolRecord(auditorGraphTools(deps.graph()) as never);
-			return toRegistrations({ ...graphTools, [submit.name]: submit });
+			return toRegistrations({ ...auditorGraphTools(deps.graph()), [submit.name]: submit });
 		}
 		case "compact":
 			return [];
@@ -984,7 +975,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 		const descriptor = stored;
 		// A learner abort may have landed while the runtime was unavailable:
 		// honor the durable intent before resolving the missing model or resuming.
-		const job = JOB_RUN_KINDS.includes(descriptor.kind)
+		const job = (JOB_KINDS as readonly string[]).includes(descriptor.kind)
 			? stores.jobStore.getJob(descriptor.jobId)
 			: null;
 		if (job !== null && job.status !== "running") {

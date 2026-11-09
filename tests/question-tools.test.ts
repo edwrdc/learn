@@ -26,7 +26,8 @@ import {
 	teachQuizToolFor,
 	type TeacherToolContext,
 } from "../src/session/tools/registry.ts";
-import { TOGGLEABLE_TOOLS } from "../src/session/model/pending.ts";
+import { JOB_KINDS, toolInfo } from "../src/tools/model/index.ts";
+import { toRegistrations } from "../src/tools/index.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/session/model/questions.ts";
 import { chatStore } from "../src/session/store.ts";
@@ -252,17 +253,17 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 // ─── tool availability (2026-09 settings seam) ───────────────────────────────
 
 describe("tool toggles (core/pending.ts + factories)", () => {
-	it("TOGGLEABLE_TOOLS: the sub-agent dispatch tools; quiz/ask/read stay off the list", async () => {
+	it("only the sub-agent dispatch tools are toggleable; quiz/ask/read stay off the list", async () => {
 		// THE DEFINITIVE vocabulary (adjudicated with the user 2026-09-19, P2
 		// reconciliation): the job tools only. quiz/ask_user_question are
 		// permanently always-on (the prober's assessment + teaching doctrine
 		// are built on graded questions — the wedge danger), as are the
 		// learner-fs set, plan tools, and probe_done. The settings WRITE side
 		// validates against this list (settings-body).
-		assert.deepEqual(TOGGLEABLE_TOOLS, ["research", "demo", "visual", "pdf"]);
+		assert.deepEqual(JOB_KINDS, ["research", "demo", "visual", "pdf"]);
 	});
 
-	it("createProberTools: absent record = full set; explicit false drops exactly that tool; probe_done survives everything", async () => {
+	it("createProberTools: absent record = full set; only job tools can be switched off; probe_done survives everything", async () => {
 		const chatId = await newChat("Prober: toggles");
 		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
 		assert.deepEqual(Object.keys(createProberTools(ctx)).sort(), [
@@ -270,7 +271,9 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		]);
 
 		const noAsk = createProberTools(ctx, { ask_user_question: false });
-		assert.deepEqual(Object.keys(noAsk).sort(), ["find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
+		assert.deepEqual(Object.keys(noAsk).sort(), ["ask_user_question", "find", "grep", "ls", "pdf", "probe", "probe_done", "read", "research"]);
+		const noPdf = createProberTools(ctx, { pdf: false });
+		assert.deepEqual(Object.keys(noPdf).sort(), ["ask_user_question", "find", "grep", "ls", "probe", "probe_done", "read", "research"]);
 
 		// Quizzing is mechanics-managed now (owner 2026-09-27): quiz/explain
 		// NEVER pass through the generic filter — hand-written quiz:false is a
@@ -283,6 +286,27 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 		const free = createProberTools(ctx, { explain: true });
 		assert.deepEqual(Object.keys(free).sort(), ["ask_user_question", "find", "grep", "ls", "pdf", "probe_done", "read", "recall", "research"]);
 		assert.ok(createProberTools(ctx, { probe_done: false }).probe_done, "probe_done always-on");
+	});
+
+	it("every prober and teacher tool is a catalog tool", async () => {
+		const chatId = await newChat("Catalog: registries");
+		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
+		const names = [
+			...Object.keys(createProberTools(ctx)),
+			...Object.keys(createProberTools(ctx, { explain: true })),
+			...Object.keys(createTeacherTools(ctx)),
+			...Object.keys(createTeacherTools(ctx, { explain: true })),
+		];
+		assert.deepEqual(names.filter((name) => !toolInfo(name)), []);
+	});
+
+	it("the prober's question tools replay safely, like the teacher's", async () => {
+		const chatId = await newChat("Catalog: replay");
+		const ctx = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
+		const replay = (tools: Record<string, unknown>) => Object.fromEntries(toRegistrations(tools).map((r) => [r.name, r.replay]));
+		assert.equal(replay(createProberTools(ctx)).probe, "safe");
+		assert.equal(replay(createProberTools(ctx, { explain: true })).recall, "safe");
+		assert.equal(replay(createTeacherTools(ctx)).plan_init, "unsafe");
 	});
 
 	it("createTeacherTools: {research: false} removes exactly research; unknown keys are no-ops", async () => {

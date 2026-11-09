@@ -6,7 +6,7 @@ export { grepTool } from "./fs/grep.ts";
 export { lsTool } from "./fs/ls.ts";
 export { readTool } from "./fs/read.ts";
 export { resolveSourcePath } from "./fs/shared.ts";
-export { healEncodedArguments, healToolRecord } from "./heal.ts";
+export { healEncodedArguments } from "./heal.ts";
 export { pdfExtract, pdfInfo, pdfProbe, pdfSearch, standardFontsDir } from "./pdf-ops.ts";
 export { createPdfReadTools } from "./pdf-read.ts";
 export { searchAvailable, searchProvider, searchStatus } from "./web/search.ts";

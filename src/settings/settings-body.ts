@@ -25,7 +25,7 @@ import type {
 	RoleModelOverride,
 } from "./model/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "./model/settings.ts";
-import { WRITABLE_TOOL_KEYS } from "../session/model/index.ts";
+import { WRITABLE_TOOL_KEYS } from "../tools/model/index.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =

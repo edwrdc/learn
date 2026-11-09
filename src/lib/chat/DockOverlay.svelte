@@ -3,6 +3,7 @@ import { untrack } from "svelte";
 	import { tick, type Snippet } from "svelte";
 	import { ArrowDown } from "@lucide/svelte";
 	import type { Phase3, TurnUsage } from "@/src/session/model";
+	import type { QuestionToolName } from "@/src/tools/model";
 	import { dockStateKey } from "$lib/chat/dock-state-key.ts";
 	import type { SteerQueueItem } from "$lib/chat/session-core.ts";
 	import QueuedSteers from "./QueuedSteers.svelte";
@@ -308,7 +309,7 @@ import { untrack } from "svelte";
 					{#if pending}
 						{#key pending.toolCallId}
 						<QuestionDock
-							toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
+							toolName={pending.tool as QuestionToolName}
 							toolCallId={pending.toolCallId}
 							input={pending.input}
 							{expanded}

@@ -35,7 +35,7 @@ import {
 	type QuestionData,
 	toClientQuestion,
 } from "../src/session/model/questions.ts";
-import { toolQuestionKind } from "../src/session/model/pending.ts";
+import { toolQuestionKind } from "../src/tools/model/index.ts";
 import { parseQuizInput } from "../src/session/model/tool-parts.ts";
 
 // ─── the authoring contract (TypeBox schemas + execute-time refinements) ──

@@ -71,8 +71,8 @@ export async function run(run, check) {
 			);
 			const texts = cardTexts(page);
 			assert.ok(findCard(texts, "PDF reader", "failed"), `the pdf job did not reach its card: ${JSON.stringify(texts)}`);
-			assert.ok(findCard(texts, "Research agent", "failed"), `the recorded research job did not reach its card: ${JSON.stringify(texts)}`);
-			assert.ok(findCard(texts, "Research agent", "Dispatched"), `the call without a job stopped reading as pending: ${JSON.stringify(texts)}`);
+			assert.ok(findCard(texts, "Researcher", "failed"), `the recorded research job did not reach its card: ${JSON.stringify(texts)}`);
+			assert.ok(findCard(texts, "Researcher", "Dispatched"), `the call without a job stopped reading as pending: ${JSON.stringify(texts)}`);
 			return texts;
 		} finally {
 			page.close();
@@ -90,7 +90,7 @@ export async function run(run, check) {
 			await page.waitForJs(`document.body.innerText.includes("web_search: synthetic activity")`, 15_000, "the running research activity");
 			await page.waitForJs(`document.body.innerText.includes("pdf_render: 1-2 @150dpi")`, 15_000, "the running pdf activity");
 			const running = cardTexts(page);
-			assert.ok(findCard(running, "Research agent", "web_search: synthetic activity"), `the research activity did not render: ${JSON.stringify(running)}`);
+			assert.ok(findCard(running, "Researcher", "web_search: synthetic activity"), `the research activity did not render: ${JSON.stringify(running)}`);
 			assert.ok(findCard(running, "PDF reader", "pdf_render: 1-2 @150dpi"), `the pdf activity did not render: ${JSON.stringify(running)}`);
 
 			page.js(`window.__lhJobs.set(${JSON.stringify([job({ status: "done", activity: "delivered" }), job({ id: "job_pdf_probe", kind: "pdf", toolCallId: PDF_CALL, status: "done", activity: "delivered" })])}); window.__lhJobs.fireResync(); true`);
@@ -100,10 +100,10 @@ export async function run(run, check) {
 				"both cards delivered after the refresh",
 			);
 			const done = cardTexts(page);
-			assert.ok(findCard(done, "Research agent", "delivered"), `the research card did not settle: ${JSON.stringify(done)}`);
+			assert.ok(findCard(done, "Researcher", "delivered"), `the research card did not settle: ${JSON.stringify(done)}`);
 			assert.ok(findCard(done, "PDF reader", "delivered"), `the pdf card did not settle: ${JSON.stringify(done)}`);
-			assert.ok(!findCard(done, "Research agent", "web_search: synthetic activity"), "the settled research card kept its activity line");
-			assert.ok(findCard(done, "Research agent", "Dispatched"), `the call without a job stopped reading as pending: ${JSON.stringify(done)}`);
+			assert.ok(!findCard(done, "Researcher", "web_search: synthetic activity"), "the settled research card kept its activity line");
+			assert.ok(findCard(done, "Researcher", "Dispatched"), `the call without a job stopped reading as pending: ${JSON.stringify(done)}`);
 
 			page.js(`window.__lhJobs.set(${JSON.stringify([
 				job({ status: "error", error: MODELS_REFUSAL }),
@@ -112,7 +112,7 @@ export async function run(run, check) {
 			await page.waitForJs(`document.body.innerText.includes("needs model setup")`, 15_000, "the research refusal");
 			await page.waitForJs(`document.body.innerText.includes("needs a provider key")`, 15_000, "the pdf refusal");
 			const refused = cardTexts(page);
-			assert.ok(findCard(refused, "Research agent", "needs model setup"), `the research refusal did not render: ${JSON.stringify(refused)}`);
+			assert.ok(findCard(refused, "Researcher", "needs model setup"), `the research refusal did not render: ${JSON.stringify(refused)}`);
 			assert.ok(findCard(refused, "PDF reader", "needs a provider key"), `the pdf refusal did not render: ${JSON.stringify(refused)}`);
 			assert.equal(page.count('[data-testid="dispatch-setup-link"]'), 2, "the refusal cards lost their setup links");
 			assert.ok(!refused.some((text) => text.toLowerCase().includes("research agent") && text.toLowerCase().includes("failed")), `a refusal read as a failure: ${JSON.stringify(refused)}`);

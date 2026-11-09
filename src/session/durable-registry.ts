@@ -15,7 +15,7 @@
 import { defineExtension, GenerationTask, hook, type EntryId, type ToolRegistration } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
-import { QUESTION_TOOLS } from "./model/pending.ts";
+import { isQuestionTool } from "../tools/model/index.ts";
 import { graphToolsEnabled, type EffectiveSettings } from "../settings/model/index.ts";
 import type { ChatStore } from "./model/ports.ts";
 import type { GraphStore } from "../graph/model/index.ts";
@@ -138,7 +138,7 @@ function questionStopHook(chatId: string) {
 				?.content;
 			if (!Array.isArray(content)) return;
 			const questionCallIds = content
-				.filter((block) => block.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(block.name ?? ""))
+				.filter((block) => block.type === "toolCall" && isQuestionTool(block.name ?? ""))
 				.map((block) => block.id);
 			if (questionCallIds.length === 0) return;
 			for (const id of resultIds) {

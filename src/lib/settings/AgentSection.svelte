@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { COMPACTION_THRESHOLD_FLOOR, MODEL_SLOTS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelCatalogEntry, type ModelsSettings, type ModelSlotName } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
+	import { JOB_KINDS } from "@/src/tools/model";
 	import { prettyModel } from "$lib/format";
 	import { watchSettings } from "$lib/state/settings-signal";
 	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL, type SegmentInfo } from "./compose";
@@ -19,7 +20,6 @@
 		vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 	};
 	const SEARCH_ENGINES = ["tavily", "brave"] as const;
-	const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
 	const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 	let {
@@ -225,7 +225,7 @@
 			{/each}
 		</div>
 	</Controls>
-	{#each TOGGLE_TOOLS as id (id)}
+	{#each JOB_KINDS as id (id)}
 		<Controls kind="row" label={`Tool · ${id}`} testid={`tool-row-${id}`}>
 			<Toggle checked={agent?.tools?.[id] ?? true} label={`tool ${id}`} onChange={(on) => onSectionChange(composeTool(agent, id, on))} />
 		</Controls>

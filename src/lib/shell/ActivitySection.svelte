@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Activity, Bot, FileText, PenTool, Play, Search, Square, Waypoints } from "@lucide/svelte";
+	import { jobAgentLabel } from "@/src/tools/model";
 	import { formatUsd } from "$lib/format";
 	import { activity } from "$lib/state/activity.svelte";
 	import { formatElapsed, toBlobs, type ActivityBlob } from "$lib/state/activity";
@@ -22,15 +23,7 @@
 
 	function labelOf(blob: ActivityBlob): string {
 		if (blob.process === "extraction") return `Extraction — ${blob.phase ?? "running"}`;
-		return blob.jobKind === "research"
-			? "Researcher"
-			: blob.jobKind === "demo"
-				? "Demo builder"
-				: blob.jobKind === "visual"
-					? "Figure maker"
-					: blob.jobKind === "pdf"
-						? "PDF reader"
-						: "Sub-agent";
+		return blob.jobKind ? jobAgentLabel(blob.jobKind) : "Sub-agent";
 	}
 
 	async function abort(blob: ActivityBlob) {

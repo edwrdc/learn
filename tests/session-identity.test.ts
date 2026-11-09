@@ -18,7 +18,6 @@ import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { backgroundRun } from "../src/jobs/durable-run.ts";
 import { chatStore } from "../src/session/store.ts";
 import { closeChatRuntime } from "../src/session/durable.ts";
-import { healToolRecord } from "../src/tools/heal.ts";
 import type { AppTool } from "../src/tools/adapter.ts";
 import metadata from "../package.json" with { type: "json" };
 
@@ -255,9 +254,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 		};
 		let executed = 0;
 		let prepared = 0;
-		const tools = healToolRecord({ check: { name: "check", label: "check", description: "check", parameters: Type.Object({ value: Type.Optional(Type.String()) }), execute: async () => { executed++; return { content: [], details: {} }; } } });
-		const heal = tools.check!.prepareArguments!;
-		tools.check!.prepareArguments = (args) => { prepared++; return heal(args); };
+		const tools = { check: { name: "check", label: "check", description: "check", parameters: Type.Object({ value: Type.Optional(Type.String()) }), prepareArguments: (args: unknown) => { prepared++; return args as never; }, execute: async () => { executed++; return { content: [], details: {} }; } } };
 		const chat = await chatStore.createChat("identity: malformed arguments");
 		createdChats.push(chat.id);
 		await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "openai/gpt-4o-mini" } });

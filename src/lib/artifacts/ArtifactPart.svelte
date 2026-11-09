@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ArtifactPartProps } from "@/src/session/model";
-import type { JobRecord } from "@/src/jobs/model";
+	import type { JobRecord } from "@/src/jobs/model";
+	import { toolInfo } from "@/src/tools/model";
 	import DispatchCard from "./DispatchCard.svelte";
 	import JobCards from "./JobCards.svelte";
 	import ToolCallCard from "./ToolCallCard.svelte";
@@ -19,8 +20,8 @@ import type { JobRecord } from "@/src/jobs/model";
 	<DispatchCard toolCallId={part.toolCallId} kind="visual" {jobs} />
 {:else if tool === "probe_done"}
 	<ProbeDoneCard {part} />
-{:else if ["read", "ls", "find", "grep", "list_sessions", "list_propositions"].includes(tool)}
+{:else if toolInfo(tool)?.kind === "side"}
 	<ToolCallCard {part} />
-{:else if tool === "problem" || tool === "conclude"}
+{:else if toolInfo(tool)?.kind === "practice"}
 	<PracticeCards {part} />
 {/if}

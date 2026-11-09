@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ArrowDown, ChevronRight, Play } from "@lucide/svelte";
-	import { buildAnswer, CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, emptyDockSelection, normalizeOptions, normalizeQuizType, parseAskInput, parseExplainInput, parseQuizInput, resolveCorrect, seededRandom, shuffleOptions, toggleOption, toggleOther, toolQuestionKind, type AnswerRequest, type DockSelection, type Phase3, type QuestionAnswerData, type QuestionData } from "@/src/session/model";
+	import { buildAnswer, CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, emptyDockSelection, normalizeOptions, normalizeQuizType, parseAskInput, parseExplainInput, parseQuizInput, resolveCorrect, seededRandom, shuffleOptions, toggleOption, toggleOther, type AnswerRequest, type DockSelection, type Phase3, type QuestionAnswerData, type QuestionData } from "@/src/session/model";
+	import { toolInfo, toolQuestionKind, type QuestionToolName } from "@/src/tools/model";
 import { repairMathForDisplay } from "@/src/tools/model";
 	import { CONFIDENCE_COLORS, confidenceRailStyle } from "./confidence";
 	import { enterSubmits } from "./enter-submits";
@@ -23,7 +24,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 		dictationClaim = true,
 		compactionRunning = false,
 	}: {
-		toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
+		toolName: QuestionToolName;
 		toolCallId: string;
 		input: unknown;
 		expanded: boolean;
@@ -36,13 +37,12 @@ import { repairMathForDisplay } from "@/src/tools/model";
 		compactionRunning?: boolean;
 	} = $props();
 
-	const canonical = $derived(toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName);
-	const toolLabel = $derived(toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : undefined);
+	const kind = $derived(toolQuestionKind(toolName));
+	const toolLabel = $derived(toolInfo(toolName)?.title);
 	const parsed = $derived(
-		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input),
+		kind === "quiz" ? parseQuizInput(input) : kind === "explain" ? parseExplainInput(input) : parseAskInput(input),
 	);
 
-	const kind = $derived(toolQuestionKind(toolName));
 	const qd = $derived.by((): QuestionData | null => {
 		if (!parsed) return null;
 		const quizInput = kind === "quiz" ? (input as ReturnType<typeof parseQuizInput>) : null;
@@ -255,7 +255,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 			class="dock-variant flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/40"
 		>
 			<span class="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				{canonical === "quiz" && qd?.questionType === "predict" ? "Prediction" : toolLabel ?? (canonical === "quiz" ? "Check" : canonical === "explain" ? "Explain" : "Question")}
+				{kind === "quiz" && qd?.questionType === "predict" ? "Prediction" : toolLabel ?? (kind === "quiz" ? "Check" : kind === "explain" ? "Explain" : "Question")}
 			</span>
 			<span class="min-w-0 flex-1 truncate text-muted-foreground">{parsed ? teaserText(parsed.question) : ""}</span>
 			<span class="flex shrink-0 items-center gap-1 text-xs font-medium">Answer <ArrowDown class="size-3.5" /></span>

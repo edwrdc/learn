@@ -12,7 +12,7 @@ import {
 	quizInputObject,
 	quizInputProblems,
 } from "../model/questions.ts";
-import { filterEnabledTools, type EnabledTools } from "../model/pending.ts";
+import { enabledTools, quizMechanics, type EnabledTools } from "../../tools/model/index.ts";
 import type { JobRecord } from "../../jobs/model/index.ts";
 import type { JobStore } from "../../jobs/model/index.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "../../jobs/index.ts";
@@ -23,7 +23,6 @@ import { readTool } from "../../tools/index.ts";
 import { lsTool } from "../../tools/index.ts";
 import { findTool } from "../../tools/index.ts";
 import { grepTool } from "../../tools/index.ts";
-import { healToolRecord } from "../../tools/index.ts";
 import type { GraphStore } from "../../graph/model/index.ts";
 
 export { jobTools };
@@ -311,11 +310,8 @@ export function createProberTools(
 	// unusable as Record<string, AppTool<any>> downstream).
 	const quizzing: Record<string, AppTool<any>> =
 		mechanics === "free" ? { recall: probeExplainTool } : { probe: probeQuizTool };
-	// healToolRecord (owner, 2026-10-09 — the whitehead generalization):
-	// the standard argument heal over the WHOLE registry — every tool,
-	// not just the one the latest wobble incident landed on.
-	return healToolRecord({
-		...filterEnabledTools(
+	return {
+		...enabledTools(
 			{
 				...quizzing,
 				ask_user_question: askUserQuestionTool,
@@ -341,10 +337,10 @@ export function createProberTools(
 					: {}),
 				...done,
 			},
-				withoutMechanics(enabled),
-			),
-			...done,
-		});
+			enabled,
+		),
+		...done,
+	};
 }
 
 // ─── the teacher's question tools (quiz carries the position field) ──────────
@@ -409,31 +405,8 @@ export interface TeacherToolContext extends PlanToolContext {
  * Per-request teacher tool registry: teach questions (validated nodeId) +
  * plan tools + job tools, all closing over the ctx.
  *
- * `enabled` is the resolved settings seam (core/pending.ts EnabledTools —
- * Platform's chat-handler wiring passes it through from settings). Today
- * only the sub-agent tools (research/demo/visual) are user-toggleable, but
- * the filtering is GENERIC: any name explicitly false is dropped, so
- * future toggleables (question-tool variants, …) need no change here.
- * Absent/undefined = enabled — tests and old records see today's set.
+ * `enabled` is the resolved settings `agent.tools` (see enabledTools).
  */
-/** The quizzing mechanics (owner 2026-09-27): `tools.explain === true` in
- *  the resolved settings ⇒ free-recall checks (explain armed, quiz dropped)
- *  — anything else ⇒ multiple choice, exactly today's set. Mechanics-
- *  managed, NOT individually toggleable: quiz/explain never pass through
- *  filterEnabledTools (the 2026-09-19 wedge ruling stands — a quiz-less
- *  prober collapses its assessment flow). */
-export function quizMechanics(enabled?: EnabledTools): "choice" | "free" {
-	return enabled?.explain === true ? "free" : "choice";
-}
-
-/** Strip the mechanics keys so filterEnabledTools can never drop the
- *  quizzing tools (the derivation above is their only switch). */
-function withoutMechanics(enabled?: EnabledTools): EnabledTools | undefined {
-	if (!enabled) return undefined;
-	const { explain: _e, quiz: _q, ...rest } = enabled;
-	return rest;
-}
-
 export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
@@ -446,9 +419,7 @@ export function createTeacherTools(
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AppTool<any>> =
 		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
-	// healToolRecord — same standard as the prober's registry (above).
-	return healToolRecord(
-		filterEnabledTools(
+	return enabledTools(
 			{
 			...quizzing,
 			ask_user_question: askUserQuestionTool,
@@ -463,7 +434,6 @@ export function createTeacherTools(
 			...planTools(ctx),
 			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
 		},
-		withoutMechanics(enabled),
-		),
+		enabled,
 	);
 }

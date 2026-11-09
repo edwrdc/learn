@@ -18,7 +18,6 @@
 
 import { invalidInputResult, questionResult } from "../tools/index.ts";
 import { askUserQuestionTool } from "./tools/registry.ts";
-import { healToolRecord } from "../tools/index.ts";
 import { quizInputObject, quizInputProblems } from "./model/questions.ts";
 import { effectivePromptSegments } from "./prompts.ts";
 import type { AppTool } from "../tools/index.ts";
@@ -61,8 +60,8 @@ export function bareQuestionTools(): Record<string, AppTool<any>> {
 			return questionResult();
 		},
 	};
-	return healToolRecord({
+	return {
 		quiz,
 		ask_user_question: askUserQuestionTool,
-	});
+	};
 }

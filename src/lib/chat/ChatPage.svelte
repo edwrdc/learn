@@ -2,7 +2,8 @@
 import { untrack } from "svelte";
 	import { onMount, setContext, tick } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
-	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, toolQuestionKind, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
+	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
+	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
 import { isProviderKeyRefusal, kbdEventForAction, slotsConfigured, type ModelsSettings } from "@/src/settings/model";
 import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
@@ -790,7 +791,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 														{/if}
 													{:else if part.type === "data-plan-block"}
 														<PlanBlock data={part.data as import("@/src/session/model").PlanBlockData} onOpen={() => (planOpen = true)} />
-													{:else if ["tool-quiz", "tool-probe", "tool-ask_user_question", "tool-explain", "tool-recall"].includes(part.type)}
+													{:else if part.type.startsWith("tool-") && isQuestionTool(part.type.slice("tool-".length))}
 														{#if part.state === "output-available"}
 															<AnsweredCard answer={part.output as QuestionAnswerData} input={part.input} />
 														{/if}

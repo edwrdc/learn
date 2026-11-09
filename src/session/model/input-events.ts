@@ -38,7 +38,7 @@ import {
 	newUserMessage,
 	pendingProblemDismissalOf,
 } from "./transcript.ts";
-import { toolQuestionKind } from "./pending.ts";
+import { toolQuestionKind } from "../../tools/model/index.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =

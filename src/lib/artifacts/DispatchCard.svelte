@@ -2,16 +2,16 @@
 	import { getContext } from "svelte";
 	import { Check, Settings, X } from "@lucide/svelte";
 	import { isModelsRefusal, isProviderKeyRefusal } from "@/src/settings/model";
-import { type JobKind, type JobRecord } from "@/src/jobs/model";
+	import { type JobKind, type JobRecord } from "@/src/jobs/model";
+	import { jobAgentLabel } from "@/src/tools/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 
 	let { toolCallId, kind, jobs: jobsProp }: { toolCallId: string; kind: JobKind; jobs?: JobRecord[] } = $props();
 	const jobs = $derived(jobsProp ?? []);
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
-	const KIND_LABEL: Record<JobKind, string> = { research: "Research agent", demo: "Demo agent", visual: "Figure agent", pdf: "PDF reader" };
 	const job = $derived(jobs.find((j) => j.toolCallId === toolCallId) ?? null);
-	const label = $derived(KIND_LABEL[kind]);
+	const label = $derived(jobAgentLabel(kind));
 	const elapsed = $derived(job?.createdAt ? Math.max(0, Math.round((Date.now() - Date.parse(job.createdAt)) / 1000)) : null);
 </script>
 

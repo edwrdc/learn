@@ -9,6 +9,8 @@
  * `output`, `terminate` → `control.terminate`), and the replay policy.
  */
 
+import { withArgumentHeal } from "./heal.ts";
+import { toolInfo } from "./model/index.ts";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { Static, TSchema } from "typebox";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -33,20 +35,16 @@ export interface AppTool<P extends TSchema = TSchema> {
 	execute(toolCallId: string, args: Static<P>, signal?: AbortSignal): Promise<AppToolResult>;
 }
 
-/** Tools that never mutate app state, so a crash mid-call may rerun them.
- *  Everything else (`plan_init`, `probe_done`'s handoff, job dispatch, the
- *  fs readers' shared position state) stays unsafe on purpose: a replay must
- *  never duplicate a tree write or queue two wakes. */
-const REPLAY_SAFE = new Set(["quiz", "explain", "ask_user_question", "problem", "conclude"]);
-
-/** One app tool as a durable registration. */
-export function toRegistration(tool: AppTool<any>): ToolRegistration {
+/** One app tool as a durable registration. Every tool's arguments pass the
+ *  standard heal after its own prepareArguments. */
+export function toRegistration(appTool: AppTool<any>): ToolRegistration {
+	const tool = withArgumentHeal(appTool);
 	return {
 		name: tool.name,
 		description: tool.description,
 		parameters: tool.parameters,
 		executionMode: tool.executionMode,
-		replay: REPLAY_SAFE.has(tool.name) ? "safe" : "unsafe",
+		replay: toolInfo(tool.name)?.replaySafe ? "safe" : "unsafe",
 		...(tool.prepareArguments
 			? { prepareArguments: (args: unknown) => tool.prepareArguments!(args) as never }
 			: {}),

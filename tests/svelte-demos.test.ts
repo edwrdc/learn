@@ -137,10 +137,10 @@ describe("dispatch card", () => {
 
 	it("live activity, pending pulse, delivered, and failure states", async () => {
 		const live = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({})] });
-		assert.match(live, /Research agent/);
+		assert.match(live, /Researcher/);
 		assert.match(live, /web_search: (&quot;|")plato/);
 		const pending = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [] });
-		assert.match(pending, /Research agent/);
+		assert.match(pending, /Researcher/);
 		assert.match(pending, /Dispatched…/);
 		const done = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "done", activity: "delivered" })] });
 		assert.match(done, /delivered/);
@@ -182,7 +182,7 @@ describe("artifact part job wiring", () => {
 		html("/src/lib/artifacts/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
 
 	it("forwards the job list so research and pdf cards settle and refuse", async () => {
-		for (const [type, label] of [["tool-research", "Research agent"], ["tool-pdf", "PDF reader"]] as const) {
+		for (const [type, label] of [["tool-research", "Researcher"], ["tool-pdf", "PDF reader"]] as const) {
 			const done = await render(type, [job({})]);
 			assert.match(done, new RegExp(label));
 			assert.match(done, /delivered/);

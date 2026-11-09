@@ -18,14 +18,14 @@ import type { JsonObject } from "@earendil-works/pi-durable";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../settings/model/index.ts";
 import type { JobUsage } from "./model/types.ts";
-import type { SearchProvider } from "../tools/model/index.ts";
+import type { JobKind, SearchProvider } from "../tools/model/index.ts";
 import type { PiEngine } from "../platform/index.ts";
 import type { GraphToolContext } from "../graph/index.ts";
 import type { AppToolResult } from "../tools/index.ts";
 import type { HeadlessApi } from "./headless.ts";
 
 /** The roles the durable background runner drives. */
-export type BackgroundKind = "research" | "demo" | "visual" | "pdf" | "extract" | "audit" | "compact";
+export type BackgroundKind = JobKind | "extract" | "audit" | "compact";
 
 /** A run's role: the settings-resolved job roles, plus the compaction
  *  summarizer, which runs the chat's own engine and resolves no role. */

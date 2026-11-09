@@ -7,7 +7,7 @@ export { ChatInputError, parseDismissInput, parseUserSteerInput } from "./input-
 export type { ChatInput, TurnInput } from "./input-events.ts";
 export { sessionMarkdown } from "./markdown.ts";
 export { firstSourceTextParts, messageAnchorId, messageIdFromHash, propositionSessionHref, textPartMessageId } from "./navigation.ts";
-export { WRITABLE_TOOL_KEYS, findPendingToolCall, toolActivityLabel, toolQuestionKind } from "./pending.ts";
+export { findPendingToolCall } from "./pending.ts";
 export { phaseAt3, phaseTimeline, teachStepIndex } from "./phases.ts";
 export type { Phase3 } from "./phases.ts";
 export { derivePlanStatuses, derivedNodeStatus } from "./plan-types.ts";

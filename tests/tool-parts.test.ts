@@ -76,7 +76,7 @@ describe("parseQuizInput", () => {
 
 	it("boundary parity: the 2026-09-26 string-options shape heals on read (universal-heal mirror, 2026-10-09)", () => {
 		// The boundary now heals a JSON-encoded options string at EVERY
-		// registry (healToolRecord, owner 2026-10-09 — the bare-quiz sets
+		// registry (toRegistration's heal, owner 2026-10-09 — the bare-quiz sets
 		// carried no prepareArguments at all), and the record keeps the RAW
 		// args — so the display parse heals the same shape, per this file's
 		// own parity law: anything the boundary accepts, the display parse
