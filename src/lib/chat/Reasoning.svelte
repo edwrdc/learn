@@ -4,7 +4,7 @@ import { untrack } from "svelte";
 	import { cn } from "$lib/utils";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
-	import { blurAfterPointerClick } from "./enter-submits";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 
 	let { text, isStreaming = false }: { text: string; isStreaming?: boolean } = $props();
 	let open = $state(false);

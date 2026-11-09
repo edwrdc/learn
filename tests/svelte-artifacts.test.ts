@@ -5,7 +5,7 @@ import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import type { AuthKeyStatus } from "../src/settings/model/auth-keys.ts";
 import type { ModelCatalogResponse } from "../src/settings/model/models.ts";
-import { svgImageSource } from "../src/lib/artifacts/svg.ts";
+import { svgImageSource } from "../src/lib/ui/svg.ts";
 import { hasProviderKey, strongKeyless } from "../src/lib/state/keys.ts";
 import { hintText, TOOLTIP_DELAY_MS } from "../src/lib/hint.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";

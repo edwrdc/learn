@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { blurAfterPointerClick } from "$lib/chat/enter-submits";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 	import { copyText } from "./copy";
 
 	let {

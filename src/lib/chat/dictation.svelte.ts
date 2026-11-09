@@ -1,3 +1,4 @@
+import { dismissLayer } from "$lib/ui/layer";
 import { onKeyAction } from "$lib/events";
 import { mintDictationToken } from "$lib/api/settings";
 import { ApiError } from "$lib/api/http";
@@ -83,14 +84,6 @@ export function setDictationTarget(append: ((text: string) => void) | null): voi
 	claimedTarget = append;
 }
 
-export function dictationActive(): boolean {
-	return live?.active === true;
-}
-
-export function cancelDictation(): void {
-	live?.cancel();
-}
-
 export function finishDictation(): Promise<void> {
 	return live?.finish() ?? Promise.resolve();
 }
@@ -107,6 +100,7 @@ export class DictationController {
 	error = $state<string | null>(null);
 	level = 0;
 	active = $derived(this.phase !== "idle");
+	private offLayer: (() => void) | null = null;
 
 	private append: (text: string) => void;
 	private ws: WebSocket | null = null;
@@ -174,6 +168,8 @@ export class DictationController {
 			}
 		}
 		this.phase = "idle";
+		this.offLayer?.();
+		this.offLayer = null;
 		for (const waiter of this.waiters.splice(0)) waiter();
 		warmTokens.refresh();
 	}
@@ -228,6 +224,8 @@ export class DictationController {
 	private async start(): Promise<void> {
 		this.error = null;
 		this.phase = "connecting";
+		// A running dictation is the newest layer: Escape cancels it first.
+		this.offLayer ??= dismissLayer(() => this.cancel(), { clickOutside: false });
 		this.reconnects = 0;
 		this.buffer = [];
 		this.pending = [];

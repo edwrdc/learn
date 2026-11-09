@@ -1,7 +1,7 @@
 /** The resolved appearance as CSS variables on <html>; stale names are
  *  removed so factory values return. */
-import { appearanceVars, resolveAppearance, staleVarNames } from "$lib/settings/appearance";
-import { settings } from "./settings.svelte";
+import { appearanceVars, resolveAppearance, staleVarNames } from "./appearance";
+import { settings } from "$lib/state/settings.svelte";
 
 class AppearanceStore {
 	resolved = $derived(resolveAppearance(settings.record?.appearance));

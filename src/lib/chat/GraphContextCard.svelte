@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { type GraphContextPick } from "@/src/session/model";
 	import { ChevronRight } from "@lucide/svelte";
 	import { cn } from "$lib/utils";
 
 	interface GraphContextData {
-		propositions: { id: string; name: string; statement: string }[];
+		propositions: GraphContextPick[];
 		chains: string[];
 	}
 	let { data }: { data: GraphContextData } = $props();

@@ -11,17 +11,8 @@
 
 import assert from "node:assert/strict";
 import { describe, it, it as test } from "node:test";
-import {
-	applyClusterLabels,
-	arrowGeometry,
-	boxBlurRound,
-	fitTransform,
-	labelAlpha,
-	pickNearest,
-	wrapRegionLabel,
-	zoomRatioOf,
-	LABELS_FADE_RATIO,
-} from "../src/lib/home/graph-canvas.ts";
+import { arrowGeometry, boxBlurRound, fitTransform, labelAlpha, pickNearest, zoomRatioOf } from "../src/lib/home/graph-canvas.ts";
+import { applyClusterLabels, LABELS_FADE_RATIO, wrapRegionLabel } from "../src/lib/home/graph-labels.ts";
 import {
 	sanitizePhysicsTuning,
 	sanitizeRegionTuning,

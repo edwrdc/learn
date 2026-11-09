@@ -194,6 +194,15 @@ export interface GraphContextPick {
 	statement: string;
 }
 
+/** The picks for selected ids, in selection order (unknown ids drop out). */
+export function picksFor(ids: Iterable<string>, nodes: readonly GraphContextPick[]): GraphContextPick[] {
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	return [...ids].flatMap((id) => {
+		const node = byId.get(id);
+		return node ? [{ id: node.id, name: node.name, statement: node.statement }] : [];
+	});
+}
+
 /** The session's map context (owner, 2026-10-04): a SEPARATE custom
  *  message BEFORE the learner's first user message — the picked
  *  propositions plus the reasoning chains among them (pre-formatted

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
 	import type { AppearanceSettings } from "@/src/settings/model";
-	import { appearance } from "$lib/state/appearance.svelte";
+	import { appearance } from "$lib/settings/appearance.svelte";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";

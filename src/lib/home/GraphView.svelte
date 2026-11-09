@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import { dismissLayer } from "$lib/ui/layer";
 	import { now } from "$lib/state/now.svelte";
 	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
@@ -7,6 +8,7 @@
 	import { ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE, LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout, labelZoomDisplay, sanitizeRenderSettings, snapToLadder, toLadderPosition, toOffSliderPosition, toSliderPosition, type ExtractionRunView, type GraphNode, type GraphSnapshot } from "@/src/graph/model";
 import { propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
 	import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+	import { cameraSaver, readCamera } from "./graph-camera";
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
 	import { serverEvents } from "$lib/state/server-events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
@@ -20,12 +22,11 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 	import NotesImport from "./NotesImport.svelte";
 
-	const CAMERA_KEY = "lh.graph.camera.v1";
 
 	let { chainSelectOpen = false, practiceSelection, onPracticeSelectionChange, onChainSelectClose }: {
 		chainSelectOpen?: boolean;
 		practiceSelection?: ReadonlySet<string>;
-		onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
+		onPracticeSelectionChange?: (nodes: GraphContextPick[]) => void;
 		onChainSelectClose?: () => void;
 	} = $props();
 
@@ -57,8 +58,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let labelTick = $state(0);
 	let rowIds = new Set<string>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
-	let cameraTimer: ReturnType<typeof setTimeout> | undefined;
-	let lastCamera: { k: number; x: number; y: number } | null = null;
 	let statusDebounce: ReturnType<typeof setTimeout> | undefined;
 
 	const isEmpty = $derived(snapshot === null || snapshot.nodes.length === 0);
@@ -213,25 +212,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 			rendererReady = false;
 			return;
 		}
-		let initialCamera: { k: number; x: number; y: number } | null = null;
-		try {
-			const stored = localStorage.getItem(CAMERA_KEY);
-			if (stored) {
-				const parsed = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown };
-				if (typeof parsed.k === "number" && parsed.k > 0 && typeof parsed.x === "number" && typeof parsed.y === "number") initialCamera = parsed as never;
-			}
-		} catch {
-		}
-		const persistCamera = (transform: { k: number; x: number; y: number }) => {
-			lastCamera = transform;
-			clearTimeout(cameraTimer);
-			cameraTimer = setTimeout(() => {
-				try {
-					localStorage.setItem(CAMERA_KEY, JSON.stringify(transform));
-				} catch {
-				}
-			}, 250);
-		};
+		const camera = cameraSaver();
 		const instance = new GraphCanvasRenderer(
 			canvas!,
 			{
@@ -252,13 +233,13 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 				onCameraMove: (transform) => {
 					selected = null;
 					ctxNode = null;
-					persistCamera(transform);
+					camera.save(transform);
 				},
 				onCommit: (next) => {
 					savePositions(next).catch((error) => console.error("[graph] positions not saved:", error));
 				},
 			},
-			initialCamera,
+			readCamera(),
 		);
 		renderer = instance;
 		rendererReady = true;
@@ -266,13 +247,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 			renderer = null;
 			rendererReady = false;
 			fitted = false;
-			if (cameraTimer && lastCamera) {
-				clearTimeout(cameraTimer);
-				try {
-					localStorage.setItem(CAMERA_KEY, JSON.stringify(lastCamera));
-				} catch {
-				}
-			}
+			camera.flush();
 			instance.destroy();
 		};
 	});
@@ -502,13 +477,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 		selectMode={chainSelectOpen}
 		controlledSelection={practiceSelection}
 		onSelectionChange={(ids) => {
-			const propositions = snapshot?.propositions ?? [];
-			const picked: Array<{ id: string; name: string; statement: string }> = [];
-			for (const id of ids) {
-				const node = propositions.find((candidate) => candidate.id === id);
-				if (node) picked.push({ id: node.id, name: node.name, statement: node.statement });
-			}
-			onPracticeSelectionChange?.(picked);
+			onPracticeSelectionChange?.(picksFor(ids, snapshot?.propositions ?? []));
 		}}
 	/>
 </div>

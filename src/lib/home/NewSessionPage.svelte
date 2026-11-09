@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { plural } from "$lib/format";
 	import { fetchGraph } from "$lib/api/graph";
@@ -14,7 +15,7 @@ import type { TurnUsage } from "@/src/session/model";
 	import { withCode } from "$lib/chat/code-input";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
 	import StatsBar from "$lib/chat/StatsBar.svelte";
-	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
+	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
@@ -28,7 +29,7 @@ import type { TurnUsage } from "@/src/session/model";
 	let busy = $state(false);
 	let configured = $state(untrack(() => initialConfigured));
 	let setupOpen = $state(false);
-	let picks = $state<Array<{ id: string; name: string; statement: string }>>([]);
+	let picks = $state<GraphContextPick[]>([]);
 	let pickerOpen = $state(false);
 	let snapshot = $state<GraphSnapshot | null>(null);
 
@@ -157,13 +158,7 @@ import type { TurnUsage } from "@/src/session/model";
 				selectMode
 				controlledSelection={new Set(picks.map((pick) => pick.id))}
 				onSelectionChange={(ids) => {
-					const byId = new Map((snapshot?.propositions ?? []).map((node) => [node.id, node]));
-					const next: Array<{ id: string; name: string; statement: string }> = [];
-					for (const id of ids) {
-						const node = byId.get(id);
-						if (node) next.push({ id: node.id, name: node.name, statement: node.statement });
-					}
-					picks = next;
+					picks = picksFor(ids, snapshot?.propositions ?? []);
 				}}
 			/>
 		</div>

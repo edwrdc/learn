@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { type GraphContextPick } from "@/src/session/model";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { plural } from "$lib/format";
 import { untrack } from "svelte";
@@ -15,7 +16,7 @@ import { untrack } from "svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import GraphView from "./GraphView.svelte";
 	import MinimalHome from "./MinimalHome.svelte";
-	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
+	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
 	import { noProviderKey } from "$lib/state/keys.svelte";
 	import { hint } from "$lib/hint";
 	import { focusOnMount } from "$lib/dom";
@@ -28,7 +29,7 @@ import { untrack } from "svelte";
 	let setupOpen = $state(false);
 	let busy = $state(false);
 	let mode = $state<"teach" | "practice">("teach");
-	let practiceProps = $state<Array<{ id: string; name: string; statement: string }>>([]);
+	let practiceProps = $state<GraphContextPick[]>([]);
 	let chainSelectOpen = $state(false);
 	let applied = false;
 

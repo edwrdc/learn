@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { blurAfterPointerClick } from "./enter-submits";
+	import { type GraphContextPick } from "@/src/session/model";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { emitAppEvent, emitKeyAction, onAppEvent, onKeyAction } from "$lib/events";
-	import { abortProcess, fetchChat, fetchJobs as fetchChatJobs } from "$lib/api/chats";
+	import { abortProcess } from "$lib/api/chats";
+	import { ChatSync } from "./chat-sync.svelte";
 	import { renameSession } from "$lib/state/sessions";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import type { ChatView } from "@/src/session/model";
 import { untrack } from "svelte";
 	import { onMount, setContext, tick } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
@@ -17,14 +18,14 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import PhaseChip from "./PhaseChip.svelte";
 	import PhaseDivider from "./PhaseDivider.svelte";
-	import TopBar from "./TopBar.svelte";
+	import TopBar from "$lib/shell/TopBar.svelte";
 	import Composer from "./Composer.svelte";
 	import { withCode } from "./code-input";
 	import DockOverlay from "./DockOverlay.svelte";
 	import SessionFind from "./SessionFind.svelte";
 	import CoverageRing from "./CoverageRing.svelte";
 	import AnsweredCard from "./AnsweredCard.svelte";
-	import ArtifactPart from "$lib/artifacts/ArtifactPart.svelte";
+	import ArtifactPart from "$lib/chat/ArtifactPart.svelte";
 	import SteerCard from "$lib/artifacts/SteerCard.svelte";
 	import LiveToolCard from "$lib/artifacts/LiveToolCard.svelte";
 	import PlanBlock from "./PlanBlock.svelte";
@@ -41,8 +42,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import { afterDictation, DictationController, joinDictation } from "./dictation.svelte";
 	import { SessionView } from "./session.svelte";
 	import { StickToBottom } from "./stick.svelte";
-	import { CHAT_ACTIONS } from "./actions-context";
-	import { SESSION_MERMAID } from "./session-context";
+	import { CHAT_ACTIONS } from "$lib/session-context";
+	import { SESSION_MERMAID } from "$lib/session-context";
 	import { sidebar } from "$lib/state/sidebar.svelte";
 	import { serverEvents } from "$lib/state/server-events";
 	import { hint } from "$lib/hint";
@@ -87,15 +88,11 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	const steerQueue = $derived(session.state.steerQueue);
 
 	let turnInFlight = $state(untrack(() => initiallyInFlight ?? false));
-	let compacting = $state(untrack(() => initiallyCompacting));
-	let compactionRevision = 0;
 	let text = $state("");
 	let code = $state("");
 	let textMirror = "";
 	let configured = $derived(userSettings.record === undefined ? initialConfigured : slotsConfigured(userSettings.record?.models));
 	let setupOpen = $state(false);
-	let turns = $state.raw<TurnUsage[]>([]);
-	let jobs = $state.raw<import("@/src/jobs/model").JobRecord[]>([]);
 	let coverageTick = $state(0);
 	let dockReserve = $state(208);
 	let planOpen = $state(false);
@@ -117,10 +114,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	let continuedTail: string | null = null;
 	let draft: { text: string; code: string } | null = null;
 	let handlingRefusal = false;
-	let pendingSync = false;
-	let jobStatuses = new Map<string, string>();
-	let firstJobsFetch = true;
-	let jobsDebounce: ReturnType<typeof setTimeout> | undefined;
 	let turnTimers: ReturnType<typeof setTimeout>[] = [];
 	let adoptionWindow = false;
 
@@ -137,6 +130,13 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	const activeProblem = $derived(activeProblemOf(nativeMessages));
 	const phases = $derived(phaseTimeline(messages));
 	const localStream = $derived(status === "submitted" || status === "streaming");
+	const sync = new ChatSync(
+		untrack(() => chatId),
+		session,
+		{ streaming: () => localStream, onRecord: (next) => status === "ready" && autoContinue(next) },
+		untrack(() => initiallyCompacting),
+	);
+	const compacting = $derived(sync.compacting);
 	const busy = $derived(localStream || turnInFlight);
 	const sourceTextParts = $derived(firstSourceTextParts(messages));
 	const planTree = $derived.by(() => {
@@ -174,7 +174,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 
 	setContext(CHAT_ACTIONS, {
 		chatId: untrack(() => chatId),
-		syncFromServer: () => syncFromServer(),
+		syncFromServer: sync.syncRecord,
 		sendText: (value: string) => session.send({ type: "text", text: value }),
 		openSetup: () => (setupOpen = true),
 	});
@@ -185,23 +185,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 
 	session.setReattachSettled(() => {
 		turnInFlight = false;
-		void syncFromServer();
+		void sync.syncRecord();
 	});
-
-	/** The chat's record, or null after logging why it could not be read. */
-	async function readRecord(): Promise<ChatView | null> {
-		try {
-			return await fetchChat(chatId);
-		} catch (error) {
-			console.error(`[chat ${chatId}] record load failed:`, error);
-			return null;
-		}
-	}
-
-	async function syncTurns(): Promise<void> {
-		const record = await readRecord();
-		if (record?.turns) turns = record.turns;
-	}
 
 	function autoContinue(next: LhMessage[]): void {
 		if (!needsContinuation(next)) {
@@ -212,59 +197,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		if (continuedTail === tail) return;
 		continuedTail = tail;
 		session.send({ type: "continue" });
-	}
-
-	async function syncFromServer(): Promise<void> {
-		const record = await readRecord();
-		if (!record) return;
-		if (record.turns) turns = record.turns;
-		session.setMessages(record.messages);
-		if (status === "ready") autoContinue(record.messages);
-	}
-
-	async function syncCompaction(): Promise<void> {
-		const revision = ++compactionRevision;
-		const record = await readRecord();
-		// A frame that arrived after the read started owns the state.
-		if (!record || revision !== compactionRevision) return;
-		compacting = record.compacting;
-	}
-
-	async function adoptAppendOnly(): Promise<void> {
-		const record = await readRecord();
-		if (record) session.adoptRecord(record.messages);
-	}
-
-	async function fetchJobs(): Promise<void> {
-		try {
-			const data = await fetchChatJobs(chatId);
-			const list = data.jobs;
-			for (const job of list) {
-				const previous = jobStatuses.get(job.id);
-				if (previous === "running" && job.status !== "running") {
-					if (localStream || data.turnInFlight === true) {
-						pendingSync = true;
-						void adoptAppendOnly();
-					} else {
-						void syncFromServer();
-					}
-				}
-				jobStatuses.set(job.id, job.status);
-			}
-			if (pendingSync && !localStream && data.turnInFlight !== true) {
-				pendingSync = false;
-				void syncFromServer();
-			}
-			jobs = list;
-			firstJobsFetch = false;
-		} catch (error) {
-			console.error(`[chat ${chatId}] jobs load failed:`, error);
-		}
-	}
-
-	function scheduleJobs() {
-		clearTimeout(jobsDebounce);
-		jobsDebounce = setTimeout(() => void fetchJobs(), 250);
 	}
 
 	function doSend(): void {
@@ -396,9 +328,9 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		if (was === status) return;
 		if (turnInFlight && (status === "submitted" || status === "streaming")) turnInFlight = false;
 		if (was !== "ready" && status === "ready") {
-			void syncTurns();
+			void sync.syncTurns();
 			coverageTick += 1;
-			void syncFromServer();
+			void sync.syncRecord();
 		}
 	});
 
@@ -409,7 +341,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		for (const ms of [400, 1000, 2000]) {
 			turnTimers.push(
 				setTimeout(() => {
-					if (adoptionWindow) void adoptAppendOnly();
+					if (adoptionWindow) void sync.adoptAppended();
 				}, ms),
 			);
 		}
@@ -424,7 +356,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		handlingRefusal = true;
 		let cancelled = false;
 		void (async () => {
-			const record = await readRecord();
+			const record = await sync.read();
 			if (cancelled) return;
 			if (record) session.setMessages(record.messages);
 			if (draft !== null) {
@@ -462,28 +394,27 @@ import { type GraphSnapshot } from "@/src/graph/model";
 					if (status === "error") {
 						turnInFlight = false;
 						session.clearError();
-						void syncFromServer();
+						void sync.syncRecord();
 					}
 					return;
 				}
-				void syncFromServer();
+				void sync.syncRecord();
 			}),
 			serverEvents.subscribe("compaction-changed", (payload) => {
 				if (payload.chatId !== chatId) return;
-				compactionRevision += 1;
-				compacting = payload.running;
+				sync.setCompacting(payload.running);
 			}),
 			serverEvents.subscribe("record-changed", (payload) => {
 				if (payload.chatId !== chatId || localStream || turnInFlight) return;
-				void syncFromServer();
+				void sync.syncRecord();
 			}),
 			serverEvents.subscribe("jobs-changed", (payload) => {
 				if (payload.chatId != null && payload.chatId !== chatId) return;
-				scheduleJobs();
+				sync.scheduleJobs();
 			}),
 			serverEvents.onResync(() => {
-				void fetchJobs();
-				void syncCompaction();
+				void sync.syncJobs();
+				void sync.syncCompaction();
 			}),
 		];
 		return () => {
@@ -502,9 +433,9 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			setTimeout(() => { if (!window.location.hash) stick.scrollToBottom("instant"); }, 900);
 		}
 		const unmountDictation = dictation.mount();
-		void fetchJobs();
-		void syncTurns();
-		void syncCompaction();
+		void sync.syncJobs();
+		void sync.syncTurns();
+		void sync.syncCompaction();
 		// A mount full sync would replace the view while the ?prompt send is optimistic.
 
 		if (initialPromptOwed(initialMessages, initialPrompt) && initialPrompt) {
@@ -556,7 +487,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			unmountDictation();
 			session.stop();
 			for (const timer of turnTimers) clearTimeout(timer);
-			clearTimeout(jobsDebounce);
+			sync.dispose();
 			hashWait?.disconnect();
 			if (flashTimer) clearTimeout(flashTimer);
 			offRename();
@@ -693,7 +624,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 								{:else if message.role === "user" && message.parts.length > 0 && message.parts.every((p) => p.type.startsWith("data-"))}
 									{#each message.parts as part, pi (pi)}
 										{#if part.type === "data-graph-context"}
-											<GraphContextCard data={part.data as { propositions: { id: string; name: string; statement: string }[]; chains: string[] }} />
+											<GraphContextCard data={part.data as { propositions: GraphContextPick[]; chains: string[] }} />
 										{:else if part.type === "data-compaction"}
 											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} />
 										{:else if part.type === "data-compaction-cut"}
@@ -749,7 +680,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 													{:else if part.type.startsWith("tool-") && part.state === "input-streaming"}
 														<LiveToolCard part={part as never} />
 													{:else if part.type.startsWith("tool-")}
-														<ArtifactPart part={part as never} {jobs} />
+														<ArtifactPart part={part as never} jobs={sync.jobs} />
 													{/if}
 												{/each}
 											</div>
@@ -784,7 +715,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 					{readingThinking}
 					onReadingThinking={(value) => (readingThinking = value)}
 					phase={phases.at(-1) ?? "probe"}
-					{turns}
+					turns={sync.turns}
 					{chatId}
 					{composer}
 					onSubmitAnswer={(output) => void submitAnswer(output)}

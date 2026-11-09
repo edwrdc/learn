@@ -179,7 +179,7 @@ describe("artifact part job wiring", () => {
 		...over,
 	});
 	const render = (type: string, jobs: unknown[]) =>
-		html("/src/lib/artifacts/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
+		html("/src/lib/chat/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
 
 	it("forwards the job list so research and pdf cards settle and refuse", async () => {
 		for (const [type, label] of [["tool-research", "Researcher"], ["tool-pdf", "PDF reader"]] as const) {

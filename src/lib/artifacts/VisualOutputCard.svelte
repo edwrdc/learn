@@ -3,14 +3,14 @@ import { untrack } from "svelte";
 	import { getContext } from "svelte";
 	import { Download, Maximize } from "@lucide/svelte";
 	import type { VisualResult } from "@/src/jobs/model";
-	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
-	import { SESSION_MERMAID } from "$lib/chat/session-context";
-	import type { SessionMermaidApi } from "$lib/chat/types";
+	import { CHAT_ACTIONS, type ChatActions } from "$lib/session-context";
+	import { SESSION_MERMAID } from "$lib/session-context";
+	import type { SessionMermaidApi } from "$lib/session-context";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { downloadFile } from "./download";
 	import { INVERT_FILTER, InvertSwitch } from "./inverted.svelte";
 	import InvertDisc from "./InvertDisc.svelte";
-	import SvgImage from "./SvgImage.svelte";
+	import SvgImage from "$lib/ui/SvgImage.svelte";
 
 	let {
 		output,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ChevronRight } from "@lucide/svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
-	import { enterSubmits } from "./enter-submits";
+	import { enterSubmits } from "$lib/ui/enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
 	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";

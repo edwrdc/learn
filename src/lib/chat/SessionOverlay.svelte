@@ -6,7 +6,7 @@
 	import { chartSize } from "$lib/markdown/mermaid";
 	import { MermaidRender } from "$lib/markdown/mermaid-render.svelte";
 	import MermaidError from "$lib/markdown/MermaidError.svelte";
-	import SvgImage from "$lib/artifacts/SvgImage.svelte";
+	import SvgImage from "$lib/ui/SvgImage.svelte";
 	import { INVERT_FILTER } from "$lib/artifacts/inverted.svelte";
 
 	let {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
-	import SidebarToggle from "./SidebarToggle.svelte";
+	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
 	import { onMouseDown as mouseDown } from "$lib/dom";
 
 	let {

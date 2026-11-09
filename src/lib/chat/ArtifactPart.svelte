@@ -2,11 +2,11 @@
 	import type { ArtifactPartProps } from "@/src/session/model";
 	import type { JobRecord } from "@/src/jobs/model";
 	import { toolInfo } from "@/src/tools/model";
-	import DispatchCard from "./DispatchCard.svelte";
-	import JobCards from "./JobCards.svelte";
-	import ToolCallCard from "./ToolCallCard.svelte";
-	import ProbeDoneCard from "./ProbeDoneCard.svelte";
-	import PracticeCards from "$lib/chat/PracticeCards.svelte";
+	import DispatchCard from "$lib/artifacts/DispatchCard.svelte";
+	import JobCards from "$lib/artifacts/JobCards.svelte";
+	import ToolCallCard from "$lib/artifacts/ToolCallCard.svelte";
+	import ProbeDoneCard from "$lib/artifacts/ProbeDoneCard.svelte";
+	import PracticeCards from "./PracticeCards.svelte";
 
 	let { part, jobs }: { part: ArtifactPartProps["part"]; jobs: JobRecord[] } = $props();
 	const tool = $derived(part.type.replace(/^tool-/, ""));

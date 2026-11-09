@@ -1,8 +1,8 @@
 import { onKeyAction } from "$lib/events";
+import { IS_ELECTRON } from "./desktop";
 import { sidebarAutocloseWidth } from "../../../electron/shared.json";
 
 const STORAGE_KEY = "lh:sidebar-open";
-export const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
 
 class SidebarStore {
 	pref = $state(false);
@@ -15,11 +15,6 @@ class SidebarStore {
 		if (this.initialized || typeof window === "undefined") return;
 		this.initialized = true;
 		if (IS_ELECTRON) {
-			document.documentElement.classList.add("lh-electron");
-			document.documentElement.dataset.lhPlatform = window.lh?.platform ?? "";
-			const setZoom = (factor: number) => document.documentElement.style.setProperty("--lh-zoom", String(factor));
-			window.lh?.onZoom?.(setZoom);
-			void window.lh?.getZoom?.().then(setZoom);
 			const onResize = () => (this.narrow = window.innerWidth < sidebarAutocloseWidth);
 			onResize();
 			window.addEventListener("resize", onResize);

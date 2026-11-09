@@ -4,7 +4,7 @@
 	import { toolInfo, toolQuestionKind, type QuestionToolName } from "@/src/tools/model";
 import { repairMathForDisplay } from "@/src/tools/model";
 	import { CONFIDENCE_COLORS, confidenceRailStyle } from "./confidence";
-	import { enterSubmits } from "./enter-submits";
+	import { enterSubmits } from "$lib/ui/enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
 	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";

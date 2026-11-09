@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import { ListTree } from "@lucide/svelte";
 	import type { ChatSummary, GraphCostSummary } from "@/src/session/model";
 	import type { GraphSnapshot } from "@/src/graph/model";
@@ -14,7 +15,7 @@
 	let { chainSelectOpen = false, practiceSelection, onPracticeSelectionChange, onChainSelectClose }: {
 		chainSelectOpen?: boolean;
 		practiceSelection?: ReadonlySet<string>;
-		onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
+		onPracticeSelectionChange?: (nodes: GraphContextPick[]) => void;
 		onChainSelectClose?: () => void;
 	} = $props();
 
@@ -94,13 +95,7 @@
 		selectMode={chainSelectOpen}
 		controlledSelection={practiceSelection}
 		onSelectionChange={(ids) => {
-			const propositionsList = snapshot?.propositions ?? [];
-			const picked: Array<{ id: string; name: string; statement: string }> = [];
-			for (const id of ids) {
-				const node = propositionsList.find((candidate) => candidate.id === id);
-				if (node) picked.push({ id: node.id, name: node.name, statement: node.statement });
-			}
-			onPracticeSelectionChange?.(picked);
+			onPracticeSelectionChange?.(picksFor(ids, snapshot?.propositions ?? []));
 		}}
 	/>
 </div>

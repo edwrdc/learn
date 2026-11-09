@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { blurAfterPointerClick } from "$lib/chat/enter-submits";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 	import { browser } from "$app/environment";
 	import { getContext } from "svelte";
-	import { SESSION_MERMAID } from "$lib/chat/session-context";
-	import type { SessionMermaidApi } from "$lib/chat/types";
+	import { SESSION_MERMAID } from "$lib/session-context";
+	import type { SessionMermaidApi } from "$lib/session-context";
 	import { hint } from "$lib/hint";
 	import CopyCorner from "./CopyCorner.svelte";
 	import MermaidError from "./MermaidError.svelte";

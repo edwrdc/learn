@@ -4,7 +4,7 @@
 	import { Check, Settings, X } from "@lucide/svelte";
 	import { type JobKind, type JobRecord } from "@/src/jobs/model";
 	import { jobAgentLabel } from "@/src/tools/model";
-	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
+	import { CHAT_ACTIONS, type ChatActions } from "$lib/session-context";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 
 	let { toolCallId, kind, jobs: jobsProp }: { toolCallId: string; kind: JobKind; jobs?: JobRecord[] } = $props();

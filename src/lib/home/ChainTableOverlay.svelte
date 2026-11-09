@@ -5,7 +5,7 @@
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
 	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
 import { fuzzyScore } from "@/src/platform/model";
-	import TopBar from "$lib/chat/TopBar.svelte";
+	import TopBar from "$lib/shell/TopBar.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 
 	type Col = "name" | "props" | "created";

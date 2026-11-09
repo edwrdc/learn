@@ -1,11 +1,10 @@
 /** The single window-level keydown owner: Tab is dead, Shift+Tab
- *  cycles thinking, Escape falls back to dictation-cancel then abort, and
+ *  cycles thinking, an unclaimed Escape aborts the turn, and
  *  registry actions dispatch or navigate. */
 import { goto } from "$app/navigation";
 import { actionForBinding, eventBinding, isTypingSurface } from "@/src/settings/model";
 import { emitKeyAction } from "$lib/events";
 import { cheatSheet, settingsDialog } from "./dialogs.svelte";
-import { cancelDictation, dictationActive } from "$lib/chat/dictation.svelte";
 
 export function initKeyboard(): () => void {
 	if (typeof window === "undefined") return () => {};
@@ -16,24 +15,8 @@ export function initKeyboard(): () => void {
 			return;
 		}
 		if (event.key === "Escape") {
-			if (cheatSheet.open) {
-				cheatSheet.open = false;
-				event.preventDefault();
-				return;
-			}
-			// Settings is a surfaced layer: its own Esc closes it, and the
-			// fallback must not also run the dictation/abort chain.
-			if (settingsDialog.show) {
-				event.preventDefault();
-				event.stopPropagation();
-				settingsDialog.close();
-				return;
-			}
-			if (dictationActive()) {
-				event.preventDefault();
-				cancelDictation();
-				return;
-			}
+			// Open layers (dialogs, menus, a running dictation) took their
+			// Escape already; what reaches here aborts the turn.
 			emitKeyAction("abort-turn");
 			return;
 		}
