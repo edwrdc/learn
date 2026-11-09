@@ -1,7 +1,7 @@
 import { kbdEventForAction } from "@/src/settings/model";
+import { sidebarAutocloseWidth } from "../../../electron/shared.json";
 
 const STORAGE_KEY = "lh:sidebar-open";
-const SIDEBAR_AUTOCLOSE = 928;
 export const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
 
 class SidebarStore {
@@ -20,7 +20,7 @@ class SidebarStore {
 			const setZoom = (factor: number) => document.documentElement.style.setProperty("--lh-zoom", String(factor));
 			window.lh?.onZoom?.(setZoom);
 			void window.lh?.getZoom?.().then(setZoom);
-			const onResize = () => (this.narrow = window.innerWidth < SIDEBAR_AUTOCLOSE);
+			const onResize = () => (this.narrow = window.innerWidth < sidebarAutocloseWidth);
 			onResize();
 			window.addEventListener("resize", onResize);
 		}

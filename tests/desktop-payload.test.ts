@@ -208,8 +208,8 @@ describe("desktop standalone payload", () => {
 			[path.join("client", ".env"), ".env"],
 			[path.join("client", ".env.local"), ".env.local"],
 			[path.join("client", "data", "private.json"), "data/"],
-			[path.join("app", "page.html"), "app/"],
-			[path.join("next.config.ts"), "next.config.ts"],
+			[path.join("tests", "leak.test.ts"), "tests/"],
+			[path.join("AGENTS.md"), "AGENTS.md"],
 			[path.join("src", "session", "secret.ts"), ".ts sources"],
 		];
 		for (const [leak, expected] of leaks) {
@@ -225,7 +225,7 @@ describe("desktop standalone payload", () => {
 
 	it("still refuses a missing runtime prompt asset", () => {
 		withPayload(({ root, remove, run }) => {
-			remove(path.join("src", "session", "prompts", "teacher", "20-teaching.md"));
+			remove(PROMPT);
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);

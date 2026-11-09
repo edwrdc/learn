@@ -9,6 +9,12 @@ const BUILD = path.join(ROOT, "dist-server");
 const PAYLOAD = path.join(BUILD, "standalone");
 const NODE_MODULES = path.join(ROOT, "node_modules");
 
+/**
+ * The pi engine (and its SQLite/native/telemetry closure) stays OUTSIDE the
+ * server bundle (vite.config's ssr.external) and is copied into the payload
+ * instead: its providers are runtime-loaded Node code, and the durable store
+ * opens node:sqlite through runtime-resolved paths.
+ */
 export const RUNTIME_EXTERNALS = [
 	"@earendil-works/pi-ai",
 	"@earendil-works/pi-durable",
@@ -22,12 +28,7 @@ export const RUNTIME_EXTERNALS = [
 
 const RUNTIME_ASSETS = [path.join("src", "session", "system-prompt.md"), path.join("src", "session", "prompts")];
 
-const PROMPT_ASSETS = [
-	path.join("src", "session", "system-prompt.md"),
-	path.join("src", "session", "prompts", "teacher", "20-teaching.md"),
-];
-
-const FORBIDDEN_ENTRIES = ["app", "components", "tests", "docs", "AGENTS.md", "next.config.ts"];
+const FORBIDDEN_ENTRIES = ["tests", "docs", "AGENTS.md"];
 
 const BUILTINS = new Set(builtinModules);
 
@@ -150,6 +151,7 @@ export function buildPayload() {
 	);
 
 	for (const asset of RUNTIME_ASSETS) {
+		if (!exists(path.join(ROOT, asset))) fail(`prompt asset missing: ${asset}`);
 		fs.cpSync(path.join(ROOT, asset), path.join(PAYLOAD, asset), { recursive: true });
 	}
 
@@ -185,13 +187,8 @@ function verifyPayload(closure, imports) {
 	for (const entry of FORBIDDEN_ENTRIES) {
 		if (exists(path.join(PAYLOAD, entry))) fail(`payload contains ${entry}/ — the repo checkout would ship.`);
 	}
-	if (walk(PAYLOAD).some((file) => file.endsWith(".tsx"))) fail("payload contains .tsx sources — the repo checkout would ship.");
 	if (walk(PAYLOAD).some((file) => file.startsWith(path.join(PAYLOAD, "src")) && file.endsWith(".ts"))) {
 		fail("payload contains .ts sources — only the markdown prompt assets belong there.");
-	}
-
-	for (const asset of PROMPT_ASSETS) {
-		if (!exists(path.join(PAYLOAD, asset))) fail(`prompt asset missing from the payload: ${asset}`);
 	}
 
 	for (const specifier of imports) {

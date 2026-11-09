@@ -37,7 +37,7 @@ function windowOptions(platform: string) {
 	};
 	const context = {
 		require: (id: string) => id === "electron" ? electron
-			: id === "./free-port.cjs" ? requireMain("./free-port.cjs")
+			: id.startsWith("./") ? requireMain(id)
 			: require(id),
 		process: { platform, argv: [], env: {}, on() {} },
 		__dirname: dirname(mainFile),

@@ -1,56 +1,10 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
-import { freePort } from "../electron/free-port.cjs";
-import { probeEnv } from "./smoke-demo-runtime.mjs";
+import { getStatus, isolatedPayload, request, smokeOptions, startPayloadServer } from "./smoke-harness.mjs";
 
-const ROOT = path.resolve(import.meta.dirname, "..");
-const args = process.argv.slice(2);
-const payloadIndex = args.indexOf("--payload");
-const SOURCE = payloadIndex >= 0 ? path.resolve(args[payloadIndex + 1]) : path.join(ROOT, "dist-server", "standalone");
-const ELECTRON_MODE = args.includes("--electron");
-const RUNTIME = ELECTRON_MODE ? createRequire(import.meta.url)("electron") : process.execPath;
-const BOOT_TIMEOUT_MS = 30_000;
-
-if (!fs.existsSync(path.join(SOURCE, "server.js"))) {
-	console.error(`[smoke-carrier] ${SOURCE}/server.js missing — run npm run build && node scripts/build-server.mjs first.`);
-	process.exit(1);
-}
-
-/** A copy outside the worktree: booted in place, Node resolves missing packages from ROOT/node_modules. */
-function isolatedCopy() {
-	const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "lh-carrier-payload-"));
-	for (let dir = path.dirname(isolated); ; dir = path.dirname(dir)) {
-		if (fs.existsSync(path.join(dir, "node_modules"))) {
-			fs.rmSync(isolated, { recursive: true, force: true });
-			throw new Error(`the isolated payload would resolve packages from ${dir}/node_modules`);
-		}
-		if (path.dirname(dir) === dir) break;
-	}
-	fs.cpSync(SOURCE, isolated, { recursive: true });
-	return isolated;
-}
-
-/** fetch with a deadline that stays armed: a body which stops writing is aborted too. */
-async function request(url, init = {}, timeoutMs = 10_000) {
-	if (init.signal) return fetch(url, init);
-	const controller = new AbortController();
-	setTimeout(() => controller.abort(), timeoutMs).unref();
-	return fetch(url, { ...init, signal: controller.signal });
-}
-
-async function getStatus(url) {
-	try {
-		const res = await request(url, {}, 5_000);
-		await res.arrayBuffer();
-		return res.status;
-	} catch {
-		return 0;
-	}
-}
+const { source: SOURCE, electron: ELECTRON_MODE, runtime: RUNTIME } = smokeOptions("smoke-carrier");
 
 async function readStream(url, until, timeoutMs = 10_000) {
 	const controller = new AbortController();
@@ -80,16 +34,6 @@ async function readStream(url, until, timeoutMs = 10_000) {
 	return { body, headers: res.headers };
 }
 
-async function boot(url) {
-	const deadline = Date.now() + BOOT_TIMEOUT_MS;
-	while (Date.now() < deadline) {
-		const status = await getStatus(url);
-		if (status === 200) return;
-		await new Promise((resolve) => setTimeout(resolve, 250));
-	}
-	throw new Error(`server never answered 200 on ${url}`);
-}
-
 const origin = (base) => new URL(base).origin;
 
 function multipart(files) {
@@ -99,51 +43,16 @@ function multipart(files) {
 }
 
 async function main() {
-	const port = await freePort();
-	const base = `http://127.0.0.1:${port}`;
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-carrier-home-"));
-	const authFile = path.join(home, "auth.json");
-	fs.writeFileSync(authFile, "{}\n", "utf-8");
-	const standalone = isolatedCopy();
-	const server = path.join(standalone, "server.js");
-
-	const logs = [];
-	const child = spawn(RUNTIME, [server], {
-		cwd: standalone,
-		env: {
-			...probeEnv(process.env, home),
-			...(ELECTRON_MODE ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-			NODE_ENV: "production",
-			PORT: String(port),
-			HOSTNAME: "127.0.0.1",
-			LH_DATA_DIR: path.join(home, "data"),
-			LH_AUTH_FILE: authFile,
-			PROTOCOL_HEADER: "x-forwarded-protocol",
-		},
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
-	child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
-
-	const kill = () =>
-		new Promise((resolve) => {
-			if (child.exitCode !== null) return resolve();
-			child.once("exit", resolve);
-			child.kill("SIGTERM");
-			setTimeout(() => {
-				if (child.exitCode === null) child.kill("SIGKILL");
-				resolve();
-			}, 3_000);
-		});
-
+	const standalone = isolatedPayload(SOURCE, "lh-carrier-payload-");
+	const server = await startPayloadServer({ standalone, runtime: RUNTIME, electron: ELECTRON_MODE, env: { PROTOCOL_HEADER: "x-forwarded-protocol" } });
+	const base = server.url;
 	const fail = (message) => {
 		console.error(`[smoke-carrier] FAIL: ${message}`);
-		const tail = logs.join("").split("\n").filter(Boolean).slice(-25);
+		const tail = server.logTail(25);
 		if (tail.length > 0) console.error(`--- server log tail ---\n    ${tail.join("\n    ")}`);
 	};
 
 	try {
-		await boot(base);
 		console.log(`[smoke-carrier] runtime: ${ELECTRON_MODE ? "Electron bundled Node" : `host Node ${process.versions.node}`} (${RUNTIME})`);
 		console.log(`[smoke-carrier] payload: ${standalone} (outside the worktree; no ancestor node_modules)`);
 
@@ -333,9 +242,7 @@ async function main() {
 		fail(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;
 	} finally {
-		await kill();
-		fs.rmSync(home, { recursive: true, force: true });
-		fs.rmSync(standalone, { recursive: true, force: true });
+		await server.stop();
 	}
 }
 

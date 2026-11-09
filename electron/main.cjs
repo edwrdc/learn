@@ -31,9 +31,9 @@ const http = require("node:http");
 const path = require("node:path");
 const { freePort } = require("./free-port.cjs");
 
-// Mirrors SIDEBAR_AUTOCLOSE in src/lib/shell/Sidebar.svelte — keep in sync (the
-// renderer owns the number; this is the IPC widen target).
-const SIDEBAR_AUTOCLOSE = 928;
+// Shared with the renderer: the sidebar auto-close width (this process's
+// IPC widen target) and the app background.
+const { sidebarAutocloseWidth: SIDEBAR_AUTOCLOSE, backgroundColor: APP_BACKGROUND } = require("./shared.json");
 
 const PRODUCT_NAME = "LearnHarness";
 
@@ -263,7 +263,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: { color: APP_BACKGROUND, symbolColor: "#e5e5e5" },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -277,16 +277,16 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
+		// The app background fills the lag instead. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		backgroundColor: APP_BACKGROUND,
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
 		// (lights gutter 92 + toggle + title) runs out of room. The sidebar
 		// auto-closes below 928 = 640 + 288 (sidebar) in the renderer
-		// (src/lib/shell/Sidebar.svelte, SIDEBAR_AUTOCLOSE); its "lh:expand-window"
+		// (shared.json sidebarAutocloseWidth); its "lh:expand-window"
 		// IPC widens the window back to that threshold.
 		minWidth: 640,
 		minHeight: 600,

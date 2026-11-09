@@ -2,23 +2,7 @@ import { fileURLToPath } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig, type Plugin } from "vite";
 import { loadProcessEnv } from "./scripts/load-env.mjs";
-import { assertNoPayloadData } from "./scripts/build-server.mjs";
-
-/**
- * The pi engine (and its SQLite/native/telemetry closure) must stay OUTSIDE
- * the server bundle: its providers are runtime-loaded Node code, and the
- * durable store opens node:sqlite through runtime-resolved paths.
- */
-export const RUNTIME_EXTERNALS = [
-	"@earendil-works/pi-ai",
-	"@earendil-works/pi-durable",
-	"@earendil-works/chord",
-	"@earendil-works/pi-telemetry",
-	"pdfjs-dist",
-	"@napi-rs/canvas",
-	"@resvg/resvg-js",
-	"puppeteer-core",
-];
+import { assertNoPayloadData, RUNTIME_EXTERNALS } from "./scripts/build-server.mjs";
 
 /** core/coverage.ts and core/graph.ts use node:crypto for server-side
  *  hashing/ids, but the browser imports the shared core barrel. Only the
