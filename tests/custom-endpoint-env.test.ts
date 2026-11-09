@@ -20,6 +20,8 @@ const {
 	saveCustomEndpoint,
 } = await import("../src/settings/custom-endpoint.ts");
 const { piEngineForSpec } = await import("../src/platform/engines.ts");
+const { initAuthEnv } = await import("../src/settings/keys.ts");
+initAuthEnv(); // boot's first step
 
 const MODEL_ID = "deepseek-flash";
 const model = {

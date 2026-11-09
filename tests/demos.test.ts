@@ -33,7 +33,7 @@ import { PATHS } from "../src/platform/config.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/jobs/tools.ts";
 import { runDemoBuilder } from "../src/jobs/roles/demo.ts";
 import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/jobs/headless.ts";
-import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/jobs/runner.ts";
+import { createJobRunner } from "../src/jobs/runner.ts";
 import { runVisualMaker } from "../src/jobs/roles/visual.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/jobs/model/types.ts";
 import type { JobRecord } from "../src/jobs/model/types.ts";
@@ -41,7 +41,7 @@ import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { chatStore } from "../src/session/store.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { handleChatRequest } from "../src/session/turn.ts";
-import "./support-durable.ts";
+import { testEngines } from "./support-durable.ts";
 import { runningTurn } from "../src/session/turn-runs.ts";
 import { projectView as projectNative } from "../src/session/model/view.ts";
 import type { PiEngine } from "../src/platform/engines.ts";
@@ -53,7 +53,7 @@ import type { PiEngine } from "../src/platform/engines.ts";
  */
 function testRunner() {
 	const steers: SteerMessage[] = [];
-	const runner = createJobRunner({
+	const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 		chatStore,
 		jobStore,
 		deliver: async (steer) => {
@@ -96,8 +96,8 @@ after(() => {
 		}
 	}
 	headlessOverride.current = undefined;
-	demoModelOverride.current = undefined;
-	visualModelOverride.current = undefined;
+	testEngines.demoBuilder = undefined;
+	testEngines.visualMaker = undefined;
 });
 
 /** A scripted pi engine (faux provider): the response queue replaces the old
@@ -443,7 +443,7 @@ describe("demo/visual job runners", () => {
 
 		// runJob has no headless injection point — the module override is the seam.
 		headlessOverride.current = fakeHeadless();
-		demoModelOverride.current = scriptedModel([
+		testEngines.demoBuilder = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
 			{ text: "Sweep the rate slider." },
@@ -453,7 +453,7 @@ describe("demo/visual job runners", () => {
 			await runner.runJob(job.id);
 		} finally {
 			headlessOverride.current = undefined;
-			demoModelOverride.current = undefined;
+			testEngines.demoBuilder = undefined;
 		}
 
 		const done = jobStore.getJob(job.id)!;
@@ -509,12 +509,12 @@ describe("demo/visual job runners", () => {
 		const job = jobStore.createJob({ kind: "visual", chatId: chat.id, toolCallId: "call-v1" });
 		createdJobs.push(job.id);
 
-		visualModelOverride.current = scriptedModel([{ text: "cannot" }]);
+		testEngines.visualMaker = scriptedModel([{ text: "cannot" }]);
 		const { steers, runner } = testRunner();
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			visualModelOverride.current = undefined;
+			testEngines.visualMaker = undefined;
 		}
 
 		const errored = jobStore.getJob(job.id)!;
@@ -542,7 +542,7 @@ describe("demo/visual job runners", () => {
 
 		// The overrides must be live BEFORE the request — dispatch fires the
 		// runner mid-stream, inside the tool execute.
-		demoModelOverride.current = scriptedModel([
+		testEngines.demoBuilder = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
 			{ text: "Sweep it." },
@@ -599,7 +599,7 @@ describe("demo/visual job runners", () => {
 			// Idempotency: dispatch dedupes by toolCallId — no second job.
 			assert.equal(jobStore.listJobs(chat.id).length, 1, "no duplicate job for the same tool part");
 		} finally {
-			demoModelOverride.current = undefined;
+			testEngines.demoBuilder = undefined;
 			headlessOverride.current = undefined;
 		}
 	});

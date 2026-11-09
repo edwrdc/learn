@@ -20,8 +20,9 @@ const { Harness, ConversationBusy } = await import("@earendil-works/pi-durable")
 const { withChatOperation } = await import("../src/session/chat-operations.ts");
 const { chatStore } = await import("../src/session/store.ts");
 const { stores } = await import("../src/stores.ts");
-const { handleChatInput, foregroundEngineOverride } = await import("../src/session/turn.ts");
-await (await import("../src/boot.ts")).boot().recovered;
+const { handleChatInput } = await import("../src/session/turn.ts");
+const testEngines: { teacher?: PiEngine } = {};
+await (await import("../src/boot.ts")).boot({ engineFor: (role) => (role === "teacher" ? testEngines.teacher : undefined) }).recovered;
 const { deleteChatSession } = await import("../src/session/operations.ts");
 const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
 const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
@@ -31,11 +32,11 @@ const { newUserMessage } = await import("../src/session/model/transcript.ts");
 const { subscribe } = await import("../src/platform/model/events.ts");
 const { readTurn } = await import("../src/session/turn-service.ts");
 const created: string[] = [];
-const oldOverride = foregroundEngineOverride.current;
+const oldOverride = testEngines.teacher;
 
 after(async () => {
 	stores.chatStore = chatStore;
-	foregroundEngineOverride.current = oldOverride;
+	testEngines.teacher = oldOverride;
 	for (const id of created) {
 		await closeChatRuntime(id);
 		endTurn(id);
@@ -461,7 +462,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			await closeChatRuntime(chat.id);
 			endTurn(chat.id);
 			unregisterTurn(chat.id);
-			foregroundEngineOverride.current = resumed.engine;
+			testEngines.teacher = resumed.engine;
 			Harness.open = async (...args) => {
 				const harness = await realOpen.apply(Harness, args);
 				harness.submission = async () => { lookupFailed = true; throw failure; };
@@ -485,7 +486,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			assert.equal(resumed.calls, 1);
 		} finally {
 			Harness.open = realOpen;
-			foregroundEngineOverride.current = oldOverride;
+			testEngines.teacher = oldOverride;
 			first.release();
 			resumed.release();
 		}

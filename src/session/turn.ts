@@ -22,7 +22,7 @@
 import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { piEngineForSpec, type PiEngine } from "../platform/index.ts";
+import type { PiEngine } from "../platform/index.ts";
 import type { ModelRole } from "../settings/model/index.ts";
 import {
 	deliverJobResult,
@@ -64,7 +64,7 @@ import { danglingQuestionOf } from "./model/transcript.ts";
 import { composeInstructions } from "./agents.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits } from "../settings/index.ts";
-import { syncCustomEndpointProvider, customEndpointKeyPresent, customEndpointState } from "../settings/index.ts";
+import { customEndpointKeyPresent, customEndpointState, engineForSpec } from "../settings/index.ts";
 import { emit } from "../platform/model/index.ts";
 import {
 	ChatInputError,
@@ -99,11 +99,10 @@ export function providerHasKey(provider: string): boolean {
  *  flows through to the per-need refusal gates (runner/extraction), read
  *  FRESH so a settings PUT between dispatch and spawn lands. */
 export function resolveEngine(role: ModelRole): PiEngine | undefined {
-	syncCustomEndpointProvider();
 	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
 	if (!spec) return undefined;
 	try {
-		return piEngineForSpec(spec);
+		return engineForSpec(spec);
 	} catch (error) {
 		console.info(`[models] no engine for role ${role}: ${error instanceof Error ? error.message : String(error)}`);
 		return undefined;
@@ -116,13 +115,12 @@ export function resolveEngine(role: ModelRole): PiEngine | undefined {
  *  endpoint edited to another base URL must not silently take over a run
  *  that captured the old one; no credential is ever stored in the snapshot. */
 export function engineForModel(model: TurnModel): PiEngine | undefined {
-	syncCustomEndpointProvider();
 	if (model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
 		const endpoint = customEndpointState().endpoint;
 		if (!endpoint || (model.baseUrl && endpoint.baseUrl !== model.baseUrl)) return undefined;
 	}
 	try {
-		return piEngineForSpec({
+		return engineForSpec({
 			provider: model.provider,
 			id: model.modelId,
 			thinkingLevel: model.thinking as never,
@@ -132,11 +130,6 @@ export function engineForModel(model: TurnModel): PiEngine | undefined {
 		return undefined;
 	}
 }
-
-/** Test seam (the researchModelOverride idiom): a recovered turn's engine is
- *  rebuilt from its stored descriptor, so scripted suites swap a faux engine
- *  here. Undefined in production. */
-export const foregroundEngineOverride: { current?: PiEngine } = {};
 
 /** A committed app marker is its steer's visibility moment (the delivery
  *  bookkeeping seam shared by the live turn and a recovered one). */
@@ -153,7 +146,7 @@ function noteTurnEntry(chatId: string, entry: EntryRecord): void {
  *  finish path as a live turn. Runs from the runtime bootstrap, before
  *  `harness.resume()`, and THROWS when the run cannot be rebuilt: the open
  *  fails closed rather than schedule an uninitialized run. */
-export async function resumeForegroundTurn(runtime: ChatRuntime): Promise<void> {
+export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (model: TurnModel) => PiEngine | undefined): Promise<void> {
 	const turn = await readTurn(runtime);
 	if (!turn || turn.settle === "settled") return;
 	// The committed submission is the admission proof: a descriptor written
@@ -174,7 +167,7 @@ export async function resumeForegroundTurn(runtime: ChatRuntime): Promise<void> 
 	if (live?.run || admitted.status === "queued") {
 		// Fail closed: a run that has not executed must never resume without
 		// its model binding.
-		const engine = foregroundEngineOverride.current ?? engineForModel(turn.model);
+		const engine = engineFor(turn.model);
 		if (!engine) {
 			throw new Error(
 				`the interrupted turn's model is unavailable (${turn.model.provider}:${turn.model.modelId})`,
@@ -291,14 +284,13 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// reading/answering pause.
 	if (services().upkeep)
 		kickCompaction(async () => {
-			syncCustomEndpointProvider();
 			const fresh = effectiveSettings();
 			const current = await stores.chatStore.getChat(chatId);
 			const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
 			if (!spec) return null;
 			let kickEngine: PiEngine;
 			try {
-				kickEngine = piEngineForSpec(spec);
+				kickEngine = engineForSpec(spec);
 			} catch {
 				return null;
 			}
@@ -444,10 +436,9 @@ export async function handleChatInput(
 		// The engine is the app's one provider adapter (models.ts): production
 		// resolves the chat's spec (the custom endpoint's provider + credential
 		// snapshot is captured here), tests inject a scripted engine.
-		syncCustomEndpointProvider();
 		let engine: PiEngine;
 		try {
-			engine = turn?.engine ?? piEngineForSpec(conversation);
+			engine = turn?.engine ?? engineForSpec(conversation);
 		} catch (error) {
 			console.error(`[chat ${chatId}] model unavailable:`, error);
 			return Response.json(

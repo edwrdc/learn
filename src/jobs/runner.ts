@@ -34,17 +34,6 @@ import { runVisualMaker } from "./roles/visual.ts";
  *     marked error (the learner's activity card shows it).
  */
 
-/**
- * Test seam: the spawn wiring has no injection point at the tool layer, so
- * tests swap in a scripted pi engine here to keep job tests off the network.
- * Undefined in production. (The jobs spawn through the module-level KIND
- * runners, which read these at call time.)
- */
-export const researchModelOverride: { current?: PiEngine } = {};
-export const demoModelOverride: { current?: PiEngine } = {};
-export const visualModelOverride: { current?: PiEngine } = {};
-export const pdfModelOverride: { current?: PiEngine } = {};
-
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
 type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
 
@@ -138,18 +127,10 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	/** The kind→runner map: one sub-agent loop per kind. Each kind's
 	 *  runner narrows the union input itself (dispatch-time inputs are
 	 *  kind-correct by construction; transcript fallbacks are cast after). */
-	/** The engine one job runs on: test override first (the old seam —
-	 *  tests swap scripted engines without touching deps), then the injected
-	 *  settings-resolved engineFor. undefined = the BYOK chain came up
+	/** The engine one job runs on. undefined = the BYOK chain came up
 	 *  empty (owner, 2026-09-22) — runJob refuses below, honestly. */
 	function pickEngine(kind: JobKind): PiEngine | undefined {
-		const testOverride: Record<string, { current?: PiEngine } | undefined> = {
-			researcher: researchModelOverride,
-			demoBuilder: demoModelOverride,
-			visualMaker: visualModelOverride,
-			pdfReader: pdfModelOverride,
-		};
-		return testOverride[KIND_ROLE[kind]]?.current ?? deps.engineFor?.(KIND_ROLE[kind]);
+		return deps.engineFor?.(KIND_ROLE[kind]);
 	}
 
 	const KIND_RUNNERS: Record<

@@ -44,7 +44,7 @@ import { CONCLUDE_ACK_TEXT } from "../session/model/index.ts";
  * result the model can see.
  */
 const TOOL_TIMEOUT_MS = 30_000;
-/** Test seam (runner.ts's pdfModelOverride idiom). */
+/** Test seam. */
 export const toolTimeoutMs = { current: TOOL_TIMEOUT_MS };
 
 /** How long an aborted/timed-out call may take to settle on its own before

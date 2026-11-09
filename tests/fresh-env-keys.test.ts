@@ -61,6 +61,7 @@ process.env.LH_IGNORE_ENV_KEYS = "1";
 const { deleteKey, envKeysIgnored, initAuthEnv, keyStatuses, keyValue, saveKey } = await import(
 	"../src/settings/keys.ts"
 );
+initAuthEnv(); // boot's first step
 const { authStore } = await import("../src/settings/auth-store.ts");
 
 after(() => {

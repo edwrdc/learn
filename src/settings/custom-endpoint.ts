@@ -15,7 +15,7 @@ import {
 	type DiscoveredCustomModel,
 } from "./model/custom-endpoint.ts";
 import { genericProviderKeyGuard } from "./model/auth-keys.ts";
-import { setCustomEndpointProvider, piModels } from "../platform/index.ts";
+import { setCustomEndpointProvider, piEngineForSpec, piModels, type PiEngine, type ResolvedModelSpec } from "../platform/index.ts";
 import { settingsStore } from "./store.ts";
 import { authStore } from "./auth-store.ts";
 import {
@@ -280,4 +280,17 @@ export async function discoverCustomEndpointModels(raw: unknown): Promise<Discov
 	} catch (error) {
 		return discoveryFailure(error);
 	}
+}
+
+/** pi's Models collection with the stored custom endpoint registered: every
+ *  catalog read goes through here, so a saved edit lands on the next read. */
+export function catalogModels() {
+	syncCustomEndpointProvider();
+	return piModels();
+}
+
+/** Build an engine against the stored custom endpoint (see catalogModels). */
+export function engineForSpec(spec: ResolvedModelSpec): PiEngine {
+	syncCustomEndpointProvider();
+	return piEngineForSpec(spec);
 }

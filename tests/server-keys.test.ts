@@ -54,6 +54,7 @@ process.env.OPENROUTER_API_KEY = "sk-or-v1-envvalue99";
 const { deleteKey, initAuthEnv, keyStatuses, keyValue, resolveKeyStatuses, saveKey, isWritableAuthKey } = await import(
 	"../src/settings/keys.ts"
 );
+initAuthEnv(); // boot's first step
 const { authStore } = await import("../src/settings/auth-store.ts");
 
 const ENV_OWNED = "sk-or-v1-envvalue99";

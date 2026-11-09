@@ -266,7 +266,3 @@ export function deleteKey(id: string): AuthKeyStatus {
 	deleteSecretVar(id);
 	return keyStatuses().find((s) => s.id === id)!;
 }
-
-// Reflect the file into the env at first import (idempotent; the module is
-// imported by every route/handler path that touches keys).
-initAuthEnv();

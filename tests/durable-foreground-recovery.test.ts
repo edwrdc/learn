@@ -36,8 +36,8 @@ const { chatStore } = await import("../src/session/store.ts");
 const { appendMessages, closeChatRuntime, openChatRuntime, peekChatRuntime, readEntries } = await import(
 	"../src/session/durable.ts"
 );
-const { foregroundEngineOverride, handleChatRequest } = await import("../src/session/turn.ts");
-await import("./support-durable.ts");
+const { handleChatRequest } = await import("../src/session/turn.ts");
+const { testEngines } = await import("./support-durable.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { readTurn } = await import("../src/session/turn-service.ts");
@@ -214,7 +214,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 			fauxAssistantMessage([fauxToolCall("plan_init", PLAN_CALL, { id: "call-plan" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		foregroundEngineOverride.current = first.engine;
+		testEngines.teacher = first.engine;
 		const ack = await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), { engine: first.engine });
 		assert.equal(ack.status, 200);
 		await waitFor(async () => {
@@ -235,7 +235,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 
 		// Process death mid-generation: close the Harness (storage included).
 		await closeChatRuntime(chat.id);
-		assert.equal(foregroundEngineOverride.current, first.engine);
+		assert.equal(testEngines.teacher, first.engine);
 
 		// The next process rebuilds the engine from the descriptor and the
 		// bootstrap reattaches the view BEFORE resume. This generation is
@@ -248,7 +248,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 				fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-q1" })], { stopReason: "toolUse" }),
 			),
 		]);
-		foregroundEngineOverride.current = resumed.engine;
+		testEngines.teacher = resumed.engine;
 		const settledEvents: string[] = [];
 		const unsubscribe = subscribe((event) => {
 			if (event.type === "turn-settled" && event.chatId === chat.id) settledEvents.push(event.type);
@@ -371,7 +371,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 			fauxAssistantMessage([fauxToolCall("plan_init", PLAN_CALL, { id: "call-plan2" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		foregroundEngineOverride.current = first.engine;
+		testEngines.teacher = first.engine;
 		const ack = await handleChatRequest(post(chat.id, { type: "text", text: "teach me too" }), { engine: first.engine });
 		assert.equal(ack.status, 200);
 		await waitFor(async () => {
@@ -391,7 +391,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 		// The missing binding: the injected faux model is not in the catalog,
 		// so the descriptor's model cannot be rebuilt and scheduling must stay
 		// off. A failed POST is the honest 503, and it writes nothing.
-		foregroundEngineOverride.current = undefined;
+		testEngines.teacher = undefined;
 		await assert.rejects(
 			() => openChatRuntime(chat.id),
 			/could not be restored/,
@@ -413,7 +413,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 				fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-q2" })], { stopReason: "toolUse" }),
 			),
 		]);
-		foregroundEngineOverride.current = resumed.engine;
+		testEngines.teacher = resumed.engine;
 		await openChatRuntime(chat.id);
 		const handle = runningTurn(chat.id);
 		assert.ok(handle, "the retry resumes the pending run");

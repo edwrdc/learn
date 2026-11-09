@@ -13,14 +13,13 @@
  *
  * Federation: `getModels()` is called per keyed provider (federated, the
  * model-slots wave), so a provider appears in the picker exactly when its
- * key is present — piModels() in src/agent/models.ts owns the provider
+ * key is present — piModels() in src/platform/engines.ts owns the provider
  * set; nothing here changes.
  */
 
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
-import { piModels } from "../platform/index.ts";
-import { customEndpointState, syncCustomEndpointProvider } from "./custom-endpoint.ts";
+import { catalogModels, customEndpointState } from "./custom-endpoint.ts";
 import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "./model/custom-endpoint.ts";
 import { settingsStore } from "./store.ts";
 import { effectiveSettings } from "../stores.ts";
@@ -179,9 +178,10 @@ export function toModelDto(model: Model<Api>): ModelDto {
 export function catalogContextLimits(): Map<string, number> {
 	const keyed = keyedProviderIds();
 	const index = new Map<string, number>();
-	for (const provider of piModels().getProviders()) {
+	const catalog = catalogModels();
+	for (const provider of catalog.getProviders()) {
 		if (!keyed.has(provider.id)) continue;
-		for (const model of piModels().getModels(provider.id)) {
+		for (const model of catalog.getModels(provider.id)) {
 			index.set(`${provider.id}:${model.id}`, model.contextWindow);
 		}
 	}
@@ -193,12 +193,12 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
-	syncCustomEndpointProvider();
 	const keyed = keyedProviderIds();
-	const models = piModels()
+	const catalog = catalogModels();
+	const models = catalog
 		.getProviders()
 		.filter((p) => keyed.has(p.id))
-		.flatMap((p) => piModels().getModels(p.id))
+		.flatMap((p) => catalog.getModels(p.id))
 		.map(toModelDto)
 		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)));
 	return {
@@ -222,12 +222,10 @@ export type SettingsValidation =
  *    the model the picker writes against (settings.model, else config's
  *    prober/teacher pin; one controller, so the two specs share it). */
 export function validateChatSettings(settings: ChatSettings): SettingsValidation {
-	syncCustomEndpointProvider();
 	return validateModelSettings(settings);
 }
 
 export function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
-	syncCustomEndpointProvider();
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
 		if (!slot) continue;
@@ -240,13 +238,14 @@ export function validateModelsSettings(settings: ModelsSettings): SettingsValida
 /** The one catalog gate a settings write shares: a named provider must be
  *  configured, and its model must exist in that provider's catalog. */
 function validateModelSettings(slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
-	const providers = piModels().getProviders().map((p) => p.id);
+	const catalog = catalogModels();
+	const providers = catalog.getProviders().map((p) => p.id);
 	if (slot.model) {
 		const { provider, id } = slot.model;
 		if (!providers.includes(provider)) {
 			return { ok: false, error: `Unknown provider "${provider}" — configured: ${providers.join(", ")}` };
 		}
-		if (!piModels().getModel(provider, id)) {
+		if (!catalog.getModel(provider, id)) {
 			return { ok: false, error: `No model "${id}" in the ${provider} catalog` };
 		}
 	}
@@ -270,7 +269,7 @@ function validateModelSettings(slot: { model?: { provider: string; id: string };
  *  or the level already supported — the existence gate rejects unknown
  *  models separately, so this only ever sees real ones in practice). */
 function clampLevelFor(provider: string, id: string, level: ThinkingLevel): ThinkingLevel {
-	const model = piModels().getModel(provider, id);
+	const model = catalogModels().getModel(provider, id);
 	return model ? clampThinkingLevel(model, level) : level;
 }
 

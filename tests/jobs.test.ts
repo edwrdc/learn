@@ -34,7 +34,7 @@ import { composeInstructions } from "../src/session/agents.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { webTools } from "../src/tools/web/web.ts";
 import { handleChatRequest } from "../src/session/turn.ts";
-import "./support-durable.ts";
+import { testEngines } from "./support-durable.ts";
 import { runningTurn } from "../src/session/turn-runs.ts";
 import {
 	abortJob,
@@ -51,7 +51,7 @@ import { beginTurn, endTurn } from "../src/session/turn-liveness.ts";
 import { answerWrite, applyAnswer } from "../src/session/turn-service.ts";
 import { chatStore } from "../src/session/store.ts";
 import { jobStore } from "../src/jobs/store.ts";
-import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src/jobs/runner.ts";
+import { createJobRunner } from "../src/jobs/runner.ts";
 import { providerKeyMissing, type ModelSlotName } from "../src/settings/model/settings.ts";
 import type { PiEngine } from "../src/platform/engines.ts";
 import type { SearchProvider } from "../src/tools/model/search.ts";
@@ -151,7 +151,7 @@ after(() => {
 			/* already gone */
 		}
 	}
-	researchModelOverride.current = undefined;
+	testEngines.researcher = undefined;
 });
 
 /** A scripted pi engine (faux provider): the response queue replaces the
@@ -472,7 +472,7 @@ describe("dispatch (async protocol §2)", () => {
 
 		const delivery = fakeDeliver();
 		const search = stubSearch();
-		const testRunner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
+		const testRunner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
 		const engine = researchCallingTeacher();
 		// The job tools' spawn seam is the test runner; the rest of the turn
 		// (engine, prompt, tools) is the real composition.
@@ -481,7 +481,7 @@ describe("dispatch (async protocol §2)", () => {
 			deps: { spawn: (job, input) => void testRunner.runJob(job.id, input) },
 		};
 
-		researchModelOverride.current = researcherModel();
+		testEngines.researcher = researcherModel();
 		const body = await drainTurn(post(chat.id, { type: "text", text: "teach me graph rendering" }), agent);
 
 		// The teacher's SAME turn carried on past the tool call.
@@ -514,7 +514,7 @@ describe("dispatch (async protocol §2)", () => {
 		// Search threading (2026-09-20): the researcher's web_search ran on
 		// the INJECTED port — the stub saw the scripted query, no network.
 		assert.deepEqual(search.queries, ["sigma.js latest version (5)"]);
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 	});
 });
 
@@ -568,12 +568,12 @@ describe("research runner (async protocol §3)", () => {
 
 		const delivery = fakeDeliver();
 		const search = stubSearch();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
-		researchModelOverride.current = researcherModel();
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => search });
+		testEngines.researcher = researcherModel();
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 		}
 
 		// The job is done, with the activity line from the tool call.
@@ -601,7 +601,7 @@ describe("research runner (async protocol §3)", () => {
 		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-keyless" });
 		trackJob(job.id);
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null });
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver, searchProvider: () => null });
 		const fetched: string[] = [];
 		const realFetch = globalThis.fetch;
 		globalThis.fetch = (async (source) => {
@@ -609,14 +609,14 @@ describe("research runner (async protocol §3)", () => {
 			assert.equal(String(source), url);
 			return new Response("Synthetic verified source content", { headers: { "content-type": "text/plain" } });
 		}) as typeof fetch;
-		researchModelOverride.current = fauxEngine([
+		testEngines.researcher = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_fetch", { url }, { id: "keyless-fetch" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText(brief)]),
 		]);
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 			globalThis.fetch = realFetch;
 		}
 		assert.deepEqual(fetched, [url]);
@@ -637,8 +637,8 @@ describe("research runner (async protocol §3)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
-		researchModelOverride.current = fauxEngine([
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver });
+		testEngines.researcher = fauxEngine([
 			() => {
 				throw new Error("model exploded");
 			},
@@ -646,7 +646,7 @@ describe("research runner (async protocol §3)", () => {
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 		}
 
 		const errored = jobStore.getJob(job.id)!;
@@ -667,18 +667,18 @@ describe("research runner (async protocol §3)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
 			deliver: delivery.deliver,
 			searchProvider: () => stubSearch(),
 		});
-		researchModelOverride.current = researcherModel();
+		testEngines.researcher = researcherModel();
 		try {
 			// no input passed — as a recovery re-spawn would call it
 			await runner.runJob(job.id);
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 		}
 
 		const done = jobStore.getJob(job.id)!;
@@ -733,12 +733,12 @@ describe("pdf runner (sources v0)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
-		pdfModelOverride.current = pdfReaderModel();
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver });
+		testEngines.pdfReader = pdfReaderModel();
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			pdfModelOverride.current = undefined;
+			testEngines.pdfReader = undefined;
 		}
 
 		const done = jobStore.getJob(job.id)!;
@@ -767,12 +767,12 @@ describe("pdf runner (sources v0)", () => {
 			const job = jobStore.createJob({ kind: "pdf", chatId: chat.id, toolCallId });
 			trackJob(job.id);
 			const delivery = fakeDeliver();
-			const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
-			pdfModelOverride.current = pdfReaderModel();
+			const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver });
+			testEngines.pdfReader = pdfReaderModel();
 			try {
 				await runner.runJob(job.id, mode === "dispatch" ? input : undefined);
 			} finally {
-				pdfModelOverride.current = undefined;
+				testEngines.pdfReader = undefined;
 			}
 
 			const done = jobStore.getJob(job.id)!;
@@ -795,12 +795,12 @@ describe("pdf runner (sources v0)", () => {
 		trackJob(job.id);
 
 		const delivery = fakeDeliver();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
-		pdfModelOverride.current = pdfReaderModel();
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver });
+		testEngines.pdfReader = pdfReaderModel();
 		try {
 			await runner.runJob(job.id, { path: badPath, question: "anything" });
 		} finally {
-			pdfModelOverride.current = undefined;
+			testEngines.pdfReader = undefined;
 		}
 
 		const done = jobStore.getJob(job.id)!;
@@ -823,7 +823,7 @@ describe("researcher agent", () => {
 		assert.ok(webTools.web_fetch, "web_fetch available");
 		assert.equal(Object.keys(webTools).length, 2, "ONLY the web tools — no question/plan tools");
 		// reset any accidental global override
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 	});
 
 	it("the pdf-reader declares exactly the four skill tools (sources v0)", async () => {
@@ -842,7 +842,7 @@ describe("researcher agent", () => {
 		);
 		assert.deepEqual(Object.keys(tools).sort(), ["pdf_extract", "pdf_info", "pdf_render", "pdf_search"]);
 		// reset any accidental global override
-		pdfModelOverride.current = undefined;
+		testEngines.pdfReader = undefined;
 	});
 });
 
@@ -1289,8 +1289,8 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			if (cid === chatId) fired.push(...((input as SteerInput).steers as SteerMessage[]));
 			return 200;
 		});
-		researchModelOverride.current = hangingModel();
-		const runner = createJobRunner({
+		testEngines.researcher = hangingModel();
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
 			deliver: async () => {
@@ -1321,15 +1321,15 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			// aborted is terminal: the wake completing must not flip it
 			assert.equal(jobStore.getJob(jobId)!.status, "error", "terminal after the wake");
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 		}
 	});
 
 	it("the usage folded so far survives the kill (money channel outlives the abort)", async () => {
 		const { jobId } = await newChatWithResearchJob("abort keeps usage", "call-abort2");
 		setTurnRunner(async () => 200);
-		researchModelOverride.current = oneStepThenHangModel();
-		const runner = createJobRunner({ chatStore, jobStore, deliver: async () => {}, searchProvider: () => stubSearch() });
+		testEngines.researcher = oneStepThenHangModel();
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: async () => {}, searchProvider: () => stubSearch() });
 		try {
 			const settled = runner.runJob(jobId, RESEARCH_INPUT);
 			await waitFor(() => (jobStore.getJob(jobId)!.usage?.steps ?? 0) === 1, 8000, "first step folded");
@@ -1347,7 +1347,7 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			assert.ok(job.usage!.inputTokens! > 0, "input tokens billed");
 			assert.ok(job.usage!.outputTokens! > 0, "output tokens billed");
 		} finally {
-			researchModelOverride.current = undefined;
+			testEngines.researcher = undefined;
 		}
 	});
 
@@ -1509,7 +1509,7 @@ describe("BYOK job refusal (no factory floor)", () => {
 		const delivery = fakeDeliver();
 		// NO test override, NO engineFor: the chain (override → slot → floor)
 		// comes up empty — the runner must refuse honestly, not fall back.
-		const runner = createJobRunner({ chatStore, jobStore, deliver: delivery.deliver });
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role], chatStore, jobStore, deliver: delivery.deliver });
 		await runner.runJob(job.id);
 
 		const done = jobStore.getJob(job.id)!;

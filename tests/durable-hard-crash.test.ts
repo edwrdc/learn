@@ -25,8 +25,7 @@ const { chatStore } = await import("../src/session/store.ts");
 const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
 const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { readTurn } = await import("../src/session/turn-service.ts");
-const { foregroundEngineOverride } = await import("../src/session/turn.ts");
-await import("./support-durable.ts");
+const { testEngines } = await import("./support-durable.ts");
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "hard-crash-child.mts");
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -89,7 +88,7 @@ describe("hard-crash foreground recovery", { concurrency: false }, () => {
 				return fauxAssistantMessage("resumed answer");
 			},
 		]);
-		foregroundEngineOverride.current = { model: resumed.getModel(), streamFn: resumed.streamSimple };
+		testEngines.teacher = { model: resumed.getModel(), streamFn: resumed.streamSimple };
 
 		const runtime = await openChatRuntime(chatId);
 		await waitFor(async () => !(await isTurnRunning(chatId)), 20_000, "the recovered turn settles");

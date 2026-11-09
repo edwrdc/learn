@@ -17,7 +17,6 @@ const {
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
 	saveCustomEndpoint,
-	syncCustomEndpointProvider,
 } = await import("../src/settings/custom-endpoint.ts");
 const { modelCatalog, validateModelsSettings } = await import("../src/settings/model-catalog.ts");
 const { keyStatuses } = await import("../src/settings/keys.ts");
@@ -480,7 +479,6 @@ describe("custom endpoint E2E", () => {
 			...record,
 			customEndpoint: { displayName: "A", baseUrl: aUrl, models: [model] },
 		});
-		syncCustomEndpointProvider();
 		assert.equal(customEndpointState().keyPresent, false, "no key exists for the new record's origin");
 		seen.length = 0;
 		const inconsistent = await discoverCustomEndpointModels({ baseUrl: aUrl });
