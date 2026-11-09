@@ -24,16 +24,11 @@
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { LiveDoc } from "@earendil-works/pi-durable";
-import { emit } from "../platform/model/index.ts";
+import { emit, processState } from "../platform/model/index.ts";
 import { peekChatRuntime } from "./durable.ts";
 
-interface LhGlobal {
-	__lhTurnClaims?: Map<string, number>;
-}
-
 function claims(): Map<string, number> {
-	const g = globalThis as typeof globalThis & LhGlobal;
-	return (g.__lhTurnClaims ??= new Map<string, number>());
+	return processState("turnClaims", () => new Map<string, number>());
 }
 
 /** A claim older than this is a leak guard for a pathological turn whose

@@ -24,6 +24,7 @@ import { Type } from "typebox";
 import { defineExtension, defineTool, type LiveState } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
 import { runningTurn, settledTurnResponse, abortTurn } from "../src/session/turn-runs.ts";
 import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { appendRunUsage } from "../src/session/turn-service.ts";

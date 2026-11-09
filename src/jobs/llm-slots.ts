@@ -1,3 +1,5 @@
+import { processState } from "../platform/model/index.ts";
+
 /**
  * THE SHARED BACKGROUND-LLM SEMAPHORE (owner ruling, 2026-09-29): ONE
  * process-wide pool of 3 permits for ALL background LLM jobs — extraction
@@ -34,16 +36,9 @@ export interface LlmSlots {
 	queue: { resolve: () => void; dead: boolean }[];
 }
 
-interface LhLlmSemaphoreGlobal {
-	__lhLlmSlots?: LlmSlots;
-}
-
-/** The process's single permit pool (globalThis — Next dev compiles each
- *  route entry as its own module instance; a module-level object would
- *  split the pool per route. One process, one truth). */
+/** The process's single permit pool. */
 export function bgLlmSlots(): LlmSlots {
-	const g = globalThis as typeof globalThis & LhLlmSemaphoreGlobal;
-	return (g.__lhLlmSlots ??= { active: 0, queue: [] });
+	return processState<LlmSlots>("llmSlots", () => ({ active: 0, queue: [] }));
 }
 
 /** Run `critical` under one permit of the shared pool. `signal` (the

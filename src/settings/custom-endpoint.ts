@@ -1,4 +1,5 @@
 
+import { processState } from "../platform/model/index.ts";
 import { createHash } from "node:crypto";
 import {
 	CUSTOM_ENDPOINT_DISCOVERY_TIMEOUT_MS,
@@ -57,7 +58,9 @@ function activeKeyFor(endpoint: CustomEndpointConfig): ActiveKey | undefined {
 	return undefined;
 }
 
-let syncedSignature: string | undefined;
+function synced(): { signature?: string } {
+	return processState("customEndpointSync", () => ({}));
+}
 
 function signature(endpoint: CustomEndpointConfig | null, key: string | undefined): string {
 	return JSON.stringify([endpoint, key ?? null]);
@@ -75,9 +78,9 @@ export function syncCustomEndpointProvider(): CustomEndpointConfig | null {
 	const key = endpoint ? activeKeyFor(endpoint)?.key : undefined;
 	const next = signature(endpoint, key);
 	const registered = piModels().getProvider(CUSTOM_ENDPOINT_PROVIDER_ID) !== undefined;
-	if (next !== syncedSignature || (endpoint ? !registered : registered)) {
+	if (next !== synced().signature || (endpoint ? !registered : registered)) {
 		setCustomEndpointProvider(endpoint, key);
-		syncedSignature = next;
+		synced().signature = next;
 	}
 	return endpoint;
 }

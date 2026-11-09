@@ -27,6 +27,7 @@
  * marker's id.
  */
 
+import { processState } from "../platform/model/index.ts";
 import type { Usage } from "@earendil-works/pi-ai";
 import { activeCompactionOf, buildCompactionPrompt, compactionCutIndex, COMPACTION_RESERVE_TOKENS, estimateContextTokens, estimateTokens, newCompactionMarker, planTreeToText, serializeForSummary, type CompactionDetails } from "./model/compaction.ts";
 import { toLlmMessages, type LhMessage, type LhMarkerMessage } from "./model/transcript.ts";
@@ -104,14 +105,11 @@ export interface CompactionDeps {
 	summarize?: Summarizer;
 }
 
-// ─── the registry (module-global on globalThis, jobs.ts's pattern) ─────────
-
 interface CompactionState {
 	inFlight: Map<string, Promise<void>>;
 }
-const g = globalThis as typeof globalThis & { __lhCompaction?: CompactionState };
 function state(): CompactionState {
-	return (g.__lhCompaction ??= { inFlight: new Map() });
+	return processState("compaction", () => ({ inFlight: new Map() }));
 }
 
 /** Is a compaction running for this chat? (The client status event's
@@ -257,10 +255,6 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
  * under concurrency through the registry mutex.
  */
 export async function ensureCompacted(deps: CompactionDeps, chatId: string): Promise<void> {
-	// Skipped under tests, the extraction-trigger precedent: scripted
-	// chats are fixtures — the service itself is tested directly with an
-	// injected summarizer.
-	if (process.env.NODE_ENV === "test" && !deps.summarize) return;
 	await awaitCompaction(chatId);
 	const record = await deps.chatStore.getChat(chatId);
 	const running = state().inFlight.get(chatId);

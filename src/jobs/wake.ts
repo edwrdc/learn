@@ -30,13 +30,10 @@
  *     "running" with a result (the wake never fired) or without one (the
  *     sub-agent loop itself died). The sweep re-delivers finished results
  *     (idempotently) and re-spawns unfinished loops, both via injected
- *     seams. It runs lazily off the /api/jobs poll, throttled.
- *
- * All mutable state lives on globalThis (the turn-liveness lesson: Next dev
- * gives each route entry its own module instances — a module-level Map would
- * be a different object in each).
+ *     seams. It runs once at boot.
  */
 
+import { processState } from "../platform/model/index.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, steerDelivered, type JobRecord, type SteerMessage } from "./model/types.ts";
 import type { TurnInput } from "../session/model/index.ts";
 import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../session/model/index.ts";
@@ -78,17 +75,10 @@ interface WakeState {
 	queues: Map<string, QueuedSteer[]>;
 	/** Chats whose pump loop is currently active (serialization per chat). */
 	pumping: Set<string>;
-	/** Throttle bookkeeping for the stale-job sweep. */
-	lastSweepAt: number;
-}
-
-interface LhWakeGlobal {
-	__lhWakePipeline?: WakeState;
 }
 
 function state(): WakeState {
-	const g = globalThis as typeof globalThis & LhWakeGlobal;
-	return (g.__lhWakePipeline ??= { queues: new Map(), pumping: new Set(), lastSweepAt: 0 });
+	return processState<WakeState>("wakePipeline", () => ({ queues: new Map(), pumping: new Set() }));
 }
 
 /** chat-handler wires this at module init: its adapter around handleChatRequest. */
@@ -587,10 +577,8 @@ async function waitForIdle(chatId: string): Promise<void> {
 
 // ─── crash recovery ──────────────────────────────────────────────────────────
 
-const SWEEP_THROTTLE_MS = 30_000;
-
 /**
- * Lazy sweep (called off the /api/jobs poll, throttled), LIVENESS-GATED
+ * Boot-time sweep, LIVENESS-GATED
  * (accuracy wave, 2026-09-19): a "running" record without a live loop
  * registration (subagents/aborts.ts) is an orphan of a process death —
  * re-deliver its stored result (idempotently) or re-spawn the loop, at
@@ -602,13 +590,8 @@ const SWEEP_THROTTLE_MS = 30_000;
  * END kills it. The abort registration spans loop start to delivery
  * completion, so a live registration can never belong to a dead run.
  */
-/** Re-run a job's sub-agent loop — exposed for the sweep's tests (the
- *  /api/jobs poll is its only production caller, disabled under NODE_ENV=test). */
 export async function recoverStaleJobs(): Promise<void> {
 	const s = state();
-	const now = Date.now();
-	if (now - s.lastSweepAt < SWEEP_THROTTLE_MS) return;
-	s.lastSweepAt = now;
 	try {
 		for (const chat of await stores.chatStore.listChats()) {
 			for (const job of stores.jobStore.listJobs(chat.id)) {
@@ -636,8 +619,6 @@ export async function recoverStaleJobs(): Promise<void> {
 	}
 }
 
-/** The /api/jobs entry: job list for the client poll (+ lazy recovery). */
 export function listJobs(chatId: string): JobRecord[] {
-	if (process.env.NODE_ENV !== "test") recoverStaleJobs();
 	return stores.jobStore.listJobs(chatId);
 }

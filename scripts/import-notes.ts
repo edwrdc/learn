@@ -29,7 +29,7 @@ async function main() {
 		.sort();
 	console.log(`[import-notes] ${files.length} note files from ${dir} (concurrency ${limit})`);
 
-	const { extraction: pipeline } = boot();
+	const { extraction: pipeline } = boot({ upkeep: false });
 	const queue = [...files];
 	const totals = { nodes: 0, chains: 0, failed: 0 };
 	const workers = Array.from({ length: Math.min(limit, files.length) }, async () => {

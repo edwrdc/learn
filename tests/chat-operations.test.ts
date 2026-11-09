@@ -1,3 +1,4 @@
+import { processState } from "../src/platform/model/index.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,7 +21,7 @@ const { withChatOperation } = await import("../src/session/chat-operations.ts");
 const { chatStore } = await import("../src/session/store.ts");
 const { stores } = await import("../src/stores.ts");
 const { handleChatInput, foregroundEngineOverride } = await import("../src/session/turn.ts");
-await import("./support-durable.ts");
+await (await import("../src/boot.ts")).boot().recovered;
 const { deleteChatSession } = await import("../src/session/operations.ts");
 const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
 const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
@@ -130,8 +131,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			secondRelease.resolve();
 			assert.deepEqual(await Promise.all([second, third]), ["second", "third"]);
 			assert.deepEqual(order, [1, 2, 3]);
-			const global = globalThis as typeof globalThis & { __lhChatOperationQueues?: Map<string, Promise<unknown>> };
-			assert.equal(global.__lhChatOperationQueues?.has("queue-a"), false);
+			assert.equal(processState<Map<string, unknown>>("lock.chatOperation", () => new Map()).has("queue-a"), false);
 		} finally {
 			firstRelease.resolve();
 			secondRelease.resolve();

@@ -4,7 +4,7 @@ import { POST } from "../src/routes/api/graph/import/+server.ts";
 import { routeEvent } from "./support-route-event.ts";
 import { boot } from "../src/boot.ts";
 
-const { extraction } = boot();
+const { extraction } = boot({ upkeep: false });
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../src/settings/model/settings.ts";
 import { createExtractionPipeline, NotesImportError } from "../src/graph/extraction/pipeline.ts";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";

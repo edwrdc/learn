@@ -273,8 +273,7 @@ export async function appendRunUsage(
  * client-shaped).
  *
  * Deliberately isolated in this one seam — the pipeline is
- * trigger-agnostic. Skipped under tests: scripted chats are fixtures, not
- * knowledge (the pipeline itself is tested directly with mock models).
+ * trigger-agnostic.
  */
 export async function triggerExtraction(
 	deps: { chatStore: ChatStore; graphStore: GraphStore },
@@ -282,7 +281,6 @@ export async function triggerExtraction(
 	chatId: string,
 	chunkTokens: number,
 ): Promise<void> {
-	if (process.env.NODE_ENV === "test") return;
 	try {
 		const record = await deps.chatStore.getChat(chatId);
 		if (!record) return;

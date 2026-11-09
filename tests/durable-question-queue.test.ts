@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
 import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { deliverJobResult } from "../src/jobs/wake.ts";
 import { buildSubagentSteer, type JobRecord } from "../src/jobs/model/types.ts";

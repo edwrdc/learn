@@ -25,6 +25,7 @@
  * kill a stream).
  */
 
+import { processState } from "./model/index.ts";
 import * as fs from "node:fs";
 import path from "node:path";
 import { PATHS } from "./config.ts";
@@ -47,7 +48,9 @@ export interface ProviderEventModel {
 export type ProviderEventObserver = (data: unknown, model: ProviderEventModel) => void;
 
 /** Per-file accounting so the cap marker writes exactly once. */
-const files = new Map<string, { bytes: number; capped: boolean }>();
+function files(): Map<string, { bytes: number; capped: boolean }> {
+	return processState("providerEventFiles", () => new Map());
+}
 
 function fileFor(chatId: string): string {
 	// chat ids are app-minted (chat_<base36>) — sanitize against any future
@@ -57,7 +60,7 @@ function fileFor(chatId: string): string {
 }
 
 function writeLine(file: string, line: Record<string, unknown>): void {
-	const state = files.get(file);
+	const state = files().get(file);
 	if (state?.capped) return;
 	const text = `${JSON.stringify({ t: Date.now(), ...line })}\n`;
 	try {
@@ -66,10 +69,10 @@ function writeLine(file: string, line: Record<string, unknown>): void {
 		fs.appendFileSync(file, text, "utf-8");
 		const bytes = before + Buffer.byteLength(text);
 		if (bytes > providerEventsCap.current) {
-			files.set(file, { bytes, capped: true });
+			files().set(file, { bytes, capped: true });
 			fs.appendFileSync(file, `${JSON.stringify({ t: Date.now(), note: `cap ${providerEventsCap.current} bytes reached — recording stopped` })}\n`, "utf-8");
 		} else {
-			files.set(file, { bytes, capped: false });
+			files().set(file, { bytes, capped: false });
 		}
 	} catch {
 		// The debug recorder must never take a run down with it.

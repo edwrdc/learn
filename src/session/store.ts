@@ -21,6 +21,7 @@
  * constructs it.
  */
 
+import { keyedLock } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../platform/index.ts";
@@ -61,33 +62,8 @@ function chatFile(id: string): string {
 /** Per-chat record queue: the old store was synchronous, so its
  *  read-modify-write could not interleave. Async callers keep that
  *  ordering by chaining here. It also owns the legacy import: every
- *  read and mutation runs inside it, after the import is complete.
- *
- *  globalThis, not module level: Next dev (and any `?route-copy` import)
- *  loads this module more than once, and a per-instance queue would let two
- *  first reads import the same legacy transcript twice. The Harness handle
- *  map is global for the same reason. */
-interface LhGlobal {
-	__lhChatMetaQueues?: Map<string, Promise<unknown>>;
-}
-
-function metaQueues(): Map<string, Promise<unknown>> {
-	const g = globalThis as typeof globalThis & LhGlobal;
-	return (g.__lhChatMetaQueues ??= new Map());
-}
-
-async function withMetaLock<T>(id: string, run: () => Promise<T>): Promise<T> {
-	const queues = metaQueues();
-	const previous = queues.get(id) ?? Promise.resolve();
-	const next = previous.then(run, run);
-	const tail = next.catch(() => undefined);
-	queues.set(id, tail);
-	try {
-		return await next;
-	} finally {
-		if (queues.get(id) === tail) queues.delete(id);
-	}
-}
+ *  read and mutation runs inside it, after the import is complete. */
+const withMetaLock = keyedLock("chatMeta");
 
 /** Parse the metadata file. Null for unknown, corrupt, or future-version
  *  records (the honest downgrade refusal: a read-modify-write store must

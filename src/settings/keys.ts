@@ -6,8 +6,7 @@
  * sub-agents, web.ts, the STT route — reads process.env directly, and the
  * agent layer may not import the store layer. Instead of rewiring every
  * consumer across lanes, the store REFLECTS itself into the child's env:
- * at boot (idempotent, anchored on
- * globalThis like the extraction registry) every file var UNSET in the
+ * at boot (idempotent) every file var UNSET in the
  * real env is fill-gapped into process.env, and each save/delete updates
  * file + env together. Keys therefore take effect immediately — no restart
  * — which is also why main.cjs's old spawn-time injection HAD to retire:
@@ -39,6 +38,7 @@
  * today's behavior, byte-for-byte.
  */
 
+import { processState } from "../platform/model/index.ts";
 import {
 	AUTH_KEYS,
 	AUTH_PROVIDER_KEYS,
@@ -58,9 +58,8 @@ import {
 	isCustomEndpointKeyId,
 } from "./model/custom-endpoint.ts";
 
-// The once-per-process boot record — globalThis anchor (HMR re-imports the
-// module; the snapshot must not re-run and misread fill-gapped vars as real
-// env). Same pattern as globalThis.__lhExtractionRuns.
+// The once-per-process boot record: an HMR re-import must not re-run the
+// snapshot and misread fill-gapped vars as real env.
 interface AuthBoot {
 	/** Vars that were in the REAL env at first init — env precedence's
 	 *  untouchable set. Fill-gapped vars are everything else we set. */
@@ -68,12 +67,8 @@ interface AuthBoot {
 	/** Vars WE put into process.env (the file's reflection) — deletable. */
 	fillGap: Set<string>;
 }
-const BOOT_KEY = Symbol.for("lh.authBoot");
-
 function boot(): AuthBoot {
-	const g = globalThis as Record<symbol, AuthBoot | undefined>;
-	if (!g[BOOT_KEY]) g[BOOT_KEY] = { realEnv: new Set(), fillGap: new Set() };
-	return g[BOOT_KEY];
+	return processState<AuthBoot>("authBoot", () => ({ realEnv: new Set(), fillGap: new Set() }));
 }
 
 /** Is `id` a WRITABLE key name — curated catalog or model-provider env

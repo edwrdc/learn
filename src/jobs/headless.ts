@@ -1,3 +1,4 @@
+import { keyedLock, processState } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
@@ -155,16 +156,19 @@ export function browserServiceBinary(): string | null {
 }
 
 const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
-let browserServiceProc: import("node:child_process").ChildProcess | null = null;
+function browserService(): { proc: import("node:child_process").ChildProcess | null } {
+	return processState("browserService", () => ({ proc: null }));
+}
 
 async function connectBrowserService(): Promise<import("puppeteer-core").Browser | null> {
 	const puppeteer = (await import("puppeteer-core")).default;
 	const { spawn } = await import("node:child_process");
 	let port: number | null = null;
 
-	if (browserServiceProc && browserServiceProc.exitCode === null) {
+	const service = browserService();
+	if (service.proc && service.proc.exitCode === null) {
 		// Helper alive from a previous run — reuse its endpoint.
-		port = (browserServiceProc as { __cdpPort?: number }).__cdpPort ?? null;
+		port = (service.proc as { __cdpPort?: number }).__cdpPort ?? null;
 	}
 	if (port === null) {
 		const binary = browserServiceBinary();
@@ -183,7 +187,7 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 			env: browserServiceSpawnEnv(process.env) as NodeJS.ProcessEnv,
 			stdio: ["ignore", "pipe", "pipe", "ipc"] as const,
 		});
-		browserServiceProc = proc;
+		service.proc = proc;
 		port = await new Promise<number | null>((resolve) => {
 			let buf = "";
 			const timer = setTimeout(() => {
@@ -205,7 +209,7 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 			});
 		});
 		if (port === null) {
-			browserServiceProc = null;
+			service.proc = null;
 			return null;
 		}
 		(proc as { __cdpPort?: number }).__cdpPort = port;
@@ -229,7 +233,7 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 /** Serialized helper-page use: the helper owns ONE page target (Electron's
  *  CDP has no Target.createTarget — pages must be windows the helper made),
  *  so concurrent jobs queue here instead of fighting over one webContents. */
-let helperPageChain: Promise<unknown> = Promise.resolve();
+const withHelperPage = keyedLock("helperPage");
 
 async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
 	// Helper first (owner ruling 2026-10-10: the app's own Chromium primary,
@@ -247,9 +251,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 				await page.goto("about:blank").catch(() => {});
 			}
 		};
-		const next = helperPageChain.then(run, run);
-		helperPageChain = next.catch(() => {});
-		return next;
+		return withHelperPage("page", run);
 	}
 
 	// Chrome fallback: per-job launch, close on the way out (old semantics).

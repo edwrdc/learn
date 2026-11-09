@@ -4,12 +4,6 @@
  * The runner creates one AbortController per running job and registers it
  * here; the abort path (src/server/jobs.ts abortJob, driven by the dock's
  * END button via POST /api/jobs/[jobId]/abort) fires it through fireJobAbort.
- * Two module trees meet: the runner (src/agent) and the endpoint
- * (src/server) — the registry lives on globalThis for the same reason as
- * the turn registry and the wake pipeline: Next dev gives each route entry
- * its own module instances, so a module-level Map would be a different
- * object in each. Placed under src/agent (server→agent imports are an
- * established direction; agent→server is not — see chat-handler).
  *
  * 2026-09 abort semantics (user-decided): REAL KILL, not mark-and-abandon —
  * the controller aborts the in-flight model call (agent.generate /
@@ -18,6 +12,8 @@
  * (status error "Aborted by learner" + the abort steer); the runner only unwinds.
  */
 
+import { processState } from "../platform/model/index.ts";
+
 /** One live job's kill switch: the controller the old loops ride, plus the
  *  durable run's own abort (a conversation abort marks and joins its tasks). */
 interface JobAbort {
@@ -25,13 +21,8 @@ interface JobAbort {
 	abort?: () => void;
 }
 
-interface LhAbortGlobal {
-	__lhJobAborts?: Map<string, JobAbort>;
-}
-
 function registry(): Map<string, JobAbort> {
-	const g = globalThis as typeof globalThis & LhAbortGlobal;
-	return (g.__lhJobAborts ??= new Map());
+	return processState("jobAborts", () => new Map<string, JobAbort>());
 }
 
 /** The runner registers its controller at job start (idempotent overwrite). */

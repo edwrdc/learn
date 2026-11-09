@@ -28,6 +28,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/platform/engines.ts";
 import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
 import { runningTurn } from "../src/session/turn-runs.ts";
 import { chatStore } from "../src/session/store.ts";
 import { graphStore } from "../src/graph/store.ts";

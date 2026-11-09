@@ -19,6 +19,7 @@
  * server-side steers (src/server/jobs.ts).
  */
 
+import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { piEngineForSpec, type PiEngine } from "../platform/index.ts";
@@ -220,16 +221,11 @@ export async function resumeForegroundTurn(runtime: ChatRuntime): Promise<void> 
 	}
 }
 
-interface LhTurnSettlesGlobal {
-	__lhTurnSettles?: Map<string, Promise<void>>;
-}
-
 /** One settle per turn in this process: a live handle racing a recovery joins
  *  the first finisher instead of applying the services twice. The durable
  *  mark covers the process that died mid-settle. */
 function turnSettles(): Map<string, Promise<void>> {
-	const g = globalThis as typeof globalThis & LhTurnSettlesGlobal;
-	return (g.__lhTurnSettles ??= new Map());
+	return processState("turnSettles", () => new Map<string, Promise<void>>());
 }
 
 /** THE finish path for one admitted turn, shared by its live handle and a
@@ -269,7 +265,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		const record = await stores.chatStore.getChat(chatId);
 		// GRAPH GATE: the write channel dies with the master switch; practice
 		// sessions write nothing (v1: the session is the deliverable).
-		if (record !== null && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+		if (services().upkeep && record !== null && record.kind !== "practice" && extractionEnabled(effective.graph)) {
 			await triggerExtraction(stores, services().extraction, chatId, effective.graph.extractionChunkTokens);
 		}
 		// PARKED DISMISSAL: a dismissal that arrived
@@ -293,7 +289,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// THE SETTLE KICK: if the projection is now over
 	// threshold, the summary starts in the background INSIDE the learner's
 	// reading/answering pause.
-	if (process.env.NODE_ENV !== "test")
+	if (services().upkeep)
 		kickCompaction(async () => {
 			syncCustomEndpointProvider();
 			const fresh = effectiveSettings();
@@ -471,7 +467,7 @@ export async function handleChatInput(
 		// for this chat interleaves with a running compaction — await the settle
 		// kick's summary, compact synchronously if still over threshold. The
 		// record re-reads after because compaction appends the marker.
-		await ensureCompacted(
+		if (services().upkeep) await ensureCompacted(
 			{
 				chatStore: stores.chatStore,
 				engine,

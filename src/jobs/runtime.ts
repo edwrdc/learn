@@ -25,6 +25,7 @@
  * model call is duplicated by that re-entry.
  */
 
+import { processState } from "../platform/model/index.ts";
 import { randomUUID } from "node:crypto";
 import {
 	defineDoc,
@@ -165,10 +166,12 @@ export interface BackgroundServices {
 	graphContext?(): GraphToolContext;
 }
 
-let services: BackgroundServices | undefined;
+function backgroundHost(): { services?: BackgroundServices } {
+	return processState("backgroundServices", () => ({}));
+}
 
 export function configureBackgroundRuns(next: BackgroundServices): void {
-	services = next;
+	backgroundHost().services = next;
 }
 
 /** What one role's tools and hooks need at build time. */
@@ -792,13 +795,13 @@ function idOf(id: number): ConversationId {
 
 /** In-process single-flight per run: a dispatch and a recovery sweep that
  *  race share one attach instead of creating two conversations. */
-const inflight = new Map<string, Promise<BackgroundRunResult>>();
 
 /** Run (or reattach to) one background conversation and return its final
  *  text. Throws the run's failure so the caller can build the kind's
  *  failure result. */
 export function runBackgroundConversation(request: BackgroundRunRequest): Promise<BackgroundRunResult> {
 	const key = `${request.chatId}\u0000${request.jobId}`;
+	const inflight = processState("backgroundInflight", () => new Map<string, Promise<BackgroundRunResult>>());
 	const running = inflight.get(key);
 	if (running) return running;
 	const started = attachBackgroundConversation(request);
@@ -815,7 +818,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 	const { conversationId, ref, descriptor } = await ensureRun(runtime, request, request.engine);
 	const conversation = await runtime.harness.conversation(conversationId, BACKGROUND_CONTEXT);
 	if (!conversation) throw new Error(`background run ${descriptor.runId}: conversation missing`);
-	const host = services;
+	const host = backgroundHost().services;
 	const requestedModel = request.engine.model;
 	const sameEndpoint =
 		!descriptor.model.baseUrl || requestedModel.baseUrl === descriptor.model.baseUrl;
@@ -989,7 +992,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 			await updateIndex(runtime, jobId, { status: "failed" });
 			continue;
 		}
-		const engine = services?.resolveEngine(descriptor);
+		const engine = backgroundHost().services?.resolveEngine(descriptor);
 		if (!engine) {
 			// FAIL CLOSED: `harness.resume()` below would execute the pending
 			// generation without its model binding (or with a redirected
@@ -1000,7 +1003,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 			);
 		}
 		bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-		const extension = roleExtension(conversation, descriptor, roleDeps(runtime, undefined, services));
+		const extension = roleExtension(conversation, descriptor, roleDeps(runtime, undefined, backgroundHost().services));
 		runtime.registry.install(extension);
 		await conversation.configure(agentChange(descriptor, extension), BACKGROUND_CONTEXT);
 	}

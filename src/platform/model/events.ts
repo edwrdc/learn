@@ -10,17 +10,10 @@
  * truth on receipt (push the poke, pull the data), so payloads stay
  * tiny, schemaless, and idempotent — a reconnect heals by refetching.
  *
- * WHY globalThis (the turn-liveness discipline, same rationale): Next
- * dev compiles each route as its own module entry, so a module-level
- * singleton is a DIFFERENT instance in the page render, the events
- * route, and every emitter's entry — they would each hold a private
- * listener set and nothing would propagate. globalThis spans module
- * instances within the process; it is the standard Next singleton
- * channel (see src/server/turn-liveness.ts for the original incident).
- *
- * Pure core by law: no DOM, no IO, no imports — the one layer that
- * server, store, and agent may all depend on.
+ * No DOM, no IO: every feature may depend on it.
  */
+
+import { processState } from "./process.ts";
 
 /** The full event vocabulary — fixed from day one (slice plan, 2026-10-02). */
 export interface ServerEvents {
@@ -72,16 +65,10 @@ export type ServerEvent<K extends ServerEventType = ServerEventType> = {
 
 export type ServerEventListener = (event: ServerEvent) => void;
 
-interface LhEventsGlobal {
-	__lhEventBus?: Set<ServerEventListener>;
-}
-
-/** The shared listener set — globalThis-backed so every Next module entry
- *  (and every layer) sees ONE bus. Ephemeral by design: a process restart
+/** The shared listener set. Ephemeral by design: a process restart
  *  drops the listeners with their connections; emitters never queue. */
 function listeners(): Set<ServerEventListener> {
-	const g = globalThis as typeof globalThis & LhEventsGlobal;
-	return (g.__lhEventBus ??= new Set());
+	return processState("eventBus", () => new Set<ServerEventListener>());
 }
 
 /** Listen. Returns the unsubscribe function — the SSE route's cancel and

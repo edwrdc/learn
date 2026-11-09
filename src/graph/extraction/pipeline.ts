@@ -15,7 +15,7 @@ import type { AuditVerdicts, SessionFindings } from "../model/types.ts";
 import type { CallUsage, ChatRecord, ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../snapshot.ts";
 import type { GraphStore } from "../model/ports.ts";
-import { emit } from "../../platform/model/index.ts";
+import { emit, processState } from "../../platform/model/index.ts";
 import { settleGraphLayout } from "../layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../coverage.ts";
 import type { LhMessage } from "../../session/model/index.ts";
@@ -412,42 +412,22 @@ export interface RunningExtraction {
 	controller: AbortController;
 }
 
-interface LhExtractionGlobal {
-	__lhExtractionRuns?: {
-		/** In-flight pipeline runs, keyed chatId (chat) / src id (notes). */
-		running: Map<string, RunningExtraction>;
-		/** The single-flight guard, shared by every pipeline instance. */
-		inFlight: Set<string>;
-		/** Last minted startedAt — kept monotonic so two runs starting in the
-		 *  same millisecond never collide on the usage idempotency key. */
-		lastStartedAt: number;
-		/** Runs that are admitted but have not reached their first phase yet
-		 *  (the durable record read is awaited): abort must still cancel them
-		 *  synchronously, or a hanging provider call could never be stopped. */
-		early?: Map<string, AbortController>;
-	};
-	/** The serialized-audit mutex (owner 2026-09-28): a FIFO promise
-	 *  chain — the audit+merge critical section runs one job at a time,
-	 *  process-wide. globalThis for the same module-instance reason as
-	 *  the run registries. */
-	__lhAuditLock?: { tail: Promise<void> };
-	/** The EXTRACT SEMAPHORE (owner, 2026-09-28): 3 concurrent extractor
-	 *  calls process-wide — the provider-facing rate stance (the import
-	 *  route's old 3-wide pool doctrine, now global). Per-chunk jobs fan
-	 *  out in parallel but queue here. */
+interface ExtractionRuns {
+	/** In-flight pipeline runs, keyed chatId (chat) / src id (notes). */
+	running: Map<string, RunningExtraction>;
+	/** The single-flight guard, shared by every pipeline instance. */
+	inFlight: Set<string>;
+	/** Last minted startedAt — kept monotonic so two runs starting in the
+	 *  same millisecond never collide on the usage idempotency key. */
+	lastStartedAt: number;
+	/** Runs that are admitted but have not reached their first phase yet
+	 *  (the durable record read is awaited): abort must still cancel them
+	 *  synchronously, or a hanging provider call could never be stopped. */
+	early?: Map<string, AbortController>;
 }
 
-/** THE RUN REGISTRIES live on globalThis, not module level — the
- *  turn-liveness lesson: Next dev compiles each route entry as its own
- *  module instance, so a module-level Map is a different object in the
- *  /api/activity route than in the pipeline's chat-handler instance —
- *  the status routes would read an always-empty registry. One process,
- *  one truth — the same idiom as the turn, wake, and abort registries
- *  (moved 2026-09-19, the observability-accuracy wave; also makes the
- *  single-flight guard cross route instances). */
-function runs(): NonNullable<LhExtractionGlobal["__lhExtractionRuns"]> {
-	const g = globalThis as typeof globalThis & LhExtractionGlobal;
-	return (g.__lhExtractionRuns ??= { running: new Map(), inFlight: new Set(), lastStartedAt: 0 });
+function runs(): ExtractionRuns {
+	return processState<ExtractionRuns>("extractionRuns", () => ({ running: new Map(), inFlight: new Set(), lastStartedAt: 0 }));
 }
 
 /** In-flight pipeline runs (oldest first) — the /api/graph/status payload. */
@@ -594,9 +574,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			}
 		}
 	}
-	// THE SHARED REGISTRIES (runs() above — globalThis): every pipeline
-	// instance (route entries in dev, tests) sees the same runs, the same
-	// single-flight guard. No module-level state left in this factory.
 	const runningExtractions = runs().running;
 	const inFlight = runs().inFlight;
 
@@ -654,8 +631,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  successors never hang). */
 	async function withAuditLock<T>(jobKey: string, kind: "chat" | "notes", label: string | undefined, critical: () => Promise<T>): Promise<T> {
 		setPhase(jobKey, "waiting", kind, label);
-		const g = globalThis as typeof globalThis & LhExtractionGlobal;
-		const lock = (g.__lhAuditLock ??= { tail: Promise.resolve() });
+		const lock = processState<{ tail: Promise<void> }>("auditLock", () => ({ tail: Promise.resolve() }));
 		const prev = lock.tail;
 		let release!: () => void;
 		lock.tail = new Promise<void>((resolve) => (release = resolve));

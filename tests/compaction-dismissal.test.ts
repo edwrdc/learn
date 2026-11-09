@@ -21,6 +21,8 @@ const { danglingQuestionOf, newUserMessage } = await import("../src/session/mode
 const { activeCompactionOf, keptIndexFor } = await import("../src/session/model/compaction.ts");
 const { POST: dismissPOST } = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 const { handleChatInput } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+const { services } = await import("../src/boot.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { setBackgroundRun } = await import("../src/jobs/durable-run.ts");
@@ -109,10 +111,9 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 		const id = await seed();
 		const started = deferred(), release = deferred();
 		let run: Promise<unknown>;
-		const oldEnv = process.env.NODE_ENV;
 		try {
 			if (mode === "cold admission") {
-				process.env.NODE_ENV = "production";
+				services().upkeep = true;
 				setBackgroundRun(async (request) => {
 					assert.equal(request.kind, "compact");
 					assert.equal(request.chatId, id);
@@ -135,13 +136,13 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 			await closeChatRuntime(id);
 			assert.deepEqual(await assertDismissed(id), before);
 			assert.equal((await handleChatInput(id, { type: "answer", toolCallId: "q", answer })).status, 400, "a stale answer cannot replace a dismissal");
-			process.env.NODE_ENV = "test";
+			services().upkeep = false;
 			const actual = await providerResults(id);
 			assert.equal(actual.length, 1);
 			assert.deepEqual(actual[0]!.details, dismissal);
 		} finally {
 			release.resolve();
-			process.env.NODE_ENV = oldEnv;
+			services().upkeep = false;
 		}
 	});
 }
@@ -215,10 +216,9 @@ it("an ordinary answer waits for compaction and the provider receives that answe
 	const started = deferred(), release = deferred(), readStarted = deferred();
 	kickCompaction(() => deps(async () => { started.resolve(); await release.promise; return { summary: "Earlier history.", usage }; }), id);
 	await started.promise;
-	const oldEnv = process.env.NODE_ENV;
 	const oldStore = stores.chatStore;
 	try {
-		process.env.NODE_ENV = "production";
+		services().upkeep = true;
 		stores.chatStore = { ...chatStore, getChat: async (chatId) => {
 			const record = await chatStore.getChat(chatId);
 			readStarted.resolve();
@@ -237,7 +237,7 @@ it("an ordinary answer waits for compaction and the provider receives that answe
 	} finally {
 		release.resolve();
 		stores.chatStore = oldStore;
-		process.env.NODE_ENV = oldEnv;
+		services().upkeep = false;
 	}
 });
 
@@ -246,9 +246,8 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 	chats.push(chat.id);
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 	const started = deferred(), release = deferred();
-	const oldEnv = process.env.NODE_ENV;
 	try {
-		process.env.NODE_ENV = "production";
+		services().upkeep = true;
 		setBackgroundRun(async (request) => {
 			assert.equal(request.kind, "compact");
 			assert.equal(request.chatId, chat.id);
@@ -269,6 +268,6 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 		await assertDismissed(chat.id);
 	} finally {
 		release.resolve();
-		process.env.NODE_ENV = oldEnv;
+		services().upkeep = false;
 	}
 });

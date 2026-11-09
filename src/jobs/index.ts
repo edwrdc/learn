@@ -8,5 +8,5 @@ export type { RunDescriptor } from "./runtime.ts";
 export { jobStore } from "./store.ts";
 export { jobTools } from "./tools.ts";
 export type { DemoInput, JobToolContext, PdfInput, ResearchInput, VisualInput } from "./tools.ts";
-export { abortJob, deliverJobResult, listJobs, markSteerDelivered, noteSteerVisible, repumpSteers, setJobRespawn, setTurnRunner, settleSteers, steerLiveChat } from "./wake.ts";
+export { abortJob, deliverJobResult, listJobs, markSteerDelivered, noteSteerVisible, recoverStaleJobs, repumpSteers, setJobRespawn, setTurnRunner, settleSteers, steerLiveChat } from "./wake.ts";
 export type { JobRunner } from "./runner.ts";

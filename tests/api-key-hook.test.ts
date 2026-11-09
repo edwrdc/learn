@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
 import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { chatStore } from "../src/session/store.ts";
 import { closeChatRuntime } from "../src/session/durable.ts";

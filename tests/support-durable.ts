@@ -2,4 +2,4 @@
  *  the way the server's init hook does. Import after ./support-tmp-data.ts. */
 import { boot } from "../src/boot.ts";
 
-boot();
+boot({ upkeep: false });

@@ -9,6 +9,7 @@ import {
 	type Provider,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
+import { processState } from "./model/index.ts";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
@@ -51,8 +52,6 @@ export interface PiEngine {
 
 export type { ThinkingLevel };
 
-let collection: ReturnType<typeof createModels> | undefined;
-
 /** The process-wide pi-ai Models collection — EVERY builtin provider's
  *  catalog (model slots wave, 2026-09-20): engines and the picker resolve
  *  against all of pi-ai's per-provider catalogs, so a settings slot can pin
@@ -62,11 +61,11 @@ let collection: ReturnType<typeof createModels> | undefined;
  *  honest, late, and unreachable through the picker, which gates on
  *  keyPresent. */
 export function piModels() {
-	if (!collection) {
-		collection = createModels({ identity: APP_IDENTITY });
+	return processState("piModels", () => {
+		const collection = createModels({ identity: APP_IDENTITY });
 		for (const provider of builtinProviders()) collection.setProvider(provider);
-	}
-	return collection;
+		return collection;
+	});
 }
 
 /** Per-conversation engine bindings for the durable Harness. The Harness's
@@ -82,22 +81,12 @@ interface RunBinding {
 	observer?: ProviderEventObserver;
 }
 
-interface LhModelsGlobal {
-	__lhRunBindings?: Map<string, RunBinding>;
-	__lhRoutedModels?: Models;
-}
-
-/** Bindings and the router are process-global: Next dev gives each route its
- *  own copy of this module, and the Harness captures the router from the
- *  copy that opened it while a POST in another copy binds the turn's engine.
- *  A module-local map would lose that binding and fall back to the base
- *  collection (the cold-page custom-endpoint `no_model`). */
-function modelsGlobal(): LhModelsGlobal {
-	return globalThis as typeof globalThis & LhModelsGlobal;
+function modelsGlobal(): { routed?: Models } {
+	return processState("routedModels", () => ({}));
 }
 
 function runBindings(): Map<string, RunBinding> {
-	return (modelsGlobal().__lhRunBindings ??= new Map());
+	return processState("runBindings", () => new Map());
 }
 
 /** Bind one conversation's provider session id to its captured engine. The
@@ -120,7 +109,8 @@ export function unbindRunEngine(sessionId: string): void {
  *  pre-normalization observer). It is forwarded into the engine's streamFn
  *  options — never reconstructed from the normalized event stream. */
 export function routedModels(): Models {
-	if (modelsGlobal().__lhRoutedModels) return modelsGlobal().__lhRoutedModels!;
+	const existing = modelsGlobal().routed;
+	if (existing) return existing;
 	const bindings = runBindings();
 	const base = piModels();
 	const stream = (
@@ -168,7 +158,7 @@ export function routedModels(): Models {
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 	});
-	modelsGlobal().__lhRoutedModels = routed;
+	modelsGlobal().routed = routed;
 	return routed;
 }
 
@@ -178,7 +168,9 @@ interface CustomProviderSnapshot {
 	apiKey: string | undefined;
 }
 
-let customSnapshot: CustomProviderSnapshot | undefined;
+function customSnapshot(): { current?: CustomProviderSnapshot } {
+	return processState("customProvider", () => ({}));
+}
 
 /**
  * Register (or remove) THE user-configured OpenAI Responses provider in the
@@ -199,7 +191,7 @@ let customSnapshot: CustomProviderSnapshot | undefined;
 export function setCustomEndpointProvider(config: CustomEndpointConfig | null, apiKey?: string): void {
 	const models = piModels();
 	if (!config) {
-		customSnapshot = undefined;
+		customSnapshot().current = undefined;
 		models.deleteProvider(CUSTOM_ENDPOINT_PROVIDER_ID);
 		return;
 	}
@@ -230,7 +222,7 @@ export function setCustomEndpointProvider(config: CustomEndpointConfig | null, a
 		})),
 		api: openAIResponsesApi(),
 	});
-	customSnapshot = { config, provider, apiKey };
+	customSnapshot().current = { config, provider, apiKey };
 	models.setProvider(provider);
 }
 
@@ -271,7 +263,7 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
  *  turn (or swap its key mid-turn). New engines resolve the fresh config. */
 export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 	if (spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
-		const snapshot = customSnapshot;
+		const snapshot = customSnapshot().current;
 		const model = snapshot?.provider.getModels().find((m) => m.id === spec.id);
 		if (!snapshot || !model) {
 			throw new Error(`${spec.provider} catalog has no model ${spec.id}`);

@@ -16,6 +16,7 @@
  * tests/extraction.test.ts with mock models.
  */
 
+import { processState } from "../src/platform/model/index.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
@@ -273,6 +274,19 @@ function scopedGraph(chatIds: string[]) {
 	return {
 		nodes: graph.nodes.filter((n) => n.provenance.some((pt) => chatIds.includes(pt.chatId))),
 		chains: graph.chains.filter((c) => c.provenance.some((pt) => chatIds.includes(pt.chatId))),
+	};
+}
+
+
+/** Swap the extraction run registry's entries for fakes; returns the restore. */
+function fakeExtractionRuns(entries: Array<[string, unknown]>): () => void {
+	const runs = processState<{ running: Map<string, unknown> }>("extractionRuns", () => ({ running: new Map() }));
+	const saved = [...runs.running];
+	runs.running.clear();
+	for (const [key, run] of entries) runs.running.set(key, run);
+	return () => {
+		runs.running.clear();
+		for (const [key, run] of saved) runs.running.set(key, run);
 	};
 }
 
@@ -941,18 +955,11 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 
 		// 409 — ANY registered extraction run: a mid-flight run could
 		// re-reference the dying node; the run is never aborted (its spend
-		// belongs to another session), the caller retries. The registry is
-		// the pipeline's globalThis store — a fake entry is the honest way
-		// to pin the gate without staging a real run.
-		const g = globalThis as { __lhExtractionRuns?: unknown };
-		const realRuns = g.__lhExtractionRuns;
-		g.__lhExtractionRuns = {
-			running: new Map([
-				["chat_busy", { chatId: "chat_busy", kind: "chat", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
-			]),
-			inFlight: new Set(),
-			lastStartedAt: 0,
-		};
+		// belongs to another session), the caller retries. A fake registry
+		// entry pins the gate without staging a real run.
+		const restore = fakeExtractionRuns([
+			["chat_busy", { chatId: "chat_busy", kind: "chat", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
+		]);
 		try {
 			assert.deepEqual(deleteGraphNode("n_gate_probe"), {
 				ok: false,
@@ -961,7 +968,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 				error: "An extraction is running — try again when it finishes",
 			});
 		} finally {
-			g.__lhExtractionRuns = realRuns;
+			restore();
 		}
 
 		// Success — the node dies, the version stamp moves.
@@ -1024,29 +1031,20 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 
 	it("running: true only for THIS session's chat-kind run (the registry pin)", async () => {
 		const chat = await fixtureChat("coverage running", [user("cov_r1", "running pin")].flat());
-		const g = globalThis as { __lhExtractionRuns?: unknown };
-		const realRuns = g.__lhExtractionRuns;
+		let restore = fakeExtractionRuns([
+			// a notes run for the same id is NOT this session's chat run
+			["src_notes", { chatId: "src_notes", kind: "notes", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
+			["other_chat", { chatId: "other_chat", kind: "chat", phase: "auditing", startedAt: 2, usage: {}, controller: new AbortController() }],
+		]);
 		try {
-			g.__lhExtractionRuns = {
-				running: new Map([
-					// a notes run for the same id is NOT this session's chat run
-					["src_notes", { chatId: "src_notes", kind: "notes", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
-					["other_chat", { chatId: "other_chat", kind: "chat", phase: "auditing", startedAt: 2, usage: {}, controller: new AbortController() }],
-				]),
-				inFlight: new Set(),
-				lastStartedAt: 0,
-			};
 			assert.equal((await sessionCoverage(chat.id))!.running, false, "no chat-kind run for this id");
-			g.__lhExtractionRuns = {
-				running: new Map([
-					[chat.id, { chatId: chat.id, kind: "chat", phase: "extracting", startedAt: 3, usage: {}, controller: new AbortController() }],
-				]),
-				inFlight: new Set(),
-				lastStartedAt: 0,
-			};
+			restore();
+			restore = fakeExtractionRuns([
+				[chat.id, { chatId: chat.id, kind: "chat", phase: "extracting", startedAt: 3, usage: {}, controller: new AbortController() }],
+			]);
 			assert.equal((await sessionCoverage(chat.id))!.running, true);
 		} finally {
-			g.__lhExtractionRuns = realRuns;
+			restore();
 		}
 	});
 

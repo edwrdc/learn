@@ -18,7 +18,7 @@ async function main() {
 	const all = await chatStore.listChats();
 	const chats = only ? all.filter((c) => c.id === only) : all;
 	console.log(`[backfill] ${chats.length} chats to extract`);
-	const { extraction: pipeline } = boot();
+	const { extraction: pipeline } = boot({ upkeep: false });
 	for (const chat of chats) {
 		const t0 = Date.now();
 		try {

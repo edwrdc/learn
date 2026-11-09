@@ -4,12 +4,6 @@
  * GET /api/chats/[id]/stream resolves here, and the remote abort
  * (/api/activity/abort, kind "turn") kills through here.
  *
- * Same globalThis discipline as turn-liveness.ts (read its header): Next
- * dev compiles each route as its own module instance, so a module-level
- * Map would be a DIFFERENT registry in the POST /api/chat entry and the
- * GET .../stream entry. globalThis spans module instances within the
- * process.
- *
  * Registration lifecycle: chat-handler registers the handle the moment
  * the turn starts (after the 409 guard) and its onFinish unregisters LAST
  * — after persist, usage, extraction, and endTurn — so anything that sees
@@ -26,15 +20,11 @@
  * write-ahead record + liveness TTL recovery cover the next mount.
  */
 
+import { processState } from "../platform/model/index.ts";
 import type { PiTurnHandle } from "./pi/durable-turn.ts";
 
-interface LhTurnRunsGlobal {
-	__lhTurnRuns?: Map<string, PiTurnHandle>;
-}
-
 function runs(): Map<string, PiTurnHandle> {
-	const g = globalThis as typeof globalThis & LhTurnRunsGlobal;
-	return (g.__lhTurnRuns ??= new Map<string, PiTurnHandle>());
+	return processState("turnRuns", () => new Map<string, PiTurnHandle>());
 }
 
 /** Register the chat's running turn (chat-handler, right after the durable

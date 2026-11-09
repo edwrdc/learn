@@ -10,23 +10,17 @@
  * the route would have written it; if it never materialized (the call
  * errored, the model re-posed and answered), the park is dropped silently.
  *
- * Lives on globalThis — the same module instance discipline as
- * turn-liveness: the dismiss route and the chat-handler entry must see the
- * SAME registry. Ephemeral by design; one parked dismissal per chat (last
+ * Ephemeral by design; one parked dismissal per chat (last
  * write wins — there is one dock, one discard).
  */
 
+import { processState } from "../platform/model/index.ts";
 import { ChatInputError } from "./model/input-events.ts";
 import type { DismissInput } from "./model/input-events.ts";
 import { writeDismissal } from "./turn-service.ts";
 
-interface LhGlobal {
-	__lhParkedDismissals?: Map<string, DismissInput>;
-}
-
 function registry(): Map<string, DismissInput> {
-	const g = globalThis as typeof globalThis & LhGlobal;
-	return (g.__lhParkedDismissals ??= new Map());
+	return processState("parkedDismissals", () => new Map<string, DismissInput>());
 }
 
 /** Park (or overwrite) the chat's dismissal intent. Called by the dismiss

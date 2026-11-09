@@ -26,6 +26,7 @@ const { stores } = await import("../src/stores.ts");
 const { settingsStore } = stores;
 const { chatStore } = stores;
 const { handleChatInput } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { resolveRoleSpec } = await import("../src/settings/model/resolution.ts");
 

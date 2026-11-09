@@ -21,6 +21,7 @@
  * deleted by this suite).
  */
 
+import { processState } from "../src/platform/model/index.ts";
 import "./support-tmp-data.ts";
 import "./support-durable.ts";
 import assert from "node:assert/strict";
@@ -1034,14 +1035,14 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 			extractionStatuses().some((run) => run.chatId === chatId && run.phase === "extracting"),
 			"the run is registered at start",
 		);
-		const g = globalThis as { __lhExtractionRuns?: { running: Map<string, unknown> } };
-		assert.ok(g.__lhExtractionRuns?.running.has(chatId), "the registry lives on globalThis — no module-instance split can hide runs");
+		const runs = processState<{ running: Map<string, unknown> }>("extractionRuns", () => ({ running: new Map() }));
+		assert.ok(runs.running.has(chatId), "the run is in the process-wide registry");
 		assert.deepEqual(await observer.runExtraction(chatId), { nodes: 0, chains: 0 }, "single-flight spans pipeline instances");
 
 		release();
 		assert.deepEqual(await first, { nodes: 0, chains: 0 }, "isolated job failure — the run resolves zeros");
 		assert.ok(!extractionStatuses().some((run) => run.chatId === chatId), "the registry entry clears when the run ends (however it ends)");
-		assert.ok(!g.__lhExtractionRuns?.running.has(chatId), "nothing leaks into the global registry");
+		assert.ok(!runs.running.has(chatId), "nothing leaks into the process-wide registry");
 	});
 
 	it("throws for unknown chats", async () => {

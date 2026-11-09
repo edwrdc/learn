@@ -27,7 +27,7 @@ after(async () => {
 
 describe("CLI extraction composition", () => {
 	it("boot wires the background seam the scripts' extraction rides", async () => {
-		boot();
+		await boot().recovered;
 		const chat = await chatStore.createChat("Scripts: background seam");
 		try {
 			const faux = createFauxCore({});

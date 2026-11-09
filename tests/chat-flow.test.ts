@@ -29,6 +29,7 @@ import {
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { bareQuestionTools } from "../src/session/agents.ts";
 import { handleChatInput, handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
 import { effectiveSettings, stores } from "../src/stores.ts";
 import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { deliverJobResult, setTurnRunner } from "../src/jobs/wake.ts";

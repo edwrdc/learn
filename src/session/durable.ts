@@ -3,8 +3,7 @@
  *
  * One SQLite database per PUBLIC chat id at PATHS.data/durable/<chatId>/. The
  * database has exactly ONE Harness owner in this process (the handle map
- * below — globalThis because Next dev hands every route its own module
- * instance). The chat's own transcript is the ROOT conversation; job and
+ * below). The chat's own transcript is the ROOT conversation; job and
  * sub-agent conversations share the file.
  *
  * TRANSCRIPT OWNERSHIP. Durable entries are the transcript. The app's
@@ -18,6 +17,7 @@
  * data/chats/<id>.json — see chats.ts, which owns the legacy import.
  */
 
+import { processState } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -97,10 +97,6 @@ export function durableDir(chatId: string): string {
 	return path.join(PATHS.data, "durable", chatId);
 }
 
-interface LhGlobal {
-	__lhDurableRuntimes?: Map<string, RuntimeSlot>;
-}
-
 /** One slot per chat id: the runtime's lifecycle. The slot is the single
  *  owner of the database handle. It stays in the map through `closing` until
  *  the Harness has settled, so no second Harness can open on the same
@@ -111,8 +107,7 @@ type RuntimeSlot =
 	| { readonly phase: "closing"; readonly done: Promise<void> };
 
 function slots(): Map<string, RuntimeSlot> {
-	const g = globalThis as typeof globalThis & LhGlobal;
-	return (g.__lhDurableRuntimes ??= new Map());
+	return processState("durableRuntimes", () => new Map<string, RuntimeSlot>());
 }
 
 /** Runs once per freshly opened chat database, BEFORE the scheduler resumes:
