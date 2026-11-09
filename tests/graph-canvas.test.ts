@@ -20,7 +20,7 @@ import {
 	DEFAULT_REGION_TUNING,
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
-} from "../src/graph/model/render-settings.ts";
+} from "../src/settings/model/graph-render.ts";
 import { isArgumentId } from "../src/graph/model/rules.ts";
 
 describe("zoomRatioOf (the sigma-compatible camera ratio)", () => {

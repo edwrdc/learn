@@ -2,10 +2,9 @@ import { processState } from "./platform/model/index.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { configureBackgroundRuns, createJobRunner, recoverStaleJobs, resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation, setBackgroundRetire, setBackgroundRun, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
 import { createExtractionPipeline, type ExtractionPipeline } from "./graph/index.ts";
-import { searchProvider } from "./tools/index.ts";
 import { resolveRoleSpec, type ModelRole } from "./settings/model/index.ts";
 import type { PiEngine } from "./platform/index.ts";
-import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey } from "./settings/index.ts";
+import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey, searchProvider } from "./settings/index.ts";
 import { openChatRuntime, setRuntimeBootstrap } from "./session/durable.ts";
 import { handleChatInput, resumeForegroundTurn } from "./session/turn.ts";
 

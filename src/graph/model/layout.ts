@@ -35,6 +35,7 @@ import {
 } from "d3-force";
 import type { GraphEdge, GraphNode, Position } from "./types.ts";
 import { seededRandom } from "../../session/model/index.ts";
+import { CHARGE_STRENGTH, CLUSTER_PULL_STRENGTH, INCREMENTAL_GRAVITY, LINK_DISTANCE, type DepthAnchorMode } from "../../settings/model/index.ts";
 
 /** A node the d3 simulation mutates (x/y/vx/vy; fx/fy = pinned). */
 export interface LayoutNode extends SimulationNodeDatum {
@@ -44,15 +45,6 @@ export interface LayoutNode extends SimulationNodeDatum {
 /** A link as d3 sees it (id strings resolve to node refs on init). */
 type SimLink = SimulationLinkDatum<LayoutNode>;
 
-/** How the inference rank is expressed spatially (playground, 2026-09-13):
- *  the graph's `follows`/`supports` edges encode derivation (premise →
- *  conclusion), so depth-0 nodes (no incoming edges — the fundamentals)
- *  can anchor a shared baseline and every derivation level rises from it.
- *  `vertical`: levels are horizontal rows, arrows point up.
- *  `radial`: levels are concentric rings, foundations at the center, the
- *  outer boundary IS the edge of the user's knowledge.
- *  `off`: today's free layout. */
-export type DepthAnchorMode = "off" | "vertical" | "radial";
 
 export interface DepthAnchor {
 	mode: DepthAnchorMode;
@@ -218,14 +210,12 @@ interface ImpLink {
 	conclusion: string;
 }
 
-export const LINK_DISTANCE = 40;
 /* Links TOUCHING an imp node get HALF the base rest length — the
  * argument's geometry (a converging point) sits tight against its
  * premises/conclusion instead of spread like a real proposition citizen
  * (owner ruling, rendering arc 2026-09-30). */
 const impLinkId = (v: string | number | { id: string }): string =>
 	typeof v === "object" ? v.id : String(v);
-export const CHARGE_STRENGTH = -240; // 2026-09-17: −120 → −240 (user: repulsion default too weak); the default is shared with render-settings (gm-centered in CHARGE_RANGE).
 /** Per-tick anchor re-blend: fraction of an anchored node's displacement
  *  from its previous position that SURVIVES each tick. 0.85 = gentle
  *  evolution where forces are strong, stillness where they are not —
@@ -240,13 +230,6 @@ const ANCHOR_RETENTION = 0.85;
  *  (position-space, alpha-independent) keeps gravity's transient sag
  *  from ever moving an anchored node at rest. */
 const BOOTSTRAP_GRAVITY = 0.2;
-/** Exported: the live sim reuses this so its rest state matches the
- *  server settle's equilibrium (one engine, one rest). */
-export const INCREMENTAL_GRAVITY = 0.12;
-/** Exported: default cluster-centroid pull strength (tuned by replay —
- *  compact enough to read as blobs, weak enough that cluster shape is
- *  still the edge network's). */
-export const CLUSTER_PULL_STRENGTH = 0.15;
 
 /**
  * The one force set. Returns a STOPPED simulation — callers drive it

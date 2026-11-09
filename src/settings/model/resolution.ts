@@ -22,7 +22,7 @@
  *   src/store/prompt-overrides.ts (segment list derived from source).
  */
 
-import { DEFAULT_RENDER_SETTINGS, type GraphRenderSettings } from "../../graph/model/index.ts";
+import { DEFAULT_RENDER_SETTINGS, type GraphRenderSettings } from "./graph-render.ts";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import type { SearchEngineId } from "../../tools/model/index.ts";
 import {

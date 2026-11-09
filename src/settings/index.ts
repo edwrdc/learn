@@ -2,3 +2,4 @@ export { customEndpointState, discoverCustomEndpointModels, engineForSnapshot, e
 export { deleteKey, initAuthEnv, isWritableAuthKey, keyStatuses, keyValue, mintDictationToken, providerKeyList, saveKey } from "./keys.ts";
 export { catalogContextLimits, checkChatSettings, checkModelsSettings, modelCatalog } from "./model-catalog.ts";
 export { readSettings, settingsStore, writeSettings, writeSettingsSection } from "./store.ts";
+export { searchAvailable, searchProvider, searchStatus } from "./search.ts";

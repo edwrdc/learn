@@ -1,6 +1,6 @@
 export { toRegistrations } from "./adapter.ts";
 export type { AppTool, AppToolResult } from "./adapter.ts";
-export { concludeResult, invalidInputResult, problemResult, questionResult, serverExecute, toToolResult } from "./execute.ts";
+export { invalidInputResult, questionResult, serverExecute, toToolResult } from "./execute.ts";
 export { findTool } from "./fs/find.ts";
 export { grepTool } from "./fs/grep.ts";
 export { lsTool } from "./fs/ls.ts";
@@ -9,5 +9,5 @@ export { resolveSourcePath } from "./fs/shared.ts";
 export { healEncodedArguments } from "./heal.ts";
 export { parsePageSpec, pdfExtract, pdfInfo, pdfPageCount, pdfProbe, pdfSearch, standardFontsDir } from "./pdf-ops.ts";
 export { createPdfReadTools } from "./pdf-read.ts";
-export { searchAvailable, searchProvider, searchStatus } from "./web/search.ts";
+export { braveProvider, resolveSearchEngineFor, tavilyProvider } from "./web/search.ts";
 export { createWebTools } from "./web/web.ts";

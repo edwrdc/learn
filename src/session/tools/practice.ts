@@ -15,18 +15,13 @@
  */
 
 import { Type } from "typebox";
-import type { AppTool } from "../../tools/index.ts";
 import { resolveTargetId } from "../../graph/model/index.ts";
-import { readTool } from "../../tools/index.ts";
-import { lsTool } from "../../tools/index.ts";
-import { findTool } from "../../tools/index.ts";
-import { grepTool } from "../../tools/index.ts";
 import { jobTools, type JobToolContext } from "../../jobs/index.ts";
 import { proberGraphTools, type GraphToolContext } from "../../graph/index.ts";
 import { activeProblemOf } from "../model/transcript.ts";
 import type { LhMessage } from "../model/transcript.ts";
-import { concludeResult, invalidInputResult, problemResult } from "../../tools/index.ts";
-import { healEncodedArguments } from "../../tools/index.ts";
+import { findTool, grepTool, healEncodedArguments, invalidInputResult, lsTool, readTool, type AppTool, type AppToolResult } from "../../tools/index.ts";
+import { CONCLUDE_ACK_TEXT } from "../model/types.ts";
 
 /** The record-reading context the gates need (the plan-tools idiom). */
 interface PracticeToolContext {
@@ -248,5 +243,33 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<
 		...(jobs?.research ? { research: jobs.research } : {}),
 		...(jobs ? { pdf: jobs.pdf! } : {}),
 		...(ctx.graph ? proberGraphTools(ctx.graph) : {}),
+	};
+}
+
+/** The practice pose's ack (practice sessions, owner 2026-10-04): unlike
+ *  a question, this result is FINAL — it persists (persistTurn filters
+ *  only QUESTION_TOOLS placeholders), because the learner's submissions
+ *  arrive as MESSAGES, never as this call's result. terminate: true ends
+ *  the turn at the pose; the commitment rides the call's arguments. */
+function problemResult(): AppToolResult<null> {
+	return {
+		content: [
+			{
+				type: "text",
+				text: "Problem posed — the turn ends here; the learner's thinking traces and answer commits arrive as labeled messages.",
+			},
+		],
+		details: null,
+		terminate: true,
+	};
+}
+
+/** The conclude ack: NOT terminate — the turn continues so the same reply
+ *  can reveal + pose the next problem. Text single-sourced in contracts
+ *  (CONCLUDE_ACK_TEXT — shared with the dismissal-synthesized pair). */
+function concludeResult(): AppToolResult<null> {
+	return {
+		content: [{ type: "text", text: CONCLUDE_ACK_TEXT }],
+		details: null,
 	};
 }

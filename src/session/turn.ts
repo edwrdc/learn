@@ -35,7 +35,7 @@ import {
 import { providerEventNote } from "../platform/index.ts";
 import { effectiveSettings, stores } from "../stores.ts";
 import { services } from "../boot.ts";
-import { searchAvailable, searchProvider } from "../tools/index.ts";
+import { searchAvailable, searchProvider } from "../settings/index.ts";
 import { modelKey, modelsNotConfigured, resolveConversationSpec, type EffectiveSettings } from "../settings/model/index.ts";
 import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";

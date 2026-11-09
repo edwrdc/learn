@@ -14,7 +14,7 @@
 
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { SEARCH_ENGINES, WRITABLE_TOOL_KEYS } from "../../tools/model/index.ts";
-import { sanitizeRenderSettings, type GraphRenderSettings } from "../../graph/model/index.ts";
+import { sanitizeRenderSettings, type GraphRenderSettings } from "./graph-render.ts";
 import { sanitizeCustomEndpoint } from "./custom-endpoint.ts";
 import {
 	BACKGROUND_MODEL_ROLES,

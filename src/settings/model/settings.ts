@@ -15,7 +15,7 @@
  * unrelated to the app release version. Migrations live in the adapter
  * (src/store/settings.ts), not here.
  *
- * Sanitizer contract (mirrors render-settings.ts discipline): whatever
+ * Sanitizer contract (the same discipline as graph-render.ts): whatever
  * arrives from disk or the network passes through sanitizeUserSettings
  * before use — never trusted raw. Strict on known fields, PRESERVES
  * unknown TOP-LEVEL keys verbatim (a newer record must never be destroyed
@@ -32,7 +32,7 @@ import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai"
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
 import type { SearchEngineId } from "../../tools/model/index.ts";
-import type { GraphRenderSettings } from "../../graph/model/index.ts";
+import type { GraphRenderSettings } from "./graph-render.ts";
 
 /** Every agent role in the app. The conversation pair (prober/teacher)
  *  resolves chat.model → strong slot; background roles resolve their own

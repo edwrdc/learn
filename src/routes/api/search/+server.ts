@@ -9,7 +9,7 @@
  * search API key", or the pinned-engine-key-missing case).
  */
 
-import { searchStatus } from "@/src/tools";
+import { searchStatus } from "@/src/settings";
 
 export async function GET() {
 	return Response.json(searchStatus());

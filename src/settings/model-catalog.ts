@@ -24,7 +24,7 @@ import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "./model/cus
 import { settingsStore } from "./store.ts";
 import { effectiveSettings } from "../stores.ts";
 import { keyValue } from "./keys.ts";
-import type { ChatSettings } from "../session/model/index.ts";
+import type { ModelChoice } from "./model/index.ts";
 import {
 	modelKey,
 	type CatalogDefaults,
@@ -222,7 +222,7 @@ export type SettingsValidation =
  *  - thinkingLevel: must be in the resolved model's supported list —
  *    the model the picker writes against (settings.model, else config's
  *    prober/teacher pin; one controller, so the two specs share it). */
-export function validateChatSettings(settings: ChatSettings): SettingsValidation {
+export function validateChatSettings(settings: ModelChoice): SettingsValidation {
 	return validateModelSettings(settings);
 }
 
@@ -299,7 +299,7 @@ export function clampModelsLevels(settings: ModelsSettings): ModelsSettings {
  *  slot (the conversation chain's fallback — what a settings-less chat
  *  would run). No model anywhere → rides unchecked (runtime clamps at
  *  engine build; the turn gate refuses the model-less chat anyway). */
-export function clampChatLevel(settings: ChatSettings, strong: EffectiveModelSpec | null): ChatSettings {
+export function clampChatLevel(settings: ModelChoice, strong: EffectiveModelSpec | null): ModelChoice {
 	if (settings.thinkingLevel === undefined) return settings;
 	const provider = settings.model?.provider ?? strong?.provider;
 	const id = settings.model?.id ?? strong?.id;
@@ -317,7 +317,7 @@ export function checkModelsSettings(settings: ModelsSettings): CheckedModels<Mod
 }
 
 /** A chat's level clamps against its own model, else the strong slot's. */
-export function checkChatSettings(settings: ChatSettings, strong: EffectiveModelSpec | null): CheckedModels<ChatSettings> {
+export function checkChatSettings(settings: ModelChoice, strong: EffectiveModelSpec | null): CheckedModels<ModelChoice> {
 	const verdict = validateChatSettings(settings);
 	return verdict.ok ? { ok: true, value: clampChatLevel(settings, strong) } : verdict;
 }

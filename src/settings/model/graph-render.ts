@@ -1,14 +1,9 @@
 /**
- * Graph render settings: the shape, the defaults, the sanitizer, and the
- * slider mapping (log-scaled, default-centered) — shared by the client (src/lib/home/graph-canvas.ts,
- * GraphView.svelte), the server store (src/store/render-settings.ts, which
- * persists them to data/render-settings.json), and the API route.
- *
- * This module is pure: no DOM, no d3, no node APIs — safe everywhere.
- *
- * Settings are server-persisted (render-settings.json); the localStorage era
- * is over. Whatever arrives from disk or the network is passed through
- * sanitizeRenderSettings before use — never trusted raw.
+ * Graph render settings (the settings.json `graphRender` section): the
+ * shape, the defaults, the sanitizer, and the slider mapping (log-scaled,
+ * default-centered) the graph view's controls use. Pure: safe everywhere.
+ * Whatever arrives from disk or the network passes through
+ * sanitizeRenderSettings before use.
  *
  * SIZE SEMANTICS (2026-09-15 pivot): nodeSize, labelSize, arrowLength and
  * regions.dilation are WORLD UNITS — the same law as the physics spacings.
@@ -32,13 +27,27 @@
  * fine-grained log sliders (user: "very fine tunable... good as they are").
  */
 
-import {
-	CHARGE_STRENGTH,
-	CLUSTER_PULL_STRENGTH,
-	INCREMENTAL_GRAVITY,
-	LINK_DISTANCE,
-	type DepthAnchorMode,
-} from "./layout.ts";
+/** Physics defaults: the user tunes these in the graph view; the server
+ *  settle and the live simulation both start from them. */
+/** How the inference rank is expressed spatially (playground, 2026-09-13):
+ *  the graph's `follows`/`supports` edges encode derivation (premise →
+ *  conclusion), so depth-0 nodes (no incoming edges — the fundamentals)
+ *  can anchor a shared baseline and every derivation level rises from it.
+ *  `vertical`: levels are horizontal rows, arrows point up.
+ *  `radial`: levels are concentric rings, foundations at the center, the
+ *  outer boundary IS the edge of the user's knowledge.
+ *  `off`: today's free layout. */
+export type DepthAnchorMode = "off" | "vertical" | "radial";
+
+export const LINK_DISTANCE = 40;
+export const CHARGE_STRENGTH = -240; // 2026-09-17: −120 → −240 (user: repulsion default too weak); gm-centered in CHARGE_RANGE.
+/** Exported: the live sim reuses this so its rest state matches the
+ *  server settle's equilibrium (one engine, one rest). */
+export const INCREMENTAL_GRAVITY = 0.12;
+/** Exported: default cluster-centroid pull strength (tuned by replay —
+ *  compact enough to read as blobs, weak enough that cluster shape is
+ *  still the edge network's). */
+export const CLUSTER_PULL_STRENGTH = 0.15;
 
 export interface GraphRenderSettings {
 	/** Node, label, arrow and region-dilation sizes are WORLD units. */
