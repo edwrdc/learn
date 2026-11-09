@@ -22,6 +22,7 @@
  *   src/store/prompt-overrides.ts (segment list derived from source).
  */
 
+import { DEFAULT_RENDER_SETTINGS, type GraphRenderSettings } from "../../graph/model/index.ts";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import type { SearchEngineId } from "../../tools/model/index.ts";
 import {
@@ -78,6 +79,7 @@ export interface EffectiveSettings {
 	/** Compaction (owner round 14): resolved concrete — absent record
 	 *  section resolves to the factory 150k. */
 	compaction: Required<CompactionSettings>;
+	graphRender: GraphRenderSettings;
 }
 
 /** `top` over `base`, each field independent; undefined when neither names
@@ -159,6 +161,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		compaction: {
 			thresholdTokens: record?.compaction?.thresholdTokens ?? FACTORY_SETTINGS.compaction.thresholdTokens,
 		},
+		graphRender: record?.graphRender ?? DEFAULT_RENDER_SETTINGS,
 	};
 }
 

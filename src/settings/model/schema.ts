@@ -14,6 +14,7 @@
 
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { SEARCH_ENGINES, WRITABLE_TOOL_KEYS } from "../../tools/model/index.ts";
+import { sanitizeRenderSettings, type GraphRenderSettings } from "../../graph/model/index.ts";
 import { sanitizeCustomEndpoint } from "./custom-endpoint.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
@@ -225,6 +226,13 @@ function choicesBy<K extends string>(keys: readonly K[], noun: string, requireMo
 	};
 }
 
+/** The graph view's sliders: a disk value or a body snaps and clamps into
+ *  range, never a 400 (the sliders only produce valid values). */
+const graphRender: Field<GraphRenderSettings> = {
+	read: (raw) => (asRecord(raw) ? sanitizeRenderSettings(raw) : undefined),
+	write: (raw) => (asRecord(raw) ? ok(sanitizeRenderSettings(raw)) : fail("Invalid JSON body")),
+};
+
 /** The sections PUT /api/settings/[section] writes. */
 export const SETTINGS_SECTIONS = {
 	agent: section<AgentSettings>({
@@ -251,6 +259,7 @@ export const SETTINGS_SECTIONS = {
 	compaction: section<CompactionSettings>({
 		thresholdTokens: tokens(COMPACTION_THRESHOLD_FLOOR, "compaction keeps a ~20k-token recent tail — smaller budgets would churn it"),
 	}),
+	graphRender,
 };
 
 export type SettingsSection = keyof typeof SETTINGS_SECTIONS;

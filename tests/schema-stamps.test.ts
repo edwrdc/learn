@@ -2,7 +2,7 @@
  * SCHEMA STAMPS (schema-versioning wave, owner 2026-10-10): LAZY v1 for
  * chats (record.version, stamped at the write choke point) and the graph
  * family (data/graph/format.json sidecar — ledgers, sources,
- * render-settings; positions deliberately unversioned, rebuildable).
+ * positions deliberately unversioned, rebuildable).
  * Honest refusal: records stamped NEWER than this build are refused on
  * read (the downgrade scenario) — never misparsed, never rewritten.
  *
@@ -24,7 +24,6 @@ process.env.LH_DATA_DIR = TMP_DATA;
 const { chatStore } = await import("../src/session/store.ts");
 const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 const { graphStore } = await import("../src/graph/store.ts");
-const { readRenderSettings, writeRenderSettings } = await import("../src/graph/render-settings-store.ts");
 const { GRAPH_FORMAT_FILE } = await import("../src/platform/config.ts");
 
 test.after(() => {
@@ -77,7 +76,6 @@ test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)
 test("graph: reads never write — no sidecar appears from reading alone", async () => {
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "no sidecar before any write");
 	assert.deepEqual(graphStore.readNodes(), [], "ledger reads fine without a sidecar");
-	assert.equal(readRenderSettings(), null, "render-settings reads fine without a sidecar");
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "reads did NOT create the sidecar (lazy = write-side only)");
 });
 
@@ -100,15 +98,6 @@ test("graph: a NEWER-stamped sidecar is refused honestly", async () => {
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: 99 }), "utf-8");
 	assert.throws(() => graphStore.readNodes(), /older than its data|format version 99/);
 	assert.throws(() => graphStore.readSources(), /older than its data|format version 99/);
-	assert.throws(() => readRenderSettings(), /older than its data|format version 99/);
-});
-
-test("render-settings: its write stamps the family sidecar too", async () => {
-	fs.rmSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true, force: true });
-	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE));
-	const written = writeRenderSettings({ sizeUnits: "world", nodeSize: 3 });
-	assert.equal(written.nodeSize, 3);
-	assert.equal(JSON.parse(fs.readFileSync(GRAPH_FORMAT_FILE, "utf8")).version, 1, "the render-settings write stamped the family");
 });
 
 // ── the fixtures stay the legacy pin: golden data reads unstamped ───────────

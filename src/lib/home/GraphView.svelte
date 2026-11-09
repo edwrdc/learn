@@ -113,7 +113,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 			savePending = true;
 			return;
 		}
-		void fetch("/api/graph/render-settings", {
+		void fetch("/api/settings/graphRender", {
 			method: "PUT",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(settings),
@@ -186,10 +186,11 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	});
 
 	$effect(() => {
-		fetch("/api/graph/render-settings")
-			.then((res) => (res.ok ? (res.json() as Promise<unknown>) : null))
-			.then((raw) => {
-				if (raw !== null && !userTouched) settings = sanitizeRenderSettings(raw);
+		fetch("/api/settings")
+			.then((res) => (res.ok ? (res.json() as Promise<{ settings: { graphRender?: unknown } | null }>) : null))
+			.then((body) => {
+				const raw = body?.settings?.graphRender;
+				if (raw !== undefined && !userTouched) settings = sanitizeRenderSettings(raw);
 			})
 			.catch(() => {})
 			.finally(() => {

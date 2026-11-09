@@ -32,6 +32,7 @@ import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai"
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CUSTOM_ENDPOINT_PROVIDER_ID, type CustomEndpointConfig } from "./custom-endpoint.ts";
 import type { SearchEngineId } from "../../tools/model/index.ts";
+import type { GraphRenderSettings } from "../../graph/model/index.ts";
 
 /** Every agent role in the app. The conversation pair (prober/teacher)
  *  resolves chat.model → strong slot; background roles resolve their own
@@ -364,6 +365,8 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	/** The graph view's render and physics sliders. */
+	graphRender?: GraphRenderSettings;
 	[key: string]: unknown;
 }
 

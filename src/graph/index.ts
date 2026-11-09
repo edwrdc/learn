@@ -6,6 +6,5 @@ export { NotesImportError, abortExtraction, createExtractionPipeline, extraction
 export type { ExtractionPhase, ExtractionPipeline, RunningExtraction } from "./extraction/pipeline.ts";
 export { AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool } from "./extraction/submit-role.ts";
 export type { SubmitRunInput } from "./extraction/submit-role.ts";
-export { readRenderSettings, writeRenderSettings } from "./render-settings-store.ts";
 export { deleteGraphNode, graphCosts, graphRevision, graphView } from "./service.ts";
 export { graphStore } from "./store.ts";

@@ -71,15 +71,9 @@ export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
  *  Carries an updatedAt stamp for future live-physics conflict handling. */
 export const POSITIONS_FILE = path.join(PATHS.graph, "positions.json");
 
-/**
- * Graph render settings (the settings-panel controls): one small JSON blob,
- * read-modify-write. Shared shape/sanitizer: src/core/render-settings.ts.
- */
-export const RENDER_SETTINGS_FILE = path.join(PATHS.graph, "render-settings.json");
-
 /** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
- *  2026-10-10): one version for the whole family — the four JSONL ledgers,
- *  sources.json, render-settings.json. LAZY v1: absent = v1; the first
+ *  2026-10-10): one version for the whole family — the four JSONL ledgers
+ *  and sources.json. LAZY v1: absent = v1; the first
  *  graph-family write creates it. positions.json is REBUILDABLE and rides
  *  along unversioned by design (owner ruling). */
 export const GRAPH_FORMAT_FILE = path.join(PATHS.graph, "format.json");

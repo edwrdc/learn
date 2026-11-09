@@ -16,6 +16,7 @@ const parseModelsSettingsBody = (body: unknown) => parseSection("models", body);
 const parseAppearanceSettingsBody = (body: unknown) => parseSection("appearance", body);
 const parseCompactionSettingsBody = (body: unknown) => parseSection("compaction", body);
 const parseGraphSettingsBody = (body: unknown) => parseSection("graph", body);
+const parseGraphRenderBody = (body: unknown) => parseSection("graphRender", body);
 
 describe("parseAgentSettingsBody", () => {
 	it("models: valid roles with model pair and/or thinkingLevel; unknown role is a 400 with the list", () => {
@@ -217,7 +218,7 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
 	it("maps exactly the writable record sections", () => {
-		assert.deepEqual(Object.keys(SETTINGS_SECTIONS).sort(), ["agent", "appearance", "compaction", "graph", "models"]);
+		assert.deepEqual(Object.keys(SETTINGS_SECTIONS).sort(), ["agent", "appearance", "compaction", "graph", "graphRender", "models"]);
 	});
 });
 
@@ -264,5 +265,15 @@ describe("parseModelsSettingsBody (model slots wave, 2026-09-20)", () => {
 		assert.equal(parseModelsSettingsBody({ cheap: { model: { provider: "x" } } }).ok, false);
 		assert.equal(parseModelsSettingsBody({ vision: { thinkingLevel: 7 } }).ok, false);
 		assert.equal(parseModelsSettingsBody("nope").ok, false);
+	});
+});
+
+describe("graphRender section (the graph view's sliders)", () => {
+	it("snaps and clamps instead of refusing, and refuses only a non-object", () => {
+		const r = parseGraphRenderBody({ nodeSize: 2.2, physics: { chargeStrength: -9000 } });
+		assert.ok(r.ok);
+		assert.equal(r.value.nodeSize, 2);
+		assert.equal(r.value.physics.chargeStrength, -480);
+		assert.equal(parseGraphRenderBody("x").ok, false);
 	});
 });

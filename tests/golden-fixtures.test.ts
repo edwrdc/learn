@@ -40,7 +40,6 @@ const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 const { graphStore } = await import("../src/graph/store.ts");
 const { jobStore } = await import("../src/jobs/store.ts");
 const { settingsStore } = await import("../src/settings/store.ts");
-const { readRenderSettings } = await import("../src/graph/render-settings-store.ts");
 const { getGraph, deriveView } = await import("../src/graph/snapshot.ts");
 const { sanitizeRenderSettings } = await import("../src/graph/model/render-settings.ts");
 const { toLlmMessages } = await import("../src/session/model/transcript.ts");
@@ -184,9 +183,8 @@ assert.ok(derived.chains.length >= 150, "chains survive derivation");
 	assert.ok(view.logicalEdges.length > 0, "logical edge contraction runs");
 });
 
-test("graph: render-settings sanitize and positions parse", async () => {
-	const raw = readRenderSettings();
-	assert.ok(raw, "render-settings.json reads");
+test("graph: old render settings sanitize and positions parse", async () => {
+	const raw: unknown = JSON.parse(fs.readFileSync(path.join(TMP, "graph", "render-settings.json"), "utf8"));
 	const clean = sanitizeRenderSettings(raw);
 	assert.ok(clean.nodeSize > 0 && typeof clean.labelZoom === "number", "sanitizes to concrete knobs");
 	const positionsFile = JSON.parse(fs.readFileSync(path.join(TMP, "graph", "positions.json"), "utf8")) as {
