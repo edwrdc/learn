@@ -53,7 +53,8 @@ import { accumulateJobUsage, type JobUsage } from "./model/types.ts";
 import { usageFromPi } from "../session/model/index.ts";
 import { auditorGraphTools, AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool, type GraphToolContext, type SubmitRunInput } from "../graph/index.ts";
 import { toRegistrations } from "../tools/index.ts";
-import { bindRunEngine, unbindRunEngine, type PiEngine } from "../platform/index.ts";
+import { bindRunEngine, modelSnapshot, runsSnapshot, unbindRunEngine, type PiEngine } from "../platform/index.ts";
+import { modelKey } from "../settings/model/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
 import { openChatRuntime, type ChatRuntime } from "../session/index.ts";
 import {
@@ -355,7 +356,7 @@ function runSteps(entries: readonly EntryRecord[]): RunStep[] {
 		if (message?.role !== "assistant" || message.stopReason === "aborted" || !message.usage) continue;
 		steps.push({
 			step: steps.length + 1,
-			model: `${message.provider}:${message.model}`,
+			model: modelKey(message.provider ?? "", message.model ?? ""),
 			usage: message.usage,
 			finishReason: message.stopReason ?? "",
 			tools:
@@ -410,12 +411,7 @@ function descriptorOf(
 		chatId: request.chatId,
 		kind: request.kind,
 		role: request.role,
-		model: {
-			provider: engine.model.provider,
-			modelId: engine.model.id,
-			...(engine.level ? { thinking: engine.level } : {}),
-			...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
-		},
+		model: modelSnapshot(engine),
 		sessionId,
 		maxTurns: request.maxTurns,
 		systemPrompt: request.systemPrompt,
@@ -515,15 +511,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 	const conversation = await runtime.harness.conversation(conversationId, BACKGROUND_CONTEXT);
 	if (!conversation) throw new Error(`background run ${descriptor.runId}: conversation missing`);
 	const services = backgroundServices();
-	const requestedModel = request.engine.model;
-	const sameEndpoint =
-		!descriptor.model.baseUrl || requestedModel.baseUrl === descriptor.model.baseUrl;
-	const engine =
-		requestedModel.provider === descriptor.model.provider &&
-		requestedModel.id === descriptor.model.modelId &&
-		sameEndpoint
-			? request.engine
-			: services.resolveEngine?.(descriptor);
+	const engine = runsSnapshot(request.engine, descriptor.model) ? request.engine : services.resolveEngine?.(descriptor);
 	if (!engine) throw new Error(`no model available for background run ${descriptor.runId}`);
 	bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
 	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request));
@@ -539,7 +527,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 	let usageWatch: Awaited<ReturnType<ChatRuntime["harness"]["watchDoc"]>> | undefined;
 	try {
 		await conversation.configure(agentChange(descriptor, extension), BACKGROUND_CONTEXT);
-		const model = `${engine.model.provider}:${engine.model.id}`;
+		const model = modelKey(engine.model.provider, engine.model.id);
 		let emittedSteps = 0;
 		const reportProgress = async () => {
 			await foldUsage(conversation, model, request.onUsage ?? (() => undefined)).catch(() => undefined);
@@ -682,7 +670,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 			// endpoint). Throw before scheduling; the committed input and run
 			// stay intact and the next open retries.
 			throw new Error(
-				`the pending background run ${jobId} cannot be restored: its model ${descriptor.model.provider}:${descriptor.model.modelId} is unavailable`,
+				`the pending background run ${jobId} cannot be restored: its model ${modelKey(descriptor.model.provider, descriptor.model.modelId)} is unavailable`,
 			);
 		}
 		bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));

@@ -19,7 +19,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../settings/model/index.ts";
 import type { JobUsage } from "./model/types.ts";
 import type { JobKind, SearchProvider } from "../tools/model/index.ts";
-import type { PiEngine } from "../platform/index.ts";
+import type { ModelSnapshot, PiEngine } from "../platform/index.ts";
 import type { GraphToolContext } from "../graph/index.ts";
 import type { HeadlessApi } from "./headless.ts";
 import { processState } from "../platform/model/index.ts";
@@ -96,15 +96,6 @@ export type RunState =
 	| SubmitRunState
 	| CompactRunState;
 
-/** The safe (secret-free) selection stored for recovery. */
-export interface RunModel {
-	provider: string;
-	modelId: string;
-	thinking?: string;
-	/** Endpoint snapshot identity for a custom provider (never a credential). */
-	baseUrl?: string;
-}
-
 export interface RunDescriptor {
 	/** Stable run identity (the durable index key and role-factory input). */
 	runId: string;
@@ -115,7 +106,7 @@ export interface RunDescriptor {
 	chatId: string;
 	kind: BackgroundKind;
 	role: RunRole;
-	model: RunModel;
+	model: ModelSnapshot;
 	/** The child conversation's provider session id; the Models router keys
 	 *  this run's engine binding on it. */
 	sessionId: string;

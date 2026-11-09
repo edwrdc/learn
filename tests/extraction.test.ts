@@ -554,15 +554,15 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		const ledgers = memoryLedgers();
 		const extractor = fauxEngine([]);
 		const auditor = fauxEngine([]);
-		const seen: Array<[string, ModelSlotName]> = [];
+		const seen: Array<[string, ModelSlotName[]]> = [];
 		const pipeline = createExtractionPipeline({
 			chatStore,
 			graphStore: ledgers,
 			extractor,
 			auditor,
-			providerKeyMissing: (provider, tier) => {
-				seen.push([provider, tier]);
-				return providerKeyMissing(provider, [tier]);
+			providerKeyMissing: (provider, slots) => {
+				seen.push([provider, slots]);
+				return providerKeyMissing(provider, slots);
 			},
 		});
 		await assert.rejects(pipeline.runExtraction(chatId), (err: unknown) => {
@@ -574,7 +574,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		});
 		// FIRST offender surfaces (extractor before auditor) — and nothing
 		// ran: the refusal lands before any batch, no coverage writes.
-		assert.deepEqual(seen, [[extractor.model.provider, "cheap"]]);
+		assert.deepEqual(seen, [[extractor.model.provider, ["cheap"]]]);
 		assert.equal(ledgers.readCoverage().length, 0);
 	});
 
@@ -587,7 +587,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 			graphStore: ledgers,
 			extractor: fauxEngine([]),
 			auditor: fauxEngine([]),
-			providerKeyMissing: (provider, tier) => (calls++ < 1 ? null : providerKeyMissing(provider, [tier])),
+			providerKeyMissing: (provider, slots) => (calls++ < 1 ? null : providerKeyMissing(provider, slots)),
 		});
 		await assert.rejects(pipeline.runExtraction(chatId), (err: unknown) => {
 			assert.ok(err instanceof ProviderKeyMissingError, "the auditor's refusal surfaces after the extractor passed");

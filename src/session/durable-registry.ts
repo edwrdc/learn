@@ -22,7 +22,7 @@ import type { GraphStore } from "../graph/model/index.ts";
 import type { JobStore } from "../jobs/model/index.ts";
 import type { JobRecord } from "../jobs/model/index.ts";
 import { compactionCutOf, type CompactionCut, type LhMessage } from "./model/transcript.ts";
-import { agentFor, chatPhase, type ChatPhase } from "./model/phases.ts";
+import { agentFor, type ChatPhase } from "./model/phases.ts";
 import { composeInstructions } from "./agents.ts";
 import { createProberTools, createTeacherTools } from "./tools/registry.ts";
 import { practiceTools } from "./tools/practice.ts";
@@ -212,30 +212,36 @@ function requestFilterHook(runtime: ChatRuntime, cut: CompactionCut | null) {
 	});
 }
 
-/** What the caller may override for one turn: a test-authored tool registry
- *  (the loop/protocol suites drive narrow tool sets) and the phase a
- *  RECOVERED run was admitted under (see ChatPhase). */
-export interface PrepareOptions {
-	tools?: Record<string, unknown>;
-	phase?: ChatPhase;
+/** What one turn runs with, resolved once: the phase picks the agent, and
+ *  the agent's prompt (with the user's prompt switches) is both what the
+ *  conversation is configured with and what the compaction estimate counts. */
+export interface TurnProfile {
+	phase: ChatPhase;
+	engine: PiEngine;
+	effective: EffectiveSettings;
+	instructions: string;
+}
+
+export function turnProfile(phase: ChatPhase, engine: PiEngine, effective: EffectiveSettings): TurnProfile {
+	return { phase, engine, effective, instructions: composeInstructions(agentFor(phase), effective.agent.prompts) };
 }
 
 /** Install (or replace) the app extension and configure the conversation for
- *  the coming turn. `messages` is the transcript the turn will run on. */
+ *  the coming turn. `messages` is the transcript the turn will run on;
+ *  `tools` replaces the phase's tool set (the loop/protocol suites drive
+ *  narrow ones). */
 export async function prepareConversation(
 	runtime: ChatRuntime,
-	chatId: string,
 	messages: readonly LhMessage[],
-	kind: string | undefined,
-	engine: PiEngine,
-	effective: EffectiveSettings,
+	profile: TurnProfile,
 	deps: ConversationDeps,
-	options?: PrepareOptions,
+	tools?: Record<string, unknown>,
 ): Promise<void> {
-	const phase = options?.phase ?? chatPhase(messages, kind);
+	const { chatId } = runtime;
+	const { engine, phase } = profile;
 	const extension = defineExtension({
 		name: "lh",
-		tools: options?.tools ? toRegistrations(options.tools) : toolsFor(phase, chatId, deps, effective),
+		tools: tools ? toRegistrations(tools) : toolsFor(phase, chatId, deps, profile.effective),
 		hooks: [
 			questionStopHook(chatId),
 			uniqueCallIdsHook(new Set(collectToolCallIds(messages))),
@@ -243,16 +249,15 @@ export async function prepareConversation(
 		],
 	});
 	runtime.registry.install(extension);
-	const agent = agentFor(phase);
 	// The root conversation's provider session id IS the public chat id
-	// (store/durable.ts init), so binding the chat id binds this turn's
+	// (session/durable.ts init), so binding the chat id binds this turn's
 	// engine for its requests only — a background child never shares it.
-	bindRunEngine(chatId, engine, providerEventObserver(chatId, agent));
+	bindRunEngine(chatId, engine, providerEventObserver(chatId, agentFor(phase)));
 	await runtime.root.configure(
 		{
 			model: { provider: engine.model.provider, modelId: engine.model.id },
 			...(engine.level ? { thinkingLevel: engine.level as never } : {}),
-			instructions: composeInstructions(agent, effective.agent.prompts),
+			instructions: profile.instructions,
 			// The registry IS the enabled set (the tool toggles already
 			// filtered it); the stored filter stays unset so it never widens.
 			tools: null,

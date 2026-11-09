@@ -15,13 +15,15 @@ import {
 	type DiscoveredCustomModel,
 } from "./model/custom-endpoint.ts";
 import { genericProviderKeyGuard } from "./model/auth-keys.ts";
-import { setCustomEndpointProvider, piEngineForSpec, piModels, type PiEngine, type ResolvedModelSpec } from "../platform/index.ts";
+import { setCustomEndpointProvider, piEngineForSpec, piModels, runsSnapshot, type ModelSnapshot, type PiEngine, type ResolvedModelSpec } from "../platform/index.ts";
+import { modelKey, providerKeyMissing, type ModelSlotName, type ProviderKeyMissing } from "./model/index.ts";
 import { settingsStore } from "./store.ts";
 import { authStore } from "./auth-store.ts";
 import {
 	deleteSecretVar,
 	secretFromRealEnv,
 	keyValue,
+	providerKeyPresent,
 	saveSecretVar,
 } from "./keys.ts";
 
@@ -96,10 +98,13 @@ export function customEndpointState(): CustomEndpointState {
 	};
 }
 
-/** True when the CURRENT stored endpoint has a usable key (the provider-key
- *  gate's custom-endpoint verdict; the key itself never leaves this module). */
-export function customEndpointKeyPresent(): boolean {
-	return customEndpointState().keyPresent;
+/** The refusal for work about to run on `provider` when its key is gone,
+ *  else null. A pinned model is not enough: without the key the run dies
+ *  mid-stream with a generic provider error. */
+export function missingProviderKey(provider: string, slots: ModelSlotName[]): ProviderKeyMissing | null {
+	const present =
+		provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customEndpointState().keyPresent : providerKeyPresent(provider);
+	return present ? null : providerKeyMissing(provider, slots);
 }
 
 export type CustomEndpointWriteResult =
@@ -293,4 +298,20 @@ export function catalogModels() {
 export function engineForSpec(spec: ResolvedModelSpec): PiEngine {
 	syncCustomEndpointProvider();
 	return piEngineForSpec(spec);
+}
+
+/** Rebuild a recovered run's engine from its snapshot, or undefined when
+ *  that model can no longer run it. */
+export function engineForSnapshot(snapshot: ModelSnapshot): PiEngine | undefined {
+	try {
+		const engine = engineForSpec({
+			provider: snapshot.provider,
+			id: snapshot.modelId,
+			thinkingLevel: snapshot.thinking as ResolvedModelSpec["thinkingLevel"],
+		});
+		return runsSnapshot(engine, snapshot) ? engine : undefined;
+	} catch (error) {
+		console.info(`[models] cannot restore ${modelKey(snapshot.provider, snapshot.modelId)}:`, error);
+		return undefined;
+	}
 }

@@ -8,6 +8,18 @@
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import type { BackgroundModelRole, ModelSlotName } from "./settings.ts";
 
+/** A model's app-wide key, `<provider>:<id>` (usage, prices, limits). */
+export function modelKey(provider: string, id: string): string {
+	return `${provider}:${id}`;
+}
+
+/** The inverse of modelKey; a bare id has no provider. */
+export function parseModelKey(key: string): { provider: string | null; id: string } {
+	const colon = key.indexOf(":");
+	if (colon === -1) return { provider: null, id: key };
+	return { provider: key.slice(0, colon), id: key.slice(colon + 1) };
+}
+
 /** One picker row: everything the UI shows about a model, projected from
  *  pi-ai's catalog. Costs are USD per 1M tokens (the same catalog, the same
  *  units core/prices.ts's generated table carries). NULL means the price is

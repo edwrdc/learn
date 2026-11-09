@@ -46,7 +46,7 @@ import {
 	danglingQuestionOf,
 	needsContinuation,
 } from "../src/session/model/transcript.ts";
-import { prepareConversation } from "../src/session/durable-registry.ts";
+import { prepareConversation, turnProfile } from "../src/session/durable-registry.ts";
 import { effectiveSettings, stores } from "../src/stores.ts";
 import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+server.ts";
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
@@ -459,7 +459,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 
 		const faux = createFauxCore({});
 		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
-		await prepareConversation(runtime, chat.id, [], undefined, engine, effectiveSettings(), {
+		await prepareConversation(runtime, [], turnProfile("probe", engine, effectiveSettings()), {
 			chatStore: stores.chatStore,
 			graphStore: stores.graphStore,
 			jobStore: stores.jobStore,

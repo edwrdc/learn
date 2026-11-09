@@ -1569,15 +1569,15 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		// The injected check is the server seam's stand-in: it sees the
 		// engine's provider + the kind's slot tier, exactly as wired.
 		const engine = fauxEngine([]);
-		const seen: Array<[string, ModelSlotName]> = [];
+		const seen: Array<[string, ModelSlotName[]]> = [];
 		const runner = createJobRunner({
 			chatStore,
 			jobStore,
 			deliver: delivery.deliver,
 			engineFor: () => engine,
-			providerKeyMissing: (provider, tier) => {
-				seen.push([provider, tier]);
-				return providerKeyMissing(provider, [tier]);
+			providerKeyMissing: (provider, slots) => {
+				seen.push([provider, slots]);
+				return providerKeyMissing(provider, slots);
 			},
 		});
 		await runner.runJob(job.id);
@@ -1588,7 +1588,7 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		assert.equal(done.status, "error", "the job lands error, never a phantom run");
 		assert.equal(done.error, providerKeyMissing(engine.model.provider, ["cheap"]).error, "the envelope's error line verbatim");
 		assert.equal(done.refusal, "provider_key_missing", "the refusal carries its code");
-		assert.deepEqual(seen, [[engine.model.provider, "cheap"]], "the check saw the engine's provider + the researcher's tier");
+		assert.deepEqual(seen, [[engine.model.provider, ["cheap"]]], "the check saw the engine's provider + the researcher's tier");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
 			delivery.steers[0]!.content.includes(`Research failed: No ${engine.model.provider} key is set`),

@@ -52,6 +52,32 @@ export interface PiEngine {
 
 export type { ThinkingLevel };
 
+/** The secret-free model selection a run was admitted under; recovery
+ *  rebuilds the run's engine from it, never from later settings. */
+export interface ModelSnapshot {
+	provider: string;
+	modelId: string;
+	thinking?: string;
+	baseUrl?: string;
+}
+
+export function modelSnapshot(engine: PiEngine): ModelSnapshot {
+	return {
+		provider: engine.model.provider,
+		modelId: engine.model.id,
+		...(engine.level ? { thinking: engine.level } : {}),
+		...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
+	};
+}
+
+/** Does the engine run the snapshot's model? A custom endpoint edited to
+ *  another base URL must not take over a run admitted against the old one. */
+export function runsSnapshot(engine: PiEngine, snapshot: ModelSnapshot): boolean {
+	if (engine.model.provider !== snapshot.provider || engine.model.id !== snapshot.modelId) return false;
+	if (snapshot.provider !== CUSTOM_ENDPOINT_PROVIDER_ID || !snapshot.baseUrl) return true;
+	return engine.model.baseUrl === snapshot.baseUrl;
+}
+
 /** The process-wide pi-ai Models collection — EVERY builtin provider's
  *  catalog (model slots wave, 2026-09-20): engines and the picker resolve
  *  against all of pi-ai's per-provider catalogs, so a settings slot can pin

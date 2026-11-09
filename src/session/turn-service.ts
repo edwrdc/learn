@@ -55,16 +55,7 @@ import {
 import type { ChatPhase } from "./model/phases.ts";
 import { usageFromPi, type CallUsage } from "./model/types.ts";
 import type { Message } from "@earendil-works/pi-ai";
-
-/** The safe (secret-free) model selection a turn was admitted under. The
- *  recovered turn rebuilds its engine from THIS, never from later settings. */
-export interface TurnModel {
-	provider: string;
-	modelId: string;
-	thinking?: string;
-	/** Custom-endpoint snapshot identity (never a credential). */
-	baseUrl?: string;
-}
+import type { ModelSnapshot } from "../platform/index.ts";
 
 /** One foreground turn's durable admission + settle descriptor: everything a
  *  later process needs to rebuild the finish path, with no closure and no
@@ -80,7 +71,7 @@ export interface ForegroundTurn {
 	requestId: string;
 	/** `<provider>:<model>` the run was admitted under (TurnUsage's model). */
 	modelId: string;
-	model: TurnModel;
+	model: ModelSnapshot;
 	/** The extension identity at admission — the phase must not flip when the
 	 *  interrupted run already committed a probe_done. */
 	phase: ChatPhase;

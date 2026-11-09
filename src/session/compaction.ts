@@ -123,10 +123,9 @@ export async function awaitCompaction(chatId: string): Promise<void> {
 
 /** Resolve the effective trigger. Unknown window → the setting alone
  *  (honest: no fake window — the catalog-index precedent). */
-export function effectiveThresholdTokens(settingTokens: number | undefined, contextWindowTokens: number | undefined): number {
-	const setting = settingTokens ?? 150_000;
-	if (contextWindowTokens === undefined) return setting;
-	return Math.min(setting, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
+export function effectiveThresholdTokens(settingTokens: number, contextWindowTokens: number | undefined): number {
+	if (contextWindowTokens === undefined) return settingTokens;
+	return Math.min(settingTokens, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
 }
 
 // ─── the estimate over the ACTIVE projection ────────────────────────────────

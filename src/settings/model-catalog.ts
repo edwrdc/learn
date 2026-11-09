@@ -25,13 +25,14 @@ import { settingsStore } from "./store.ts";
 import { effectiveSettings } from "../stores.ts";
 import { keyValue } from "./keys.ts";
 import type { ChatSettings } from "../session/model/index.ts";
-import type {
-	CatalogDefaults,
-	CatalogProvider,
-	ModelCatalogEntry,
-	ModelCatalogResponse,
-	RolePins,
-	SlotPins,
+import {
+	modelKey,
+	type CatalogDefaults,
+	type CatalogProvider,
+	type ModelCatalogEntry,
+	type ModelCatalogResponse,
+	type RolePins,
+	type SlotPins,
 } from "./model/models.ts";
 import type { EffectiveModelSpec } from "./model/resolution.ts";
 import { AUTH_PROVIDER_KEYS } from "./model/auth-keys.ts";
@@ -182,7 +183,7 @@ export function catalogContextLimits(): Map<string, number> {
 	for (const provider of catalog.getProviders()) {
 		if (!keyed.has(provider.id)) continue;
 		for (const model of catalog.getModels(provider.id)) {
-			index.set(`${provider.id}:${model.id}`, model.contextWindow);
+			index.set(modelKey(provider.id, model.id), model.contextWindow);
 		}
 	}
 	return index;

@@ -12,7 +12,7 @@ process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 process.env.OPENROUTER_API_KEY ??= "test-key-openrouter-custom-endpoint";
 
 const {
-	customEndpointKeyPresent,
+	missingProviderKey,
 	customEndpointState,
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
@@ -174,17 +174,17 @@ describe("custom endpoint E2E", () => {
 	it("a restored run refuses an edited endpoint base URL and its snapshot carries no credential", async () => {
 		const saved = saveLocal({ apiKey: KEY });
 		assert.ok(saved.ok, saved.ok ? "" : saved.error);
-		const { engineForModel } = await import("../src/session/turn.ts");
+		const { engineForSnapshot } = await import("../src/settings/index.ts");
 		const snapshot = { provider: "custom-endpoint", modelId: MODEL_ID, baseUrl: `${base}/v1` };
-		const engine = engineForModel(snapshot);
+		const engine = engineForSnapshot(snapshot);
 		assert.ok(engine, "the captured endpoint restores");
 		assert.equal(engine!.model.baseUrl, `${base}/v1`);
 		assert.ok(!JSON.stringify(engine!.model).includes(KEY), "the model snapshot carries no credential");
 
 		const moved = saveLocal({ baseUrl: `${base}/v2`, apiKey: KEY });
 		assert.ok(moved.ok, moved.ok ? "" : moved.error);
-		assert.equal(engineForModel(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
-		assert.ok(engineForModel({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
+		assert.equal(engineForSnapshot(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
+		assert.ok(engineForSnapshot({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
 		setCustomEndpointProvider(null);
 	});
 
@@ -498,7 +498,7 @@ describe("custom endpoint E2E", () => {
 		assert.equal(removed.keyPresent, false);
 		assert.ok(!fs.readFileSync(path.join(TMP, "auth.json"), "utf8").includes(KEY), "stored key is gone");
 		assert.ok(!modelCatalog().models.some((m) => m.provider === "custom-endpoint"), "removed models leave the picker");
-		assert.equal(customEndpointKeyPresent(), false);
+		assert.notEqual(missingProviderKey("custom-endpoint", ["strong"]), null, "the removed endpoint has no key");
 
 		const record = (await chatStore.getChat(chat.id))!;
 		assert.deepEqual(record.messages, before, "chats are not rewritten by endpoint removal");

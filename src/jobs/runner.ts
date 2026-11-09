@@ -57,7 +57,7 @@ export interface JobRunnerDeps {
 	 *  refusal envelope when the provider's key is missing (null = run).
 	 *  Injected because the agent layer may not read the key store; absent
 	 *  in tests that inject engines directly (test engines never owe a key). */
-	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
+	providerKeyMissing?: (provider: string, slots: ModelSlotName[]) => ProviderKeyMissing | null;
 }
 
 export interface JobRunner {
@@ -104,7 +104,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		const engine = deps.engineFor?.(role.model);
 		const refusal = !engine
 			? { code: MODELS_NOT_CONFIGURED_CODE, reason: `${modelsNotConfigured([tier]).error} (missing: ${tier})` }
-			: refusalOf(deps.providerKeyMissing?.(engine.model.provider, tier) ?? null);
+			: refusalOf(deps.providerKeyMissing?.(engine.model.provider, [tier]) ?? null);
 		if (refusal || !engine) {
 			console.info(`[job ${jobId}] refused — ${refusal?.reason}`);
 			jobStore.updateJob(jobId, { refusal: refusal?.code });

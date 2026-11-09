@@ -24,8 +24,7 @@ import { firstLineById } from "../graph/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { PiEngine } from "../platform/index.ts";
-import type { ModelRole } from "../settings/model/index.ts";
+import { modelSnapshot, type ModelSnapshot, type PiEngine } from "../platform/index.ts";
 import {
 	deliverJobResult,
 	markSteerDelivered,
@@ -37,13 +36,7 @@ import { providerEventNote } from "../platform/index.ts";
 import { effectiveSettings, stores } from "../stores.ts";
 import { services } from "../boot.ts";
 import { searchAvailable, searchProvider } from "../tools/index.ts";
-import { providerKeyPresent } from "../settings/index.ts";
-import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../settings/model/index.ts";
-import {
-	resolveConversationSpec,
-	resolveRoleSpec,
-} from "../settings/model/index.ts";
-import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../settings/model/index.ts";
+import { modelKey, modelsNotConfigured, resolveConversationSpec, type EffectiveSettings } from "../settings/model/index.ts";
 import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
@@ -59,13 +52,10 @@ import {
 	triggerExtraction,
 	writeTurn,
 	type ForegroundTurn,
-	type TurnModel,
 } from "./turn-service.ts";
 import { danglingQuestionOf } from "./model/transcript.ts";
-import { composeInstructions } from "./agents.ts";
-import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
-import { catalogContextLimits } from "../settings/index.ts";
-import { customEndpointKeyPresent, customEndpointState, engineForSpec } from "../settings/index.ts";
+import { ensureCompacted, kickCompaction, effectiveThresholdTokens, type CompactionDeps } from "./compaction.ts";
+import { catalogContextLimits, engineForSpec, missingProviderKey } from "../settings/index.ts";
 import { emit } from "../platform/model/index.ts";
 import {
 	ChatInputError,
@@ -76,6 +66,7 @@ import {
 import { steerDelivered } from "../jobs/model/index.ts";
 import type { SteerMessage } from "../jobs/model/index.ts";
 import { modelTextOf, type LhMessage } from "./model/transcript.ts";
+import type { ChatRecord } from "./model/types.ts";
 import {
 	CONTINUATION_KIND,
 	CONTINUATION_TEXT,
@@ -86,50 +77,50 @@ import {
 	ChatRuntimeInitError,
 	type ChatRuntime,
 } from "./durable.ts";
-import { prepareConversation, type ConversationDeps } from "./durable-registry.ts";
+import { prepareConversation, turnProfile, type ConversationDeps, type TurnProfile } from "./durable-registry.ts";
 import { chatPhase } from "./model/phases.ts";
 import { runDurableTurn } from "./pi/durable-turn.ts";
 import type { RunDescriptor } from "../jobs/index.ts";
 
-export function providerHasKey(provider: string): boolean {
-	return provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customEndpointKeyPresent() : providerKeyPresent(provider);
+/** The chat's conversation engine (its model override over the strong
+ *  slot), or the 503 body when the turn cannot run: no model, no provider
+ *  key, or a model the catalog no longer has. A test's scripted engine
+ *  replaces the resolved one after the gates. */
+function conversationEngine(
+	settings: ChatRecord["settings"],
+	effective: EffectiveSettings,
+	injected?: PiEngine,
+): { engine: PiEngine } | { refusal: object } {
+	const spec = resolveConversationSpec(settings, effective.models.strong);
+	if (!spec) return { refusal: modelsNotConfigured(["strong"]) };
+	const missingKey = missingProviderKey(spec.provider, ["strong"]);
+	if (missingKey) return { refusal: missingKey };
+	try {
+		return { engine: injected ?? engineForSpec(spec) };
+	} catch (error) {
+		console.error(`[models] ${modelKey(spec.provider, spec.id)} unavailable:`, error);
+		return {
+			refusal: {
+				error: "The selected model is no longer available — update your model settings",
+				code: "model_unavailable",
+			},
+		};
+	}
 }
 
-/** The settings-resolved engine for one role — BYOK (owner, 2026-09-22):
- *  the chain (role override → slot → NOTHING) may end empty, and undefined
- *  flows through to the per-need refusal gates (runner/extraction), read
- *  FRESH so a settings PUT between dispatch and spawn lands. */
-export function resolveEngine(role: ModelRole): PiEngine | undefined {
-	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
-	if (!spec) return undefined;
-	try {
-		return engineForSpec(spec);
-	} catch (error) {
-		console.info(`[models] no engine for role ${role}: ${error instanceof Error ? error.message : String(error)}`);
-		return undefined;
-	}
-}
-
-
-
-/** Rebuild a recovered run's engine from its SAFE snapshot. A custom
- *  endpoint edited to another base URL must not silently take over a run
- *  that captured the old one; no credential is ever stored in the snapshot. */
-export function engineForModel(model: TurnModel): PiEngine | undefined {
-	if (model.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
-		const endpoint = customEndpointState().endpoint;
-		if (!endpoint || (model.baseUrl && endpoint.baseUrl !== model.baseUrl)) return undefined;
-	}
-	try {
-		return engineForSpec({
-			provider: model.provider,
-			id: model.modelId,
-			thinkingLevel: model.thinking as never,
-		});
-	} catch (error) {
-		console.info(`[models] cannot restore ${model.provider}:${model.modelId}:`, error);
-		return undefined;
-	}
+function compactionDeps(profile: TurnProfile): CompactionDeps {
+	const modelId = modelKey(profile.engine.model.provider, profile.engine.model.id);
+	return {
+		chatStore: stores.chatStore,
+		engine: profile.engine,
+		modelId,
+		kind: profile.phase,
+		thresholdTokens: effectiveThresholdTokens(
+			profile.effective.compaction.thresholdTokens,
+			catalogContextLimits().get(modelId),
+		),
+		systemPromptTokens: tokensForChars(profile.instructions.length),
+	};
 }
 
 /** A committed app marker is its steer's visibility moment (the delivery
@@ -147,7 +138,7 @@ function noteTurnEntry(chatId: string, entry: EntryRecord): void {
  *  finish path as a live turn. Runs from the runtime bootstrap, before
  *  `harness.resume()`, and THROWS when the run cannot be rebuilt: the open
  *  fails closed rather than schedule an uninitialized run. */
-export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (model: TurnModel) => PiEngine | undefined): Promise<void> {
+export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (model: ModelSnapshot) => PiEngine | undefined): Promise<void> {
 	const turn = await readTurn(runtime);
 	if (!turn || turn.settle === "settled") return;
 	// The committed submission is the admission proof: a descriptor written
@@ -171,18 +162,14 @@ export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (mod
 		const engine = engineFor(turn.model);
 		if (!engine) {
 			throw new Error(
-				`the interrupted turn's model is unavailable (${turn.model.provider}:${turn.model.modelId})`,
+				`the interrupted turn's model is unavailable (${modelKey(turn.model.provider, turn.model.modelId)})`,
 			);
 		}
 		await prepareConversation(
 			runtime,
-			runtime.chatId,
 			projectEntries(entries),
-			undefined,
-			engine,
-			effectiveSettings(),
+			turnProfile(turn.phase, engine, effectiveSettings()),
 			conversationDeps(),
-			{ phase: turn.phase },
 		);
 		providerEventNote(runtime.chatId, "turn", `run resumed (base: ${turn.baseEntryCount} entries)`);
 	}
@@ -287,30 +274,10 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		kickCompaction(async () => {
 			const fresh = effectiveSettings();
 			const current = await stores.chatStore.getChat(chatId);
-			const spec = resolveConversationSpec(current?.settings, fresh.models.strong);
-			if (!spec) return null;
-			let kickEngine: PiEngine;
-			try {
-				kickEngine = engineForSpec(spec);
-			} catch {
-				return null;
-			}
-			const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
-			const freshRecord = await stores.chatStore.getChat(chatId);
-			if (!freshRecord) return null;
-			return {
-				chatStore: stores.chatStore,
-				engine: kickEngine,
-				modelId: kickModelId,
-				kind: chatPhase(freshRecord.messages, freshRecord.kind),
-				thresholdTokens: effectiveThresholdTokens(
-					fresh.compaction?.thresholdTokens,
-					catalogContextLimits().get(kickModelId),
-				),
-				systemPromptTokens: Math.ceil(
-					tokensForChars(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length),
-				),
-			};
+			if (!current) return null;
+			const resolved = conversationEngine(current.settings, fresh);
+			if ("refusal" in resolved) return null;
+			return compactionDeps(turnProfile(chatPhase(current.messages, current.kind), resolved.engine, fresh));
 		}, chatId);
 }
 
@@ -410,69 +377,26 @@ export async function handleChatInput(
 			return Response.json({ error: "Unknown chat" }, { status: 404 });
 		}
 
-		// THE UNIVERSAL TURN GATE (BYOK, owner, 2026-09-22): a turn needs the
-		// CONVERSATION chain — the chat's own model override over the strong
-		// slot — and there is no factory floor; when both are empty the turn
-		// refuses honestly with the machine-readable 503 envelope (new sessions
-		// and continuing ones alike — wake-pipeline turns ride this same path).
+		// THE TURN GATE (BYOK): no model, no provider key or a model the
+		// catalog lost refuses with the machine-readable 503 envelope, for new
+		// sessions, continuing ones and wake-pipeline turns alike.
 		const effective = effectiveSettings();
-		const conversation = resolveConversationSpec(record.settings, effective.models.strong);
-		if (!conversation) {
-			const envelope = modelsNotConfigured(["strong"]);
-			console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
-			return Response.json(envelope, { status: 503 });
+		const resolved = conversationEngine(record.settings, effective, turn?.engine);
+		if ("refusal" in resolved) {
+			console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(resolved.refusal)}`);
+			return Response.json(resolved.refusal, { status: 503 });
 		}
-
-		// THE KEY-PRESENCE GATE (provider-key interlude, owner, 2026-09-25): a
-		// pinned model is not enough — its PROVIDER's key must be present, or
-		// the turn dies mid-stream masked to a generic error. Truth is env-first
-		// (providerKeyPresent reads what pi-ai would read at request time), so
-		// an env-shadowed key passes.
-		if (!providerHasKey(conversation.provider)) {
-			const envelope = providerKeyMissingEnvelope(conversation.provider, ["strong"]);
-			console.info(`[chat ${chatId}] turn refused — ${JSON.stringify(envelope)}`);
-			return Response.json(envelope, { status: 503 });
-		}
-
-		// The engine is the app's one provider adapter (models.ts): production
-		// resolves the chat's spec (the custom endpoint's provider + credential
-		// snapshot is captured here), tests inject a scripted engine.
-		let engine: PiEngine;
-		try {
-			engine = turn?.engine ?? engineForSpec(conversation);
-		} catch (error) {
-			console.error(`[chat ${chatId}] model unavailable:`, error);
-			return Response.json(
-				{
-					error: "The selected model is no longer available — update your model settings",
-					code: "model_unavailable",
-				},
-				{ status: 503 },
-			);
-		}
-
+		const { engine } = resolved;
 		const runtime = await openChatRuntime(chatId);
-		const phaseBeforeTurn = chatPhase(record.messages, record.kind);
-		const modelId = `${engine.model.provider}:${engine.model.id}`;
+		const modelId = modelKey(engine.model.provider, engine.model.id);
 
 		// THE COMPACTION GATE: NOTHING model-facing
 		// for this chat interleaves with a running compaction — await the settle
 		// kick's summary, compact synchronously if still over threshold. The
 		// record re-reads after because compaction appends the marker.
-		if (services().upkeep) await ensureCompacted(
-			{
-				chatStore: stores.chatStore,
-				engine,
-				modelId,
-				kind: phaseBeforeTurn,
-				thresholdTokens: effectiveThresholdTokens(
-					effective.compaction?.thresholdTokens,
-					catalogContextLimits().get(modelId),
-				),
-				systemPromptTokens: tokensForChars(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length),
-			},
-			chatId,
-		);
+		if (services().upkeep) {
+			await ensureCompacted(compactionDeps(turnProfile(chatPhase(record.messages, record.kind), engine, effective)), chatId);
+		}
 		record = (await stores.chatStore.getChat(chatId)) ?? record;
 
 		// The input's native appends (pure; the honest 400 for an answer with no
@@ -575,7 +499,7 @@ export async function handleChatInput(
 			// The live view starts at the admission boundary, exactly like recovery:
 			// replaying the whole chat would resend every earlier reply and tool round.
 			const replayAfter = baseEntryCount > 0 ? admittedEntries[baseEntryCount - 1]!.id : undefined;
-			const phase = chatPhase(baseMessages, record.kind);
+			const profile = turnProfile(chatPhase(baseMessages, record.kind), engine, effective);
 			// The durable admission descriptor: everything a later process needs to
 			// rebuild this turn's finish path (see turn-service's ForegroundTurn).
 			// Written BEFORE submit; only a committed submission makes it recoverable.
@@ -583,13 +507,8 @@ export async function handleChatInput(
 				turnId: turnUsageId,
 				requestId: `turn:${turnUsageId}`,
 				modelId,
-				model: {
-					provider: engine.model.provider,
-					modelId: engine.model.id,
-					...(engine.level ? { thinking: engine.level } : {}),
-					...(engine.model.baseUrl ? { baseUrl: engine.model.baseUrl } : {}),
-				},
-				phase,
+				model: modelSnapshot(engine),
+				phase: profile.phase,
 				baseEntryCount,
 				settle: "running",
 			};
@@ -597,10 +516,7 @@ export async function handleChatInput(
 			let submission: Awaited<ReturnType<ChatRuntime["root"]["submit"]>>;
 			try {
 				await writeTurn(runtime, admission);
-				await prepareConversation(runtime, chatId, baseMessages, record.kind, engine, effective, deps, {
-					tools: turn?.tools,
-					phase,
-				});
+				await prepareConversation(runtime, baseMessages, profile, deps, turn?.tools);
 				// Debug recorder run marker: correlates the
 				// JSONL event stream with the record's turns; no-op unless
 				// LH_PROVIDER_EVENTS=1.

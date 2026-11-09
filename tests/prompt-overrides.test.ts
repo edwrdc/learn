@@ -48,7 +48,7 @@ const { DELETE: deletePromptText } = await import("../src/routes/api/settings/pr
 const { readSettings } = await import("../src/settings/store.ts");
 const { chatStore } = await import("../src/session/store.ts");
 const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
-const { prepareConversation } = await import("../src/session/durable-registry.ts");
+const { prepareConversation, turnProfile } = await import("../src/session/durable-registry.ts");
 const { effectiveSettings, stores } = await import("../src/stores.ts");
 const { BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
 
@@ -330,9 +330,9 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 				graphNodes: () => [],
 			};
 			const base = effectiveSettings();
-			await prepareConversation(runtime, chat.id, [], undefined, engine, { ...base, agent: { ...base.agent, prompts: { "system-prompt.md": true } } }, deps);
+			await prepareConversation(runtime, [], turnProfile("probe", engine, { ...base, agent: { ...base.agent, prompts: { "system-prompt.md": true } } }), deps);
 			assert.ok((await runtime.root.agent(BACKGROUND_CONTEXT)).instructions?.includes("TOTALLY CUSTOM BASE"));
-			await prepareConversation(runtime, chat.id, [], undefined, engine, base, deps);
+			await prepareConversation(runtime, [], turnProfile("probe", engine, base), deps);
 			assert.ok(
 				!(await runtime.root.agent(BACKGROUND_CONTEXT)).instructions?.includes("TOTALLY CUSTOM BASE"),
 				"no switches → source instructions",

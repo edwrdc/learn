@@ -54,7 +54,6 @@ import {
 import { authStore } from "./auth-store.ts";
 import {
 	CUSTOM_ENDPOINT_KEY_ID,
-	CUSTOM_ENDPOINT_PROVIDER_ID,
 	isCustomEndpointKeyId,
 } from "./model/custom-endpoint.ts";
 
@@ -205,16 +204,11 @@ export function secretFromRealEnv(id: string): boolean {
 	return boot().realEnv.has(id) && process.env[id] !== undefined;
 }
 
-/** The key-presence truth for one model provider (provider-key interlude,
- * 2026-09-25): would this provider's key be present at request time?
- * Reads through keyValue — the SAME env-first lookup pi-ai performs
- * natively at every request — so an env-shadowed key counts as present
- * (gate by what would run). Providers absent from AUTH_PROVIDER_KEYS take
- * no key at all: nothing to gate, present by definition. The custom
- * endpoint is special-cased by its composition (its key is origin-bound),
- * so callers pass that verdict explicitly. */
-export function providerKeyPresent(provider: string, customEndpointKeyPresent = false): boolean {
-	if (provider === CUSTOM_ENDPOINT_PROVIDER_ID) return customEndpointKeyPresent;
+/** Would this builtin provider's key be present at request time? Reads
+ * through keyValue, the same env-first lookup pi-ai performs at every
+ * request, so an env-shadowed key counts. Providers absent from
+ * AUTH_PROVIDER_KEYS take no key at all. */
+export function providerKeyPresent(provider: string): boolean {
 	const info = AUTH_PROVIDER_KEYS.find((p) => p.id === provider);
 	return info ? keyValue(info.envVar) !== undefined : true;
 }

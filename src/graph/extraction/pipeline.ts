@@ -488,7 +488,7 @@ export interface ExtractionModels {
 	 *  (the agent layer may not read the key store); absent in tests that
 	 *  inject engines directly (test engines never owe a key). A keyless
 	 *  stage refuses with ProviderKeyMissingError BEFORE any batch runs. */
-	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
+	providerKeyMissing?: (provider: string, slots: ModelSlotName[]) => ProviderKeyMissing | null;
 }
 
 export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
@@ -558,7 +558,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// auditor); fixing that key re-gates and the next run surfaces the
 		// next offender, if any.
 		for (const [role, engine] of stages) {
-			const refusal = deps.providerKeyMissing?.(engine!.model.provider, ROLE_SLOT[role]);
+			const refusal = deps.providerKeyMissing?.(engine!.model.provider, [ROLE_SLOT[role]]);
 			if (refusal) {
 				console.info(`[extraction] refused — ${JSON.stringify(refusal)}`);
 				throw new ProviderKeyMissingError(refusal.provider, refusal.slots);

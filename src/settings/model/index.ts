@@ -4,6 +4,7 @@ export { CUSTOM_ENDPOINT_PROVIDER_ID } from "./custom-endpoint.ts";
 export type { CustomEndpointConfig, CustomEndpointModel } from "./custom-endpoint.ts";
 export { KEYBOARD_ACTIONS, actionForBinding, bindingForAction, eventBinding, formatBinding, isTypingSurface, kbdEventForAction, loadOverrides, saveOverrides } from "./keyboard.ts";
 export type { KeyAction, KeyScope } from "./keyboard.ts";
+export { modelKey, parseModelKey } from "./models.ts";
 export type { ModelCatalogEntry, ModelCatalogResponse } from "./models.ts";
 export { FRAGMENT_RE, isValidSegmentPath } from "./prompt-segments.ts";
 export type { PromptAgent, PromptSegmentInfo } from "./prompt-segments.ts";
