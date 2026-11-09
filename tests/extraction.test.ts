@@ -21,6 +21,7 @@
  * deleted by this suite).
  */
 
+import type { SessionFindings } from "../src/graph/model/findings.ts";
 import { processState } from "../src/platform/model/index.ts";
 import "./support-tmp-data.ts";
 import "./support-durable.ts";
@@ -33,12 +34,12 @@ import type { PiEngine } from "../src/platform/engines.ts";
 import type { LhMessage } from "../src/session/model/transcript.ts";
 import { newPlanBlockMessage } from "../src/session/model/transcript.ts";
 import { projectView as projectNative } from "../src/session/model/view.ts";
-import type { AuditVerdicts, CoverageEntry, GraphChain, GraphNode, NotesSource, SessionCheckpoint, SessionFindings } from "../src/graph/model/types.ts";
+import type { AuditVerdicts, CoverageEntry, GraphChain, GraphNode, NotesSource, SessionCheckpoint } from "../src/graph/model/types.ts";
 import type { ExtractionRunUsage } from "../src/session/model/types.ts";
 import type { GraphStore } from "../src/graph/model/ports.ts";
 import {
 	abortExtraction,
-	createExtractionPipeline,
+	createExtractionPipeline as createPipeline,
 	NotesImportError,
 	extractionStatuses,
 	transcriptView,
@@ -50,6 +51,16 @@ import {
 	EXTRACTOR_INSTRUCTIONS,
 	NOTES_EXTRACTOR_INSTRUCTIONS,
 } from "../src/graph/extraction/pipeline.ts";
+import type { ExtractionPipelineDeps } from "../src/graph/extraction/pipeline.ts";
+
+/** Pipelines with a scripted engine per stage, wired through engineFor. */
+function createExtractionPipeline(deps: ExtractionPipelineDeps & { extractor?: PiEngine; auditor?: PiEngine }) {
+	const { extractor, auditor, ...rest } = deps;
+	return createPipeline({
+		...rest,
+		engineFor: (role) => (role === "extractor" ? extractor : role === "auditor" ? auditor : undefined) ?? rest.engineFor?.(role),
+	});
+}
 import { getGraph, simplifyChains } from "../src/graph/snapshot.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/settings/model/settings.ts";
 import { coverageOf, coverageSlots, messageViewLines } from "../src/graph/coverage.ts";

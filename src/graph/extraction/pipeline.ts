@@ -1,3 +1,4 @@
+import type { SessionFindings } from "../model/findings.ts";
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../../settings/model/index.ts";
@@ -11,7 +12,7 @@ import {
 } from "../../settings/model/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
 import { withBgLlmSlot } from "../../jobs/index.ts";
-import type { AuditVerdicts, SessionFindings } from "../model/types.ts";
+import type { AuditVerdicts, CoverageEntry } from "../model/types.ts";
 import type { CallUsage, ChatRecord, ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../snapshot.ts";
 import type { GraphStore } from "../model/ports.ts";
@@ -133,7 +134,6 @@ function proseView(messages: ReadonlyArray<LhMessage>, title?: string): string {
 // The submit wire shapes, weak-model fills and semantic validators live in
 // ./submit-role.ts: the durable role factory rebuilds the exact same submit
 // tool from the persisted run descriptor after a restart.
-type NotesFindings = SessionFindings;
 
 // ── the extractor's system prompt (owner redesign, 2026-09-30) ──
 //
@@ -229,59 +229,30 @@ export function sourceDigest(graph: DerivedGraph, sourceId: string): string {
 	return lines.join("\n");
 }
 
-/** The extractor over ONE session transcript (the chat front door).
- *  `batchIds` — the CURRENT batch's teacher-prose message ids — is the
- *  anchor boundary: every submitted proposition's messageId must name
- *  one of them (validateSessionAnchors at the submit seam). */
+/** The extractor over one unit of a source. A chat batch submits
+ *  session findings whose every messageId must name one of `anchors` (the
+ *  batch's teacher-prose ids, checked at the submit seam); a notes chunk
+ *  submits the base wire, with no passages to anchor to. */
 function runExtractor(
+	kind: "chat" | "notes",
 	engine: PiEngine | undefined,
 	sourceId: string,
 	prompt: string,
 	existingIds: ReadonlySet<string>,
-	batchIds: ReadonlySet<string>,
+	anchors: ReadonlySet<string> | undefined,
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
 ): Promise<SessionFindings> {
-	// Chains in (the wire), chains out (the store) — no translation seam
-	// since chains-primary. Validation runs at the submit seam (error-back)
-	// over the MIXED namespace: local ids + existing graph ids, plus the
-	// session anchor law (messageId ∈ the current batch, 2026-10-13).
 	return runSubmitAgent<SessionFindings>({
 		role: "extractor",
-		variant: "session-findings",
+		variant: kind === "chat" ? "session-findings" : "notes-findings",
 		// The durable owner is the source (the chat id / notes src id); the
 		// run key is deterministic, so a retried batch reattaches its
 		// conversation instead of billing another copy.
 		run: { chatId: sourceId, jobId: submitRunKey("extract", sourceId, prompt) },
 		existingIds: [...existingIds],
-		batchIds: [...batchIds],
-		systemPrompt: EXTRACTOR_INSTRUCTIONS,
-		prompt,
-		engine,
-		signal,
-		onStep,
-		neverSubmitted: "the extractor never submitted findings",
-	});
-}
-
-/** The extractor over ONE source of raw personal notes (the format-agnostic
- *  front door): same single-submit shape, notes-mode prompt + schema —
- *  the BASE wire (no messageId: notes have no passages, and a stray one
- *  is stripped at the fill seam). */
-function runNotesExtractor(
-	engine: PiEngine | undefined,
-	sourceId: string,
-	prompt: string,
-	existingIds: ReadonlySet<string>,
-	signal: AbortSignal | undefined,
-	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
-): Promise<NotesFindings> {
-	return runSubmitAgent<NotesFindings>({
-		role: "extractor",
-		variant: "notes-findings",
-		run: { chatId: sourceId, jobId: submitRunKey("extract", sourceId, prompt) },
-		existingIds: [...existingIds],
-		systemPrompt: NOTES_EXTRACTOR_INSTRUCTIONS,
+		...(anchors ? { batchIds: [...anchors] } : {}),
+		systemPrompt: kind === "chat" ? EXTRACTOR_INSTRUCTIONS : NOTES_EXTRACTOR_INSTRUCTIONS,
 		prompt,
 		engine,
 		signal,
@@ -383,6 +354,8 @@ export type ExtractionPhase = "queued" | "extracting" | "waiting" | "auditing" |
 /** One in-flight pipeline run. Module-level: one process, one registry.
  *  Exported for the status payload's consumer typing (the dock). */
 export interface RunningExtraction {
+	/** The registry key: the source id, plus "#i" for a chunk job. */
+	id: string;
 	/** The SOURCE id (chat id / notes src id) — the payload's identity and
 	 *  the abort key. The registry KEY adds "#i" for chunk jobs (a
 	 *  multi-chunk source owns several entries); this field stays the
@@ -467,11 +440,40 @@ export async function stopExtraction(chatId: string): Promise<void> {
 }
 // ─── the pipeline ───────────────────────────────────────────────────────────
 
+/** One registry row's identity: its key, source and display. */
+interface ExtractionJob {
+	key: string;
+	sourceId: string;
+	kind: "chat" | "notes";
+	label?: string;
+	part?: { i: number; n: number };
+}
+
+/** One unit a source is extracted in (a chat batch, a notes chunk). */
+interface SourceUnit {
+	/** What the extractor reads. */
+	view: string;
+	/** Chat batches: the teacher-prose ids propositions may anchor to. */
+	anchors?: ReadonlySet<string>;
+	/** Chat batches: the coverage rows the merge checkpoints. */
+	coverage?: (foldedAt: string) => CoverageEntry[];
+}
+
+/** What one extraction run walks, unit by unit, in order. */
+interface ExtractionSource {
+	id: string;
+	kind: "chat" | "notes";
+	label?: string;
+	units: SourceUnit[];
+	/** The merge stamp; absent = the merge time. */
+	foldedAt?: string;
+	/** Throws an AbortError when the source vanished mid-run. */
+	assertPresent?: () => Promise<void>;
+}
+
+const isAbort = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
+
 export interface ExtractionModels {
-	/** Test seam: a scripted engine per stage — checked FIRST, ahead of the
-	 *  engineFor chain (production wires no direct values). */
-	extractor?: PiEngine;
-	auditor?: PiEngine;
 	/** Settings-resolved engine per role — the same slot treatment the
 	 *  job runner got, read FRESH per stage call (a settings PUT between
 	 *  stages lands). BYOK (owner, 2026-09-22): the chain (role override →
@@ -549,21 +551,17 @@ export function callUsage(usage: Usage): CallUsage {
 
 export function createExtractionPipeline(deps: ExtractionPipelineDeps): ExtractionPipeline {
 	const { chatStore, graphStore } = deps;
-	// Stage-engine resolution: a direct test value wins; otherwise the
-	// engineFor chain (role override → slot → nothing, resolved FRESH per
-	// stage call server-side) — the job runner's exact treatment. undefined
-	// = the BYOK chain came up empty; the front-door guards turn that into
-	// an honest refusal.
-	const stageEngine = (role: ModelRole, override?: PiEngine): PiEngine | undefined =>
-		override ?? deps.engineFor?.(role);
+	// Resolved FRESH per stage call (a settings PUT between stages lands).
+	// undefined = the BYOK chain came up empty; the front doors refuse.
+	const stageEngine = (role: ModelRole): PiEngine | undefined => deps.engineFor?.(role);
 	/** The per-need refusal guard: which slot tiers the pipeline's stages
-	 *  found unset (test values count as configured — they ARE engines),
+	 *  found unset,
 	 *  and whether a configured stage's provider key is gone (provider-key
 	 *  interlude, 2026-09-25) — both refuse BEFORE any batch runs. */
 	function refuseIfStagesUnready(): void {
 		const stages: readonly [ModelRole, PiEngine | undefined][] = [
-			["extractor", stageEngine("extractor", deps.extractor)],
-			["auditor", stageEngine("auditor", deps.auditor)],
+			["extractor", stageEngine("extractor")],
+			["auditor", stageEngine("auditor")],
 		];
 		const missing = new Set<ModelSlotName>();
 		for (const [role, engine] of stages) if (!engine) missing.add(ROLE_SLOT[role]);
@@ -585,25 +583,20 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	const runningExtractions = runs().running;
 	const inFlight = runs().inFlight;
 
-	function setPhase(
-		jobKey: string,
-		phase: ExtractionPhase,
-		kind: "chat" | "notes",
-		label?: string,
-		part?: { i: number; n: number },
-	): void {
+	function setPhase(job: ExtractionJob, phase: ExtractionPhase): void {
 		const R = runs();
-		const prev = runningExtractions.get(jobKey);
+		const prev = runningExtractions.get(job.key);
 		if (!prev) R.lastStartedAt = Math.max(Date.now(), R.lastStartedAt + 1);
-		runningExtractions.set(jobKey, {
-			chatId: prev?.chatId ?? jobKey.split("#")[0]!,
-			part: prev?.part ?? part, // phase changes never lose the part
-			kind,
-			label: prev?.label ?? label, // phase changes never lose the label
+		runningExtractions.set(job.key, {
+			id: job.key,
+			chatId: job.sourceId,
+			part: job.part,
+			kind: job.kind,
+			label: job.label,
 			phase,
 			startedAt: prev?.startedAt ?? R.lastStartedAt,
 			usage: prev?.usage ?? {}, // phase changes never lose usage
-			controller: prev?.controller ?? forwardedController(R.early?.get(jobKey.split("#")[0]!)),
+			controller: prev?.controller ?? forwardedController(R.early?.get(job.sourceId)),
 		});
 		// Every phase transition announces the dock (push S5, 2026-10-02):
 		// notify-after-write — the registry is the feed's truth.
@@ -637,8 +630,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  abort-aware on both sides of the queue (a waiter that aborts
 	 *  leaves without auditing — its chain link still resolves, so
 	 *  successors never hang). */
-	async function withAuditLock<T>(jobKey: string, kind: "chat" | "notes", label: string | undefined, critical: () => Promise<T>): Promise<T> {
-		setPhase(jobKey, "waiting", kind, label);
+	async function withAuditLock<T>(job: ExtractionJob, critical: () => Promise<T>): Promise<T> {
+		setPhase(job, "waiting");
+		const jobKey = job.key;
 		const lock = processState<{ tail: Promise<void> }>("auditLock", () => ({ tail: Promise.resolve() }));
 		const prev = lock.tail;
 		let release!: () => void;
@@ -665,42 +659,37 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	async function extract(
-		jobKey: string,
-		sourceId: string,
-		view: string,
-		batchIds: ReadonlySet<string>,
-	): Promise<SessionFindings> {
-		const signal = runningExtractions.get(jobKey)?.controller.signal;
+	async function extract(job: ExtractionJob, unit: SourceUnit): Promise<SessionFindings> {
+		const signal = runningExtractions.get(job.key)?.controller.signal;
 		signal?.throwIfAborted(); // an abort during a sync gap ends the job here
 		// THE DIGEST (owner, 2026-09-30 evening): the extractor continues a
 		// partly-extracted source — it sees everything this source has
 		// already yielded (propositions + chains, ids verbatim) and builds
-		// on it. Serialized batches make this read the post-merge graph of
-		// every earlier batch (cross-source runs stay parallel — the
-		// digest is source-scoped, so only SAME-source order matters).
+		// on it. Serialized units make this read the post-merge graph of
+		// every earlier unit (cross-source runs stay parallel — the digest
+		// is source-scoped, so only SAME-source order matters).
 		const graph = getGraph(graphStore);
-		const digest = sourceDigest(graph, sourceId);
-		const prompt = digest === "" ? view : `${digest}\n\n${view}`;
+		const digest = sourceDigest(graph, job.sourceId);
+		const prompt = digest === "" ? unit.view : `${digest}\n\n${unit.view}`;
 		console.info(
-			`[extraction ${jobKey}] extractor starting (${view.split("\n").length} markdown lines` +
+			`[extraction ${job.key}] extractor starting (${unit.view.split("\n").length} lines` +
 				`${digest === "" ? "" : `, digest ${digest.split("\n").length} lines`})`,
 		);
 		const t0 = performance.now();
-
 		const findings = await runExtractor(
-			stageEngine("extractor", deps.extractor),
-			sourceId,
+			job.kind,
+			stageEngine("extractor"),
+			job.sourceId,
 			prompt,
 			new Set(graph.nodes.map((n) => n.id)),
-			batchIds,
+			unit.anchors,
 			signal,
 			(usage, model, step, finishReason, tools) => {
-				recordStep(jobKey, "extractor", callUsage(usage), model);
+				recordStep(job.key, "extractor", callUsage(usage), model);
 				console.info(`[extraction] extractor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
 		);
-		console.info(`[extraction ${jobKey}] extractor done in ${Math.round(performance.now() - t0)}ms`);
+		console.info(`[extraction ${job.key}] extractor done in ${Math.round(performance.now() - t0)}ms`);
 		return findings;
 	}
 
@@ -721,7 +710,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// IDENTITY-only and never sees the passages, so anchors are useless
 		// to it — they add cognitive load, not signal.
 		const auditResult = await runAuditor(
-			stageEngine("auditor", deps.auditor),
+			stageEngine("auditor"),
 			sourceId,
 			`Proposed findings from the extractor (the source itself is not available to you — the extractor is fully trusted; the propositions only — the reasoning chains are the merger's business, owner 2026-09-30):\n\n` +
 				`${JSON.stringify(
@@ -799,14 +788,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 *  runs the full queued → extract → audit-locked merge lifecycle;
 	 *  failure isolation lives at the fan-out site (one bad chunk never
 	 *  kills its siblings). */
-	async function runJob(
-		source: { id: string; kind: "chat" | "notes"; label?: string; part?: { i: number; n: number } },
-		body: (jobKey: string) => Promise<EmissionStats>,
-	): Promise<EmissionStats> {
-		const jobKey = source.part ? `${source.id}#${source.part.i}` : source.id;
+	async function runJob(job: ExtractionJob, body: () => Promise<EmissionStats>): Promise<EmissionStats> {
+		const jobKey = job.key;
 		const t0 = performance.now();
 		try {
-			const stats = await body(jobKey);
+			const stats = await body();
 			await persistRunUsage(jobKey, Math.round(performance.now() - t0), stats);
 			return stats;
 		} catch (err) {
@@ -862,6 +848,66 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return controller;
 	}
 
+	/** PER-UNIT JOBS (owner, 2026-09-28), SERIALIZED PER SOURCE (owner,
+	 *  2026-09-30 evening): each unit is its own job — registry row, usage
+	 *  record — and runs queued → extract slot → audit-locked merge →
+	 *  settle, strictly in order, each extractor continuing the source's
+	 *  digest. Cross-source runs stay parallel; the extract semaphore caps
+	 *  concurrent extracts; audits serialize process-wide. A failed unit is
+	 *  ISOLATED (it stays uncovered, honestly re-runnable) and its siblings
+	 *  keep merging; an abort ends the whole run. `merged` counts every
+	 *  committed merge, even one whose later layout or usage step failed. */
+	async function runSource(source: ExtractionSource): Promise<{ settled: PromiseSettledResult<EmissionStats>[]; merged: EmissionStats }> {
+		const settled: PromiseSettledResult<EmissionStats>[] = [];
+		const merged: EmissionStats = { nodes: 0, chains: 0 };
+		for (const [index, unit] of source.units.entries()) {
+			const part = source.units.length > 1 ? { i: index + 1, n: source.units.length } : undefined;
+			const job: ExtractionJob = { key: part ? `${source.id}#${part.i}` : source.id, sourceId: source.id, kind: source.kind, label: source.label, part };
+			// Keep the job's signal past runJob's teardown: a usage-persistence
+			// failure can mask the body's AbortError.
+			let signal: AbortSignal | undefined;
+			try {
+				const stats = await runJob(job, async () => {
+					setPhase(job, "queued");
+					signal = runningExtractions.get(job.key)?.controller.signal;
+					const findings = await withExtractSlot(job.key, async () => {
+						setPhase(job, "extracting");
+						return extract(job, unit);
+					});
+					return withAuditLock(job, async () => {
+						setPhase(job, "auditing");
+						const verdicts = await audit(job.key, source.id, findings);
+						setPhase(job, "merging");
+						await source.assertPresent?.();
+						const foldedAt = source.foldedAt ?? new Date().toISOString();
+						const stats = mergeFindings(source.id, findings, verdicts, { chatStore, graphStore }, {
+							foldedAt,
+							...(unit.coverage ? { coverage: unit.coverage(foldedAt) } : {}),
+						});
+						merged.nodes += stats.nodes;
+						merged.chains! += stats.chains ?? 0;
+						if (stats.droppedChains) merged.droppedChains = (merged.droppedChains ?? 0) + stats.droppedChains;
+						// The layout ledger evolves with each merge (sync — the
+						// next snapshot fetch must already reflect the new nodes).
+						settleGraphLayout(graphStore);
+						console.info(`[extraction ${job.key}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains`);
+						return stats;
+					});
+				});
+				settled.push({ status: "fulfilled", value: stats });
+			} catch (err) {
+				let failure = err;
+				if (signal?.aborted && !isAbort(err)) {
+					failure = new Error(`Extraction aborted; job cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+					(failure as Error).name = "AbortError";
+				}
+				settled.push({ status: "rejected", reason: failure });
+				if (isAbort(failure)) break;
+			}
+		}
+		return { settled, merged };
+	}
+
 	function runExtraction(chatId: string): Promise<EmissionStats> {
 		if (inFlight.has(chatId)) return Promise.resolve({ nodes: 0, chains: 0 });
 		const run = extractChat(chatId).finally(() => inFlight.delete(chatId));
@@ -906,90 +952,32 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				`[extraction ${chatId}] pipeline start — ${covered.uncoveredTokens} uncovered tok, ` +
 					`${covered.uncoveredCount} messages, ${batches.length} batch(es) of ≤${chunkTokens} tok`,
 			);
-			// PER-CHUNK JOBS (owner, 2026-09-28), SERIALIZED PER SOURCE (owner,
-			// 2026-09-30 evening): every batch is its own job — registry row,
-			// because each batch's extractor continues the source's digest
-			// (everything the earlier batches merged). Cross-source runs stay
-			// parallel; the 3-slot extract semaphore still caps concurrent
-			// extracts process-wide ("queued"); audits serialize through the
-			// process-wide gate ("waiting"). A batch that fails is ISOLATED
-			// (its messages stay uncovered — honestly re-runnable); its
-			// siblings keep merging.
-			const settled: PromiseSettledResult<EmissionStats>[] = [];
-			for (const [batchIndex, batch] of batches.entries()) {
-				const part = batches.length > 1 ? { i: batchIndex + 1, n: batches.length } : undefined;
-				try {
-					settled.push({
-						status: "fulfilled",
-						value: await runJob({ id: chatId, kind: "chat", part }, async (jobKey) => {
-							// The batch's source view: TEACHER PROSE ONLY (owner,
-							// 2026-09-28), each passage labeled with its ACTUAL message
-							// id (2026-10-13) — the view lines ARE the coverage
-							// fingerprints' messageViewLines ("TEACHER [id] text"), one
-							// shared seam.
-							const messages = batch.map((slot) => slot.message);
-							const view = proseView(messages, record.title);
-							// The batch's teacher-prose ids — the ONLY anchors this
-							// job's submit may name (validateSessionAnchors at the
-							// submit seam refuses anything else: ids from other
-							// batches — even real ones of this chat — other chats,
-							// and non-prose messages).
-							const batchIds = new Set(
-								messages.filter((m) => messageViewLines(m, m.id).length > 0).map((m) => m.id),
-							);
-							setPhase(jobKey, "queued", "chat", undefined, part);
-							const findings = await withExtractSlot(jobKey, async () => {
-								setPhase(jobKey, "extracting", "chat", undefined, part);
-								return extract(jobKey, chatId, view, batchIds);
-							});
-							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge are the
-							// graph-mutating critical section — one job at a time,
-							// process-wide, so the auditor explores the graph as it
-							// stands AFTER every earlier job's merge.
-							return withAuditLock(jobKey, "chat", undefined, async () => {
-								setPhase(jobKey, "auditing", "chat", undefined, part);
-								const auditResult = await audit(jobKey, chatId, findings);
-								setPhase(jobKey, "merging", "chat", undefined, part);
-								// SESSION-DELETION GUARD (wave 6): a chat deleted mid-run must never
-								// merge. The deletion route aborts this run first and runs its purge
-								// as one sync block; this closes the last window — a run that slipped
-								// past the wind-down finds the chat gone HERE and rides the existing
-								// abort path (info, not error): nothing merged, nothing checkpointed.
-								if (!(await chatStore.getChat(chatId))) {
-									const gone = new Error(`chat deleted mid-run: ${chatId}`);
-									gone.name = "AbortError";
-									throw gone;
-								}
-								// The batch's messages, snapshotted when the run computed
-								// coverage — if a message mutates mid-run (a quiz answer
-								// merges in), the stored fingerprint won't match its new
-								// one and it re-opens: honest by construction.
-								const foldedAt = new Date().toISOString();
-								const batchStats = mergeFindings(chatId, findings, auditResult, { chatStore, graphStore }, {
-									foldedAt,
-									coverage: batch
-										.filter((slot) => messageViewLines(slot.message, slot.message.id).length > 0)
-										.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
-								});
-								// The layout ledger evolves with the merge (sync — the
-								// next snapshot fetch must already reflect the new nodes).
-								settleGraphLayout(graphStore);
-								console.info(
-									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
-								);
-								return batchStats;
-							});
-						}),
-					});
-				} catch (err) {
-					settled.push({ status: "rejected", reason: err });
-					// A source-wide abort (user abort / session deletion)
-					// ends the WHOLE run: later batches would mint fresh,
-					// un-aborted jobs and hang — stop here. Isolated
-					// FAILURES keep going (siblings still merge).
-					if (err instanceof Error && err.name === "AbortError") break;
-				}
-			}
+			const { settled } = await runSource({
+				id: chatId,
+				kind: "chat",
+				units: batches.map((batch) => {
+					// TEACHER PROSE ONLY (owner, 2026-09-28), each passage labeled
+					// with its ACTUAL message id (2026-10-13) — the view lines ARE
+					// the coverage fingerprints' messageViewLines.
+					const prose = batch.filter((slot) => messageViewLines(slot.message, slot.message.id).length > 0);
+					return {
+						view: proseView(batch.map((slot) => slot.message), record.title),
+						anchors: new Set(prose.map((slot) => slot.message.id)),
+						// Snapshotted when the run computed coverage — a message that
+						// mutates mid-run re-opens (its fingerprint no longer matches).
+						coverage: (foldedAt) => prose.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
+					};
+				}),
+				// SESSION-DELETION GUARD (wave 6): a chat deleted mid-run never
+				// merges — a run that slipped past the wind-down finds the chat
+				// gone here and rides the abort path.
+				assertPresent: async () => {
+					if (await chatStore.getChat(chatId)) return;
+					const gone = new Error(`chat deleted mid-run: ${chatId}`);
+					gone.name = "AbortError";
+					throw gone;
+				},
+			});
 			const stats = aggregateJobs(chatId, settled);
 			console.info(
 				`[extraction ${chatId}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains ` +
@@ -1040,49 +1028,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return out;
 	}
 
-	async function notesExtract(
-		jobKey: string,
-		input: { id: string; filePath: string; text: string; part?: { i: number; n: number } },
-	): Promise<NotesFindings> {
-		// jobKey (per-chunk jobs, owner 2026-09-28): the registry key —
-		// "src#i" for chunk jobs — so the abort signal reaches the call.
-		// input.id stays the SOURCE id for the view and store ledgers.
-		const signal = runningExtractions.get(jobKey)?.controller.signal;
-		signal?.throwIfAborted(); // an abort during a sync gap ends the job here
-		const view = notesView(input);
-		// Same digest law as the chat door (owner, 2026-09-30 evening): the
-		// chunk extractor continues its own source, ids verbatim.
-		const graph = getGraph(graphStore);
-		const digest = sourceDigest(graph, input.id);
-		const prompt = digest === "" ? view : `${digest}\n\n${view}`;
-		console.info(
-			`[extraction ${jobKey}] notes extractor starting (${view.split("\n").length} source lines` +
-				`${digest === "" ? "" : `, digest ${digest.split("\n").length} lines`})`,
-		);
-		const t0 = performance.now();
-		const findings = await runNotesExtractor(
-			stageEngine("extractor", deps.extractor),
-			input.id,
-			prompt,
-			new Set(graph.nodes.map((n) => n.id)),
-			signal,
-			(usage, model, step, finishReason, tools) => {
-				recordStep(jobKey, "extractor", callUsage(usage), model);
-				console.info(`[extraction] extractor step ${step}: ${finishReason}, tools: ${tools}`);
-			},
-		);
-		console.info(`[extraction ${jobKey}] notes extractor done in ${Math.round(performance.now() - t0)}ms`);
-		return findings;
-	}
-
-	// The notes auditor is the SAME identity-linker as the chat one (one
-	// schema now that attribution is gone) — audit() above, verbatim.
-
 	async function runNotesExtraction(input: { id: string; filePath: string; text: string; importedAt: string }): Promise<EmissionStats> {
 		const { id } = input;
 		// importNotes owns the source exclusion, including metadata and cleanup.
 		const t0 = performance.now();
-		const mergedStats: EmissionStats = { nodes: 0, chains: 0 };
+		let mergedStats: EmissionStats = { nodes: 0, chains: 0 };
 		try {
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): same refusal as the chat front door — no
@@ -1097,74 +1047,16 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			console.info(
 				`[extraction ${id}] notes pipeline start (${input.filePath}) — ${chunks.length} chunk(s) of ≤${chunkTokens} tok`,
 			);
-			// PER-CHUNK JOBS (owner, 2026-09-28), SERIALIZED PER SOURCE (owner,
-			// 2026-09-30 evening): same law as the chat door — chunks run
-			// STRICTLY IN ORDER, each chunk's extractor continuing the
-			// source's digest (everything earlier chunks merged). Cross-source
-			// runs stay parallel; the semaphore caps concurrent extracts
-			// process-wide; audits serialize through the gate as before. The
-			// part rides the registry entry (feed suffix "· i/N") only when
-			// the file actually chunked.
-			const settled: PromiseSettledResult<EmissionStats>[] = [];
-			for (const [chunkIndex, chunk] of chunks.entries()) {
-				const part = chunks.length > 1 ? { i: chunkIndex + 1, n: chunks.length } : undefined;
-				// Keep the actual signal after runJob tears down its registry row:
-				// usage persistence can throw and mask the body's AbortError.
-				let chunkSignal: AbortSignal | undefined;
-				try {
-					settled.push({
-						status: "fulfilled",
-						value: await runJob({ id, kind: "notes", label: input.filePath, part }, async (jobKey) => {
-							setPhase(jobKey, "queued", "notes", input.filePath, part);
-							chunkSignal = runningExtractions.get(jobKey)?.controller.signal;
-							const findings = await withExtractSlot(jobKey, async () => {
-								setPhase(jobKey, "extracting", "notes", input.filePath, part);
-								return notesExtract(jobKey, { ...input, text: chunk, part });
-							});
-							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge one
-							// at a time, process-wide — the auditor explores the graph
-							// as it stands AFTER every earlier job's merge. Reacquired
-							// per chunk so cross-source runs interleave fairly.
-							return withAuditLock(jobKey, "notes", input.filePath, async () => {
-								setPhase(jobKey, "auditing", "notes", input.filePath, part);
-								const auditResult = await audit(jobKey, input.id, findings);
-								setPhase(jobKey, "merging", "notes", input.filePath, part);
-								const merged = mergeFindings(
-									id,
-									findings,
-									auditResult,
-									{ chatStore, graphStore },
-									{ foldedAt: input.importedAt },
-								);
-								// Capture the committed merge BEFORE layout/usage can fail.
-								mergedStats.nodes += merged.nodes;
-								mergedStats.chains! += merged.chains ?? 0;
-								if (merged.droppedChains)
-									mergedStats.droppedChains = (mergedStats.droppedChains ?? 0) + merged.droppedChains;
-								// The layout ledger evolves with each merge — the next
-								// snapshot fetch reflects every finished chunk.
-								settleGraphLayout(graphStore);
-								console.info(`[extraction ${jobKey}] merged: ${merged.nodes} nodes, ${merged.chains ?? 0} chains`);
-								return merged;
-							});
-						}),
-					});
-				} catch (err) {
-					let failure = err;
-					if (chunkSignal?.aborted && !(err instanceof Error && err.name === "AbortError")) {
-						// Notes-only: never start a fresh chunk after user cancellation,
-						// even when usage cleanup replaced the original abort rejection.
-						// Keep the secondary failure visible in the final import error.
-						const aborted = new Error(`Notes import aborted; job cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
-						aborted.name = "AbortError";
-						failure = aborted;
-					}
-					settled.push({ status: "rejected", reason: failure });
-					// Same source-wide-abort law as the chat door: stop the
-					// run; isolated failures keep going.
-					if (failure instanceof Error && failure.name === "AbortError") break;
-				}
-			}
+			const { settled, merged } = await runSource({
+				id,
+				kind: "notes",
+				label: input.filePath,
+				foldedAt: input.importedAt,
+				units: chunks.map((chunk, index) => ({
+					view: notesView({ filePath: input.filePath, text: chunk, part: chunks.length > 1 ? { i: index + 1, n: chunks.length } : undefined }),
+				})),
+			});
+			mergedStats = merged;
 			const stats = aggregateJobs(id, settled);
 			// Completion is a chunk-status contract, never a node-count test.
 			// Zero findings (and an empty file after the readiness gate) are valid.

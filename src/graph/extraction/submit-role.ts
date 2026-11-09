@@ -14,6 +14,7 @@ import type { AppTool, AppToolResult } from "../../tools/index.ts";
 import { invalidInputResult, toToolResult } from "../../tools/index.ts";
 import { healEncodedArguments } from "../../tools/model/index.ts";
 import type { AuditVerdicts } from "../model/types.ts";
+import { findingsSchema, sessionFindingsSchema } from "../model/findings.ts";
 import type { RoleStateIo, SubmitRunState } from "../../jobs/index.ts";
 
 // ── the weak-model string-heal (owner, 2026-09-28; moved here from
@@ -43,94 +44,6 @@ export function healStringifiedArrays(raw: unknown): unknown {
 	}
 	return out;
 }
-
-// ─── the extractor's wire shapes ─────────────────────────────────────────────
-
-const propositionProps = {
-	id: Type.String({ description: 'Local id: "p1", "p2", … — referenced by chains in this call.' }),
-	name: Type.String({
-		description:
-			"A very short label — established terminology, the term the discipline itself uses, a glossary " +
-			"headword a textbook would print ('Will to power', 'Divine command theory'). Not a sentence, " +
-			"needn't be unique or self-contained: this becomes the node's global label in the graph.",
-	}),
-	statement: Type.String({
-		description:
-			"One true, self-contained, world-facing core idea at full precision. Never about the " +
-			'learner, the teacher, or the reading: not "the learner understands X" but "X". A misconception ' +
-			"enters as its TRUE correction.",
-	}),
-	aliases: Type.Optional(
-		Type.Array(Type.String(), {
-			description: "Verbatim phrasings the source used for the same proposition, if any.",
-		}),
-	),
-};
-
-// The extractor redesign (owner, 2026-09-30): the extractor submits
-// REASONING CHAINS — premises + conclusion — stored AS-IS (chains-primary,
-// same evening: chains.jsonl is the truth; edges are a derived view, and
-// supports edges are retired entirely).
-const endpoint = (role: string) =>
-	Type.String({
-		description:
-			`The id this ${role} — EITHER an existing graph idea id from THE GRAPH SO FAR in the prompt, ` +
-			'verbatim ("n_…"), OR the local id of a proposition in this submission ("p1", …).',
-	});
-
-const chainSchema = Type.Object({
-	premises: Type.Array(endpoint("premise uses"), {
-		minItems: 1,
-		description:
-			"Premise ids used TOGETHER: they jointly entail the conclusion; independent reasons are separate chains.",
-	}),
-	conclusion: endpoint("conclusion is"),
-});
-
-// Weak-model tolerance (owner, 2026-09-25): the old zod `.default([])` /
-// `.default({ quiz: {} })` on required-but-empty fields becomes Type.Optional
-// here + a ??-fill at the submit seam (fillFindings/fillAudit below) — same
-// contract on the wire (omission tolerated, empty never means "invalid"),
-// no zod left in the agent band.
-const propositionsDescription =
-	"Only the NEW core ideas this stretch contributes — ideas the prompt's THE GRAPH SO FAR already " +
-	"holds are referenced by id in chains, never restated here.";
-const chainsDescription =
-	"Every argument this stretch makes — including arguments that join new ideas to established " +
-	"ones; conclusions reusable by id as premises of later chains; bare ideas (no argument) ride " +
-	"the propositions list alone; pass [] when none — never omit the field.";
-
-const findingsSchema = Type.Object({
-	propositions: Type.Array(Type.Object(propositionProps), {
-		description: propositionsDescription,
-	}),
-	chains: Type.Array(chainSchema, {
-		description: chainsDescription,
-	}),
-});
-
-// THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
-// carries a REQUIRED messageId — the anchor of the passage it came from,
-// copied from the view's "TEACHER [id]" label (validated at the submit
-// seam against the CURRENT batch). The NOTES door has no messages: its
-// schema stays the base shape above, prompt and wire unchanged.
-const sessionPropositionProps = {
-	...propositionProps,
-	messageId: Type.String({
-		description:
-			"The message id of the ONE passage in this stretch that most directly states or explains this " +
-			'proposition — copy it EXACTLY from that passage\'s "TEACHER [id]" label.',
-	}),
-};
-
-const sessionFindingsSchema = Type.Object({
-	propositions: Type.Array(Type.Object(sessionPropositionProps), {
-		description: propositionsDescription,
-	}),
-	chains: Type.Array(chainSchema, {
-		description: chainsDescription,
-	}),
-});
 
 /** What the extractor SUBMITS (the redesign's wire shape) — propositions
  *  + chains. fillFindings normalizes it; validateFindingsChains checks

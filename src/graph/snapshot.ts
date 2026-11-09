@@ -49,11 +49,11 @@
  * the composition root (src/server/stores.ts) wires the fs adapters in.
  */
 
+import type { ExtractedChain, SessionFindings } from "./model/findings.ts";
 import { ARG_ID_PREFIX, chainIsLive, chainKey } from "./model/rules.ts";
 import { randomBytes } from "node:crypto";
-import type { CoverageEntry,
-} from "./model/types.ts";
-import type { AuditVerdicts, ExtractedChain, GraphChain, SessionFindings, Cluster, EmissionStats, GraphEdge, GraphNode, ProvenancePoint, GraphSnapshot } from "./model/types.ts";
+import type { CoverageEntry } from "./model/types.ts";
+import type { AuditVerdicts, GraphChain, Cluster, EmissionStats, GraphEdge, GraphNode, ProvenancePoint, GraphSnapshot } from "./model/types.ts";
 import { MIN_CLUSTER_SIZE } from "./model/clusters.ts";
 import { formatChainLine } from "./model/chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./model/session-clusters.ts";

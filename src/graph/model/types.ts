@@ -197,56 +197,6 @@ export interface CoverageEntry {
 
 // ─── Extraction findings (extractor output → audit → merger input) ───────────
 
-/** One proposed proposition — a node candidate (or a re-encounter of one). */
-export interface ExtractedProposition {
-	/** Extractor-local id ("p1", …) referenced by edges. */
-	id: string;
-	/** A very short label — a few words, a compact handle like a glossary
-	 *  headword. Not a sentence, needn't be unique or self-contained: the
-	 *  statement carries the precision. Becomes the node's name on create;
-	 *  on link, the existing node keeps its name. */
-	name: string;
-	/** The minimal proposition — a true, self-contained, world-facing
-	 *  statement, at full precision. No learner / teacher / session
-	 *  references: misconceptions are stated as the true correction, and
-	 *  wrongness is never recorded in the graph (2026-09-27: the event
-	 *  ledger is gone). */
-	statement: string;
-	/** Verbatim phrasings the session used. */
-	aliases: string[];
-	/* Submit-schema slim (owner, 2026-09-28): `messages` and `evidence`
-	 * are GONE. The verbatim-quote fields were never persisted and weak
-	 * models burned their retries on them ("propositions.0: must be
-	 * object" — the stringified-payload collapse). The extractor reports
-	 * propositions + structure, nothing else. */
-	/** OPTIONAL, SESSION PATH ONLY (owner, 2026-10-13): the message id of
-	 *  the ONE teacher passage this proposition came from — the extractor
-	 *  copies it from the view's "TEACHER [id]" label (core/coverage.ts
-	 *  messageViewLines) and the submit seam validates it against the
-	 *  CURRENT batch. The merger stamps it into the node's provenance
-	 *  point {chatId, messageId} (new nodes AND link-appends); chains
-	 *  stay chat-level. Notes imports and legacy/core callers have none:
-	 *  undefined → messageId "" (chat-level), so NO persisted shape or
-	 *  format version changes (GraphNode / ProvenancePoint untouched). */
-	messageId?: string;
-}
-
-/** One proposed argument (extractor redesign, 2026-09-30). Endpoints are
- *  extractor-local proposition ids ("p1", …) — the extractor is the ONLY
- *  stage that ever proposes chains; the merger resolves them to node ids. */
-export interface ExtractedChain {
-	/** Proposition ids that JOINTLY entail the conclusion. */
-	premises: string[];
-	/** The proposition id the premises jointly imply. */
-	conclusion: string;
-}
-
-/** The extractor's output shape: the raw reasoning chains. */
-export interface SessionFindings {
-	propositions: ExtractedProposition[];
-	chains: ExtractedChain[];
-}
-
 /** One identity verdict: the extractor's local proposition id → the
  *  EXISTING graph node that proposition IS. On link, the session's
  *  phrasings (statement, aliases) join the node's aliases and the

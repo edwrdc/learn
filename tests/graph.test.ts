@@ -16,11 +16,12 @@
  * tests/extraction.test.ts with mock models.
  */
 
+import type { SessionFindings } from "../src/graph/model/findings.ts";
 import { processState } from "../src/platform/model/index.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
-import type { AuditVerdicts, GraphChain, GraphNode, SessionFindings } from "../src/graph/model/types.ts";
+import type { AuditVerdicts, GraphChain, GraphNode } from "../src/graph/model/types.ts";
 import type { QuestionAnswerData } from "../src/session/model/questions.ts";
 import type { LhMessage } from "../src/session/model/transcript.ts";
 import { projectView as projectNative } from "../src/session/model/view.ts";

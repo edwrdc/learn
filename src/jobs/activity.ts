@@ -85,12 +85,11 @@ export async function activityFeed(): Promise<{
 		}
 	}
 	const extractions: ActivityExtraction[] = await Promise.all(extractionStatuses().map(async (run) => ({
-		id: run.part ? `${run.chatId}#${run.part.i}` : run.chatId,
+		id: run.id,
 		chatId: run.chatId,
 		part: run.part,
-		// The run's own label never reaches this feed (unlike the graph
-		// status route) — the chat store's title, or the bare id for notes
-		// sources, plus the chunk suffix when the source fanned out.
+		// The run's own label (a notes file path), else the chat's title,
+		// plus the chunk suffix when the source fanned out.
 		title:
 			(run.label ?? (await chatStore.getChat(run.chatId))?.title ?? run.chatId) +
 			(run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
