@@ -6,6 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers; type-only imports
  * of "ai" (safe everywhere: server, client, tests). See docs/vision.md.
  */
+import type { ExtractionPhase } from "../../graph/model/index.ts";
 import type { CallUsage } from "../../session/model/index.ts";
 import type { RefusalCode } from "../../settings/model/index.ts";
 import type { LhMessage, LhMarkerMessage } from "../../session/model/index.ts";
@@ -388,3 +389,29 @@ export function steerDelivered(messages: LhMessage[], steerId: string): boolean 
 	return messages.some((m) => m.id === steerId);
 }
 
+/** A running sub-agent job joined with its chat's title. contextLimit is the
+ *  model's catalog window, null when the catalog lacks the model (the dock
+ *  then shows no context line rather than a fake window). */
+export interface ActivityJob extends JobRecord {
+	title: string;
+	contextLimit: number | null;
+}
+
+/** One running extraction job (a multi-chunk source owns several). chatId is
+ *  the source id; the title carries the "· i/N" chunk suffix. */
+export interface ActivityExtraction {
+	id: string;
+	chatId: string;
+	part?: { i: number; n: number };
+	title: string;
+	phase: ExtractionPhase;
+	startedAt: number;
+}
+
+/** GET /api/activity: every running process, oldest first, plus the graph's
+ *  version stamp. Cost folds are the client's. */
+export interface ActivityFeed {
+	jobs: ActivityJob[];
+	extractions: ActivityExtraction[];
+	graphRevision: number;
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fetchGraph } from "$lib/api/graph";
 import { untrack } from "svelte";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
@@ -15,7 +16,7 @@ import type { TurnUsage } from "@/src/session/model";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import { DictationController, joinDictation } from "$lib/chat/dictation.svelte";
-	import { keys } from "$lib/state/keys.svelte";
+	import { noProviderKey } from "$lib/state/keys.svelte";
 
 	let { initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" } = $props();
 
@@ -41,13 +42,12 @@ import type { TurnUsage } from "@/src/session/model";
 			pickerOpen = true;
 			return;
 		}
-		void fetch("/api/graph")
-			.then((r) => r.json() as Promise<GraphSnapshot>)
+		void fetchGraph()
 			.then((value) => {
 				snapshot = value;
 				pickerOpen = true;
 			})
-			.catch(() => {});
+			.catch((error) => console.error("[new session] graph load failed:", error));
 	}
 
 
@@ -58,18 +58,21 @@ import type { TurnUsage } from "@/src/session/model";
 			setupOpen = true;
 			return;
 		}
-		if (keys.zero || strongKeyless(modelCatalog.catalog)) {
+		if (noProviderKey.value || strongKeyless(modelCatalog.value)) {
 			setupOpen = true;
 			return;
 		}
 		busy = true;
 		const title = textMirror.trim() || "Code";
-		void startDraftSession(draft, fetch, mode, picks, title)
+		void startDraftSession(draft, mode, picks, title)
 			.then((target) => {
 				if (target) void goto(target);
 				else busy = false;
 			})
-			.catch(() => (busy = false));
+			.catch((error) => {
+				console.error("[new session] create failed:", error);
+				busy = false;
+			});
 	}
 
 	function handleSend() {
@@ -81,7 +84,6 @@ import type { TurnUsage } from "@/src/session/model";
 	}
 
 	onMount(() => {
-		keys.init();
 		return dictation.mount();
 	});
 
@@ -110,7 +112,7 @@ import type { TurnUsage } from "@/src/session/model";
 				<div class="h-24 bg-gradient-to-t from-background via-background/85 to-transparent"></div>
 				<div class="bg-background pb-4">
 					<div class="mx-auto w-full max-w-[46rem] px-4">
-						{#if picks.length > 0 || mode === "practice" || keys.zero || !configured}
+						{#if picks.length > 0 || mode === "practice" || noProviderKey.value || !configured}
 							<div data-testid="composer-actions" class="pointer-events-auto mb-2 flex flex-wrap items-center gap-2 {picks.length > 0 || mode === 'practice' ? 'justify-start' : 'justify-center'}">
 								{#if picks.length > 0 || mode === "practice"}
 									<div class="flex items-center gap-1.5">
@@ -123,7 +125,7 @@ import type { TurnUsage } from "@/src/session/model";
 										{/if}
 									</div>
 								{/if}
-								{#if keys.zero}
+								{#if noProviderKey.value}
 									<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
 								{:else if !configured}
 									<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>

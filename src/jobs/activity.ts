@@ -19,40 +19,15 @@
  * from the pipeline's module for the abort route to call.
  */
 
-import { extractionStatuses, type ExtractionPhase } from "../graph/index.ts";
+import { extractionStatuses } from "../graph/index.ts";
 import { chatStore } from "../session/index.ts";
 import { graphRevision } from "../graph/index.ts";
 import { catalogContextLimits } from "../settings/index.ts";
 import { listJobs } from "./wake.ts";
-import type { JobRecord } from "./model/types.ts";
+import type { ActivityExtraction, ActivityFeed, ActivityJob } from "./model/types.ts";
 
-export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../graph/index.ts";
+export { abortExtraction, extractionStatuses, type RunningExtraction } from "../graph/index.ts";
 export { chatStore } from "../session/index.ts";
-
-/** A running sub-agent job, joined with its chat's title for the dock.
- *  contextLimit (context-meter amendment, owner 2026-09-23): the model's
- *  live catalog limit, resolved SERVER-SIDE from pi's catalog — the dock
- *  reads it off the feed instead of any client-side table. Null when the
- *  model is missing from the catalog (the blob then renders no context
- *  line — never a fake window). */
-export interface ActivityJob extends JobRecord {
-	title: string;
-	contextLimit: number | null;
-}
-
-/** One extraction-pipeline JOB (title joined), oldest first. Per-chunk
- *  jobs (owner, 2026-09-28): a multi-chunk source owns SEVERAL rows — id
- *  is the unique job key (source id, or "src#i"), chatId stays the SOURCE
- *  id (abort + chat links are source-scoped), and the title carries the
- *  "· i/N" part suffix. */
-export interface ActivityExtraction {
-	id: string;
-	chatId: string;
-	part?: { i: number; n: number };
-	title: string;
-	phase: ExtractionPhase;
-	startedAt: number;
-}
 
 /** The dock's whole world in one payload: every running process, every view.
  *  Jobs are RUNNING-ONLY — finished jobs belong to their chat's transcript;
@@ -65,11 +40,7 @@ export interface ActivityExtraction {
  *  graph changed underneath me" (a merge landed, a deletion purged) and
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
-export async function activityFeed(): Promise<{
-	jobs: ActivityJob[];
-	extractions: ActivityExtraction[];
-	graphRevision: number;
-}> {
+export async function activityFeed(): Promise<ActivityFeed> {
 	const chats = await chatStore.listChats();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];

@@ -1,17 +1,6 @@
-/** Notes import transport: response validation and error projection. */
-export interface NotesImportResult {
-	requestIndex: number;
-	filePath: string;
-	ok: boolean;
-	outcome: "completed" | "failed" | "partial" | "aborted" | "busy";
-	stats?: { nodes: number; chains?: number };
-	error?: string;
-	code?: string;
-	provider?: string;
-	missing?: string[];
-	slots?: string[];
-}
+import type { NotesImportResult } from "@/src/graph/model";
 
+/** Notes import transport: response validation and error projection. */
 export function parseNotesImportResults(body: unknown, files: readonly File[]): NotesImportResult[] {
 	const invalid = () => new Error("Invalid import response. Please retry the file.");
 	if (!body || typeof body !== "object" || !("results" in body) || !Array.isArray(body.results) || body.results.length !== files.length) throw invalid();

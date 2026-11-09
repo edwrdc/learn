@@ -1,12 +1,11 @@
 <script lang="ts">
-	import type { CustomEndpointConfig, CustomEndpointModel } from "@/src/settings/model";
+	import type { CustomEndpointModel, CustomEndpointState as EndpointState } from "@/src/settings/model";
 	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { discoverCustomModels, fetchCustomEndpoint, removeCustomEndpoint, saveCustomEndpoint } from "$lib/api/settings";
+	import { ApiError } from "$lib/api/http";
 
-	interface EndpointState {
-		endpoint: CustomEndpointConfig | null;
-		keyPresent: boolean;
-		keySource: "env" | "file" | "none";
-	}
+	/** A refused request shows the server's reason; anything else is the network. */
+	const failure = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
 	interface DiscoveredModel { id: string; name: string }
 	interface ModelDraft { id: string; name: string; contextWindow: string; maxTokens: string; reasoning: boolean; imageInput: boolean }
 
@@ -31,14 +30,14 @@
 	}
 
 	async function reload(): Promise<EndpointState | null> {
-		const res = await fetch("/api/custom-endpoint").catch(() => null);
-		if (!res || !res.ok) {
+		try {
+			endpointState = await fetchCustomEndpoint();
+			return endpointState;
+		} catch (err) {
+			console.error("[settings] custom endpoint load failed:", err);
 			error = "Could not load the custom endpoint.";
 			return null;
 		}
-		const body = (await res.json()) as EndpointState;
-		endpointState = body;
-		return body;
 	}
 
 	$effect(() => {
@@ -96,22 +95,14 @@
 		busy = "fetch";
 		error = null;
 		notice = null;
-		const res = await fetch("/api/custom-endpoint/models", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ baseUrl, ...(apiKey.trim() ? { apiKey } : {}) }),
-		}).catch(() => null);
-		busy = null;
-		if (!res) {
-			error = "Could not reach the server — try again.";
+		try {
+			discovered = await discoverCustomModels({ baseUrl, ...(apiKey.trim() ? { apiKey } : {}) });
+		} catch (err) {
+			error = failure(err, "Could not reach the server — try again.");
 			return;
+		} finally {
+			busy = null;
 		}
-		const body = (await res.json().catch(() => ({}))) as { models?: DiscoveredModel[]; error?: string };
-		if (!res.ok) {
-			error = body.error ?? `Model discovery failed (${res.status})`;
-			return;
-		}
-		discovered = body.models ?? [];
 		notice = discovered.length === 0 ? "The endpoint returned no models — add one manually below." : `${discovered.length} model(s) discovered. Select the ones to configure.`;
 	}
 
@@ -123,22 +114,14 @@
 		const models = drafts.map((d) => ({
 			id: d.id, name: d.name, contextWindow: Number(d.contextWindow), maxTokens: Number(d.maxTokens), reasoning: d.reasoning, imageInput: d.imageInput,
 		}));
-		const res = await fetch("/api/custom-endpoint", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ displayName, baseUrl, models, ...(apiKey.trim() ? { apiKey } : {}) }),
-		}).catch(() => null);
-		busy = null;
-		if (!res) {
-			error = "Could not reach the server — try again.";
+		try {
+			endpointState = await saveCustomEndpoint({ displayName, baseUrl, models, ...(apiKey.trim() ? { apiKey } : {}) });
+		} catch (err) {
+			error = failure(err, "Could not reach the server — try again.");
 			return;
+		} finally {
+			busy = null;
 		}
-		const body = (await res.json().catch(() => ({}))) as EndpointState & { error?: string };
-		if (!res.ok) {
-			error = body.error ?? `Save failed (${res.status})`;
-			return;
-		}
-		endpointState = body;
 		apiKey = "";
 		notice = "Custom endpoint saved.";
 		notifySettingsSaved("models");
@@ -150,13 +133,15 @@
 		busy = "delete";
 		error = null;
 		notice = null;
-		const res = await fetch("/api/custom-endpoint", { method: "DELETE" }).catch(() => null);
-		busy = null;
-		if (!res || !res.ok) {
+		try {
+			endpointState = await removeCustomEndpoint();
+		} catch (err) {
+			console.error("[settings] custom endpoint removal failed:", err);
 			error = "Could not remove the endpoint — try again.";
 			return;
+		} finally {
+			busy = null;
 		}
-		endpointState = (await res.json()) as EndpointState;
 		onOpenChange(false);
 		notifySettingsSaved("models");
 		notifySettingsSaved("keys");

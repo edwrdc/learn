@@ -1,5 +1,8 @@
 <script lang="ts">
-	import type { ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/settings/model";
+	import { fetchKeys, fetchModelCatalog, saveKey as putKey, saveSettingsSection } from "$lib/api/settings";
+	import { ApiError } from "$lib/api/http";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import type { ModelCatalogEntry, ModelCatalogResponse, ModelSlotName, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { prettyModel } from "$lib/format";
 	import { backdropDismiss } from "$lib/backdrop";
@@ -9,7 +12,7 @@
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
-	import type { ProviderKeyInfo } from "./keys";
+	import type { AuthProviderInfo } from "@/src/settings/model";
 	import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "./compose";
 	import { prefillFromSlots, prefillLevelFromPin, setupStage, SLOT_ORDER } from "./setup";
 	import { focusOnMount } from "$lib/dom";
@@ -19,23 +22,18 @@
 		cheap: { label: "Cheap", roster: "Researcher, demo builder, extractor, auditor" },
 		vision: { label: "Vision", roster: "Visual maker + PDF reader" },
 	};
-	interface ModelsBody {
-		models: ModelCatalogEntry[];
-		providers: Array<{ id: string; keyPresent: boolean }>;
-		slots?: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null>;
-	}
 
 	let { open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (models: ModelsSettings) => void } = $props();
 
-	let body = $state<ModelsBody | null>(null);
+	let body = $state.raw<ModelCatalogResponse | null>(null);
 	let failed = $state(false);
 	let picked = $state<Partial<Record<ModelSlotName, ModelCatalogEntry>>>({});
 	let levels = $state<Partial<Record<ModelSlotName, ThinkingLevel>>>({});
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let openMenu = $state<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);
-	let keyProviders = $state<ProviderKeyInfo[] | undefined>(undefined);
-	let keyProvider = $state<ProviderKeyInfo | null>(null);
+	let keyProviders = $state<AuthProviderInfo[] | undefined>(undefined);
+	let keyProvider = $state<AuthProviderInfo | null>(null);
 	let keyValue = $state("");
 	let keySaving = $state(false);
 	let keyError = $state<string | null>(null);
@@ -58,13 +56,14 @@
 		picked = {};
 		levels = {};
 		error = null;
-		fetch("/api/keys")
-			.then((r) => r.json())
-			.then((value: { providers?: ProviderKeyInfo[] }) => (keyProviders = value.providers ?? []))
-			.catch(() => (keyProviders = []));
-		fetch("/api/models")
-			.then((r) => r.json())
-			.then((value: ModelsBody) => {
+		fetchKeys()
+			.then((value) => (keyProviders = value.providers))
+			.catch((err) => {
+				console.error("[setup] keys load failed:", err);
+				keyProviders = [];
+			});
+		fetchModelCatalog()
+			.then((value) => {
 				body = value;
 				failed = false;
 				const pre = prefillFromSlots(value.models, value.slots);
@@ -76,7 +75,10 @@
 				}
 				levels = preLevels;
 			})
-			.catch(() => (failed = true));
+			.catch((err) => {
+				console.error("[setup] model catalog load failed:", err);
+				failed = true;
+			});
 	});
 
 	$effect(() => {
@@ -116,16 +118,13 @@
 		if (!keyProvider || !keyValue.trim() || keySaving) return;
 		keySaving = true;
 		keyError = null;
-		const res = await fetch(`/api/keys/${encodeURIComponent(keyProvider.envVar)}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ value: keyValue }),
-		}).catch(() => null);
-		keySaving = false;
-		if (!res || !res.ok) {
-			const detail = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
-			keyError = res ? (detail?.error ?? `Save failed (${res.status})`) : "Save failed. Check your connection and try again.";
+		try {
+			await putKey(keyProvider.envVar, keyValue);
+		} catch (err) {
+			keyError = err instanceof ApiError ? err.message : "Save failed. Check your connection and try again.";
 			return;
+		} finally {
+			keySaving = false;
 		}
 		keyProvider = null;
 		keyValue = "";
@@ -144,14 +143,11 @@
 				...(level ? { thinkingLevel: level } : {}),
 			};
 		}
-		const res = await fetch("/api/settings/models", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(models),
-		}).catch(() => null);
-		if (!res || !res.ok) {
+		try {
+			userSettings.set(await saveSettingsSection("models", models));
+		} catch (err) {
 			saving = false;
-			error = res ? `Save failed: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.status}` : "Save failed. Check your connection and try again.";
+			error = err instanceof ApiError ? `Save failed: ${err.message}` : "Save failed. Check your connection and try again.";
 			return;
 		}
 		notifySettingsSaved("models");

@@ -6,41 +6,31 @@
 	import ModelMenuList from "$lib/settings/ModelMenuList.svelte";
 	import ThinkingMenuList from "$lib/settings/ThinkingMenuList.svelte";
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
-	import { watchSettings } from "$lib/state/settings-signal";
+	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { fetchChat, saveChatSettings } from "$lib/api/chats";
+	import { saveSettingsSection } from "$lib/api/settings";
+	import { ApiError } from "$lib/api/http";
 	import { composeSlotModel, defaultOrderLevel, populateLevel, THINKING_LABEL } from "$lib/settings/compose";
 	import type { ChatSettings } from "@/src/session/model";
-import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } from "@/src/settings/model";
+	import type { ModelCatalogEntry, ModelsSettings, ModelSlotName } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
 	let { chatId }: { chatId?: string } = $props();
 
-	let models = $state<ModelsSettings | undefined>(undefined);
+	const models = $derived(userSettings.record?.models);
 	let session = $state<ChatSettings | undefined>(undefined);
 	let open = $state<"model" | "thinking" | null>(null);
 	let error = $state<string | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
 
-	modelCatalog.ensure();
-
-	function readRecord() {
-		if (chatId) {
-			fetch(`/api/chats/${chatId}`)
-				.then((r) => r.json() as Promise<{ settings?: ChatSettings }>)
-				.then((body) => (session = body.settings))
-				.catch(() => {});
-		}
-		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
-			.then((body) => (models = body.settings?.models ?? undefined))
-			.catch(() => {});
-	}
-
 	$effect(() => {
-		readRecord();
+		if (!chatId) return;
+		const id = chatId;
+		fetchChat(id)
+			.then((record) => (session = record.settings))
+			.catch((err) => console.error(`[chat ${id}] model settings load failed:`, err));
 	});
-	$effect(() => watchSettings((section) => {
-		if (section === "models") readRecord();
-	}));
 
 	const strong = $derived(models?.strong);
 	const override = $derived<ChatSettings | undefined>(
@@ -51,7 +41,7 @@ import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } f
 	const effectiveId = $derived(override?.model?.id);
 	const effectiveProvider = $derived(override?.model?.provider);
 	const storedLevel = $derived(override?.thinkingLevel);
-	const entry = $derived(modelCatalog.catalog?.models.find((m) => m.id === effectiveId && m.provider === effectiveProvider));
+	const entry = $derived(modelCatalog.value?.models.find((m) => m.id === effectiveId && m.provider === effectiveProvider));
 	const levels = $derived(entry?.supportedLevels ?? []);
 	const effectiveLevel = $derived(storedLevel ?? (entry ? defaultOrderLevel(levels) : undefined));
 
@@ -75,46 +65,30 @@ import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } f
 		};
 	});
 
+	/** A refused write shows the server's reason; anything else is the network. */
+	function showFailure(err: unknown) {
+		error = err instanceof ApiError ? err.message : "Could not reach the server — try again.";
+	}
+
 	async function save(next: ModelsSettings) {
 		setError(null);
 		try {
-			const res = await fetch("/api/settings/models", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(next),
-			});
-			if (!res.ok) {
-				const body = (await res.json().catch(() => ({}))) as { error?: string };
-				error = body.error ?? `settings rejected (${res.status})`;
-				return;
-			}
-			const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings?.models;
-			models = stored ?? next;
+			userSettings.set(await saveSettingsSection("models", next));
 			open = null;
-			window.dispatchEvent(new CustomEvent("lh:settings-saved", { detail: { section: "models" } }));
-		} catch {
-			error = "Could not reach the server — try again.";
+			notifySettingsSaved("models");
+		} catch (err) {
+			showFailure(err);
 		}
 	}
 
 	async function saveChat(next: ChatSettings) {
+		if (!chatId) return;
 		setError(null);
 		try {
-			const res = await fetch(`/api/chats/${chatId}/settings`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(next),
-			});
-			if (!res.ok) {
-				const body = (await res.json().catch(() => ({}))) as { error?: string };
-				error = body.error ?? `settings rejected (${res.status})`;
-				return;
-			}
-			const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
-			session = stored?.settings ?? next;
+			session = (await saveChatSettings(chatId, next)).settings;
 			open = null;
-		} catch {
-			error = "Could not reach the server — try again.";
+		} catch (err) {
+			showFailure(err);
 		}
 	}
 
@@ -190,11 +164,11 @@ import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } f
 		<MenuShell anchor={container} testid="model-menu" preferredSide="up" menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl">
 			{#if error}<div class="mb-1.5 text-destructive">{error}</div>{/if}
 			<ModelMenuList
-				models={modelCatalog.catalog?.models}
+				models={modelCatalog.value?.models}
 				{effectiveId}
 				{effectiveProvider}
 				onPick={pickModel}
-				footer={modelCatalog.catalog && modelCatalog.catalog.models.length === 0
+				footer={modelCatalog.value && modelCatalog.value.models.length === 0
 					? "No models — add a provider key in Keys"
 					: chatId
 						? "This session's model"
@@ -205,10 +179,10 @@ import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } f
 	{#if open === "thinking"}
 		<MenuShell anchor={container} testid="thinking-menu" preferredSide="up" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl">
 			<ThinkingMenuList
-				levels={modelCatalog.catalog ? levels : []}
+				levels={modelCatalog.value ? levels : []}
 				{effectiveLevel}
 				onPick={(level) => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
-				empty={modelCatalog.catalog ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
+				empty={modelCatalog.value ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
 				footer="Levels this model actually supports"
 			/>
 			{#if error}<div class="mt-1 text-destructive">{error}</div>{/if}

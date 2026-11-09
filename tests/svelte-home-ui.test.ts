@@ -16,61 +16,71 @@ after(closeSvelteSsr);
 const html = async (path: string, props: Record<string, unknown> = {}) =>
 	(await renderSvelte(path, props)).body.replace(/<!--[^>]*-->/g, "");
 
-function fakeFetch(id: string) {
+const realFetch = globalThis.fetch;
+after(() => {
+	globalThis.fetch = realFetch;
+});
+
+function fakeFetch(id: string, status = 200) {
 	const calls: { url: string; method: string; body: unknown }[] = [];
-	const fetchImpl = (async (url: string, init?: RequestInit) => {
+	globalThis.fetch = (async (url: string, init?: RequestInit) => {
 		calls.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
-		return new Response(JSON.stringify({ id }), { status: 200 });
+		return new Response(JSON.stringify(status === 200 ? { id } : { error: "boom" }), { status });
 	}) as typeof fetch;
-	return { fetchImpl, calls };
+	return { calls };
 }
 
 describe("startDraftSession — create on first send", () => {
 	it("creates the session titled with the first message and returns the prompt redirect", async () => {
-		const { fetchImpl, calls } = fakeFetch("c_new");
-		const target = await startDraftSession("teach me orbital mechanics", fetchImpl);
+		const { calls } = fakeFetch("c_new");
+		const target = await startDraftSession("teach me orbital mechanics");
 		assert.equal(target, "/chat/c_new?prompt=teach%20me%20orbital%20mechanics");
 		assert.deepEqual(calls, [{ url: "/api/chats", method: "POST", body: { title: "teach me orbital mechanics" } }]);
 	});
 
 	it("empty or whitespace text never creates anything", async () => {
-		const { fetchImpl, calls } = fakeFetch("never");
-		assert.equal(await startDraftSession("", fetchImpl), null);
-		assert.equal(await startDraftSession("   ", fetchImpl), null);
+		const { calls } = fakeFetch("never");
+		assert.equal(await startDraftSession(""), null);
+		assert.equal(await startDraftSession("   "), null);
 		assert.equal(calls.length, 0);
 	});
 
 	it("practice carries kind + picked propositions; no picks stays lean", async () => {
 		const first = fakeFetch("c10");
-		await startDraftSession("drill me", first.fetchImpl, "practice", [{ id: "n_1", name: "Parity", statement: "Odd + odd = even." }]);
+		await startDraftSession("drill me", "practice", [{ id: "n_1", name: "Parity", statement: "Odd + odd = even." }]);
 		assert.deepEqual(first.calls[0]!.body, {
 			title: "drill me",
 			kind: "practice",
 			graphContext: { propositions: [{ id: "n_1", name: "Parity", statement: "Odd + odd = even." }] },
 		});
 		const second = fakeFetch("c11");
-		await startDraftSession("free practice", second.fetchImpl, "practice", []);
+		await startDraftSession("free practice", "practice", []);
 		assert.deepEqual(second.calls[0]!.body, { title: "free practice", kind: "practice" });
 	});
 
 	it("the teaching default writes no kind key", async () => {
-		const { fetchImpl, calls } = fakeFetch("c8");
-		await startDraftSession("orbital mechanics", fetchImpl);
+		const { calls } = fakeFetch("c8");
+		await startDraftSession("orbital mechanics");
 		assert.deepEqual(calls[0]!.body, { title: "orbital mechanics" });
 	});
 
 	it("an explicit title keeps the full merged prompt in the URL", async () => {
-		const { fetchImpl, calls } = fakeFetch("c12");
+		const { calls } = fakeFetch("c12");
 		const prompt = "```\nx = 1\n```";
-		const target = await startDraftSession(prompt, fetchImpl, "teach", [], "Code");
+		const target = await startDraftSession(prompt, "teach", [], "Code");
 		assert.equal(target, `/chat/c12?prompt=${encodeURIComponent(prompt)}`);
 		assert.deepEqual(calls[0]!.body, { title: "Code" });
 	});
 
+	it("a refused create rejects instead of navigating to /chat/undefined", async () => {
+		fakeFetch("never", 500);
+		await assert.rejects(startDraftSession("orbital mechanics"), /boom/);
+	});
+
 	it("practice keeps picks with an explicit title", async () => {
-		const { fetchImpl, calls } = fakeFetch("c13");
+		const { calls } = fakeFetch("c13");
 		const picks = [{ id: "n_2", name: "Parity", statement: "Odd + odd = even." }];
-		await startDraftSession("```\nx\n```", fetchImpl, "practice", picks, "Code");
+		await startDraftSession("```\nx\n```", "practice", picks, "Code");
 		assert.deepEqual(calls[0]!.body, { title: "Code", kind: "practice", graphContext: { propositions: picks } });
 	});
 });

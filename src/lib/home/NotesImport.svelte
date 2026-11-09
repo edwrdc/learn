@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Upload } from "@lucide/svelte";
-	import { activity } from "$lib/state/activity.svelte";
 	import { hint } from "$lib/hint";
 	import { notesImportErrors, postNotesImport } from "./notes-import";
 
@@ -17,7 +16,6 @@
 		importing = true;
 		errors = [];
 		try {
-			activity.refresh();
 			errors = notesImportErrors(await postNotesImport(files));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -26,7 +24,6 @@
 			pending = false;
 			importing = false;
 			onFinished?.();
-			activity.refresh();
 		}
 	}
 </script>

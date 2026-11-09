@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { listChats } from "$lib/api/chats";
+	import { renameSession } from "$lib/state/sessions";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
@@ -57,10 +59,9 @@ import { type ChatListItem } from "@/src/session/model";
 		if (inFlight) return;
 		inFlight = true;
 		try {
-			const res = await fetch("/api/chats", { cache: "no-store" });
-			const data = (await res.json()) as { chats: ChatListItem[] };
-			chats = data.chats;
-		} catch {
+			chats = await listChats();
+		} catch (error) {
+			console.error("[sidebar] session list load failed:", error);
 			chats = chats ?? [];
 		} finally {
 			inFlight = false;
@@ -81,20 +82,15 @@ import { type ChatListItem } from "@/src/session/model";
 		const title = next.trim();
 		if (title === "") return;
 		try {
-			const res = await fetch(`/api/chats/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title } }));
-		} catch {
+			await renameSession(id, title);
+		} catch (error) {
+			console.error("[sidebar] rename failed:", error);
 		}
 	}
 
 	function openSession(id: string) {
 		kbdIndex = null;
-		void goto(`/chat/${id}`);
+		void goto(`/chat/${encodeURIComponent(id)}`);
 	}
 
 	function onDeleted(id: string, _mode: ChatDeleteMode, graphRevision: number) {

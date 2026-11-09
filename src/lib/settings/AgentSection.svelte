@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { COMPACTION_THRESHOLD_FLOOR, MODEL_SLOTS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelCatalogEntry, type ModelsSettings, type ModelSlotName } from "@/src/settings/model";
+	import { COMPACTION_THRESHOLD_FLOOR, CURRENT_SETTINGS_VERSION, MODEL_SLOTS, THINKING_LEVELS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelsSettings, type ModelSlotName, type PromptSegmentInfo } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
-	import { JOB_KINDS, SEARCH_ENGINES, type SearchEngineId } from "@/src/tools/model";
+	import { JOB_KINDS, SEARCH_ENGINES, type SearchEngineId, type SearchStatus } from "@/src/tools/model";
+	import { deletePromptOverride, fetchKeys, fetchPromptSegments, fetchSearchStatus, savePromptOverride } from "$lib/api/settings";
+	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { prettyModel } from "$lib/format";
 	import { watchSettings } from "$lib/state/settings-signal";
-	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL, type SegmentInfo } from "./compose";
+	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL } from "./compose";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import Controls from "./Controls.svelte";
@@ -12,14 +14,11 @@
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
 
-	interface ModelsBody { models: ModelCatalogEntry[]; slots: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: string } | null> }
-
 	const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 		strong: { label: "Strong", roster: "The main model for your sessions" },
 		cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 		vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 	};
-	const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 	let {
 		agent,
@@ -39,59 +38,47 @@
 		onCompactionChange: (next: CompactionSettings) => void;
 	} = $props();
 
-	let catalog = $state<ModelCatalogEntry[] | null>(null);
-	let slots = $state<ModelsBody["slots"] | null>(null);
-	let search = $state<{ available: boolean; engine: string | null; reason: string } | null>(null);
+	let search = $state<SearchStatus | null>(null);
 	let engineKeys = $state<Partial<Record<SearchEngineId, boolean>>>({});
-	let prompts = $state<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
+	let prompts = $state<{ prober: PromptSegmentInfo[]; teacher: PromptSegmentInfo[] } | null>(null);
 	let openSegment = $state<string | null>(null);
 	let segmentDraft = $state<Record<string, string>>({});
 	let segmentStatus = $state<string | null>(null);
 	let openMenu = $state<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" } | null>(null);
 	let addAnchor = $state<HTMLElement | null>(null);
 
-	function readModels() {
-		fetch("/api/models")
-			.then((r) => r.json() as Promise<ModelsBody>)
-			.then((body) => {
-				catalog = body.models;
-				slots = body.slots;
-			})
-			.catch(() => (catalog = null));
-	}
+	const catalog = $derived(modelCatalog.value?.models ?? null);
+	const slots = $derived(modelCatalog.value?.slots ?? null);
+	const loadFailed = (what: string) => (error: unknown) => console.error(`[settings] ${what} load failed:`, error);
+
 	function readPrompts() {
-		fetch("/api/settings/prompts")
-			.then((r) => r.json() as Promise<{ prober: SegmentInfo[]; teacher: SegmentInfo[] }>)
+		fetchPromptSegments()
 			.then((body) => (prompts = body))
-			.catch(() => {});
-	}
-	function refreshSearch() {
-		fetch("/api/search")
-			.then((r) => r.json())
-			.then((body: { available: boolean; engine: string | null; reason: string }) => (search = body))
-			.catch(() => (search = null));
+			.catch(loadFailed("prompt segments"));
 	}
 
 	$effect(() => {
-		readModels();
 		readPrompts();
-		fetch("/api/keys")
-			.then((r) => r.json())
-			.then((body: { keys: Array<{ id: string; present: boolean }> }) => {
+		fetchKeys()
+			.then((body) => {
 				const present: Partial<Record<SearchEngineId, boolean>> = {};
 				for (const { id, envVar } of SEARCH_ENGINES) present[id] = body.keys.some((k) => k.id === envVar && k.present);
 				engineKeys = present;
 			})
-			.catch(() => {});
+			.catch(loadFailed("keys"));
 	});
 
 	$effect(() => {
 		void agent?.search?.engine;
-		refreshSearch();
+		fetchSearchStatus()
+			.then((body) => (search = body))
+			.catch((error) => {
+				loadFailed("search status")(error);
+				search = null;
+			});
 	});
 
 	$effect(() => watchSettings((section) => {
-		if (section === "models") readModels();
 		if (section === "agent") readPrompts();
 	}));
 
@@ -123,13 +110,10 @@
 
 	async function saveSegment(path: string, text: string) {
 		segmentStatus = null;
-		const res = await fetch(`/api/settings/prompts/${path}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ text }),
-		});
-		if (!res.ok) {
-			segmentStatus = `Save failed: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.status}`;
+		try {
+			await savePromptOverride(path, text);
+		} catch (error) {
+			segmentStatus = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
 			return;
 		}
 		readPrompts();
@@ -138,9 +122,10 @@
 	}
 	async function deleteSegment(path: string) {
 		segmentStatus = null;
-		const res = await fetch(`/api/settings/prompts/${path}`, { method: "DELETE" });
-		if (!res.ok) {
-			segmentStatus = `Delete failed: ${res.status}`;
+		try {
+			await deletePromptOverride(path);
+		} catch (error) {
+			segmentStatus = `Delete failed: ${error instanceof Error ? error.message : String(error)}`;
 			return;
 		}
 		if (agent?.prompts?.[path] === true) onSectionChange(composePromptSwitch(agent, path, false));
@@ -148,7 +133,7 @@
 		segmentStatus = "Deleted";
 	}
 
-	const resolvedCompaction = $derived(resolveSettings(compaction === undefined ? null : { version: 1, compaction }).compaction);
+	const resolvedCompaction = $derived(resolveSettings(compaction === undefined ? null : { version: CURRENT_SETTINGS_VERSION, compaction }).compaction);
 </script>
 
 <Controls kind="group" label="Models" testid="group-models">

@@ -12,6 +12,8 @@ import {
 	parseCustomModelsDiscovery,
 	validateCustomEndpointConfig,
 	type CustomEndpointConfig,
+	type CustomEndpointKeySource,
+	type CustomEndpointState,
 	type DiscoveredCustomModel,
 } from "./model/custom-endpoint.ts";
 import { genericProviderKeyGuard } from "./model/auth-keys.ts";
@@ -26,17 +28,6 @@ import {
 	providerKeyPresent,
 	saveSecretVar,
 } from "./keys.ts";
-
-export type CustomEndpointKeySource = "env" | "file" | "none";
-
-export interface CustomEndpointState {
-	endpoint: CustomEndpointConfig | null;
-	/** Is the active origin's API key present? Never the key itself. */
-	keyPresent: boolean;
-	/** Where the active key comes from: the fixed environment override,
-	 *  the origin-bound auth-store entry, or nowhere. */
-	keySource: CustomEndpointKeySource;
-}
 
 function originKeyId(baseUrl: string): string {
 	const digest = createHash("sha256").update(baseUrl).digest("hex").slice(0, 24);

@@ -1,11 +1,9 @@
 /** The Keys section's pure projection: grouping and status lines. */
-import { AUTH_KEYS, type AuthKeyStatus } from "@/src/settings/model";
-
-export interface ProviderKeyInfo { id: string; envVar: string; label: string }
+import { AUTH_KEYS, type AuthKeyStatus, type AuthProviderInfo } from "@/src/settings/model";
 
 const TOOL_IDS = AUTH_KEYS.map((key) => key.id) as readonly string[];
 
-export function classifyKeys(statuses: readonly AuthKeyStatus[], providers: readonly ProviderKeyInfo[] | undefined) {
+export function classifyKeys(statuses: readonly AuthKeyStatus[], providers: readonly AuthProviderInfo[] | undefined) {
 	const byId = new Map(statuses.map((status) => [status.id, status]));
 	const isTool = (id: string) => TOOL_IDS.includes(id);
 	const providerEnv = new Set((providers ?? []).map((provider) => provider.envVar));

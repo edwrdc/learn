@@ -14,7 +14,7 @@ import { untrack } from "svelte";
 	import GraphView from "./GraphView.svelte";
 	import MinimalHome from "./MinimalHome.svelte";
 	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
-	import { keys } from "$lib/state/keys.svelte";
+	import { noProviderKey } from "$lib/state/keys.svelte";
 	import { hint } from "$lib/hint";
 	import { focusOnMount } from "$lib/dom";
 
@@ -44,16 +44,17 @@ import { untrack } from "svelte";
 			setupOpen = true;
 			return;
 		}
-		if (keys.zero || strongKeyless(modelCatalog.catalog)) {
+		if (noProviderKey.value || strongKeyless(modelCatalog.value)) {
 			setupOpen = true;
 			return;
 		}
 		busy = true;
 		try {
-			const target = await startDraftSession(text, fetch, mode, practiceProps);
+			const target = await startDraftSession(text, mode, practiceProps);
 			if (target) void goto(target);
 			else busy = false;
-		} catch {
+		} catch (error) {
+			console.error("[new session] create failed:", error);
 			busy = false;
 		}
 	}
@@ -67,9 +68,7 @@ import { untrack } from "svelte";
 	}
 
 	onMount(() => {
-		keys.init();
 		const off = dictation.mount();
-		fetch("/api/models").catch(() => {});
 		return off;
 	});
 </script>
@@ -101,7 +100,7 @@ import { untrack } from "svelte";
 
 	<div class="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 		<div class="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
-			{#if practiceProps.length > 0 || mode === "practice" || keys.zero || !configured}
+			{#if practiceProps.length > 0 || mode === "practice" || noProviderKey.value || !configured}
 				<div data-testid="composer-actions" class="pointer-events-auto mb-2 flex flex-wrap items-center gap-2 {practiceProps.length > 0 || mode === 'practice' ? 'justify-start' : 'justify-center'}">
 					{#if practiceProps.length > 0 || mode === "practice"}
 						<div class="flex items-center gap-1.5">
@@ -114,7 +113,7 @@ import { untrack } from "svelte";
 							{/if}
 						</div>
 					{/if}
-					{#if keys.zero}
+					{#if noProviderKey.value}
 						<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
 					{:else if !configured}
 						<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>

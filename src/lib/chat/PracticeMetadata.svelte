@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fetchGraph } from "$lib/api/graph";
 	import { hasPracticeMeta, practiceMetaRows, practiceTargets } from "./practice-meta";
 
 	let {
@@ -20,16 +21,12 @@
 
 	function loadNames() {
 		if (names || practiceTargets(problem).length === 0) return;
-		void fetch("/api/graph")
-			.then((res) => (res.ok ? res.json() : { nodes: [] }))
-			.then((graph: { nodes?: Array<{ id?: unknown; name?: unknown }> }) => {
-				names = Object.fromEntries(
-					(graph.nodes ?? [])
-						.filter((node) => typeof node.id === "string")
-						.map((node) => [node.id as string, typeof node.name === "string" ? (node.name as string) : (node.id as string)]),
-				);
-			})
-			.catch(() => (names = {}));
+		void fetchGraph()
+			.then((graph) => (names = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]))))
+			.catch((error) => {
+				console.error("[practice] proposition names unavailable:", error);
+				names = {};
+			});
 	}
 
 	function toggle() {

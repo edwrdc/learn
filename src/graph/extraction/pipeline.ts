@@ -13,7 +13,7 @@ import {
 } from "../../settings/model/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
 import { withBgLlmSlot } from "../../jobs/index.ts";
-import type { AuditVerdicts, CoverageEntry } from "../model/types.ts";
+import type { AuditVerdicts, CoverageEntry, ExtractionPhase } from "../model/types.ts";
 import { usageFromPi, type CallUsage, type ChatRecord, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../snapshot.ts";
 import type { GraphStore } from "../model/ports.ts";
@@ -350,7 +350,7 @@ function submitRunKey(stage: "extract" | "audit", sourceId: string, prompt: stri
  *  audit+merge critical section is queued behind another job's; the
  *  extractor is done but the auditor may not start until the graph is
  *  stable. */
-export type ExtractionPhase = "queued" | "extracting" | "waiting" | "auditing" | "merging";
+
 
 /** One in-flight pipeline run. Module-level: one process, one registry.
  *  Exported for the status payload's consumer typing (the dock). */

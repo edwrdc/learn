@@ -244,3 +244,13 @@ export function parseCustomModelsDiscovery(raw: unknown): CustomEndpointResult<D
 	}
 	return { ok: true, value: models };
 }
+
+export type CustomEndpointKeySource = "env" | "file" | "none";
+
+/** GET /api/custom-endpoint (the key itself never leaves the server). */
+export interface CustomEndpointState {
+	endpoint: CustomEndpointConfig | null;
+	keyPresent: boolean;
+	/** The fixed environment override, the origin-bound auth-store entry, or nowhere. */
+	keySource: CustomEndpointKeySource;
+}

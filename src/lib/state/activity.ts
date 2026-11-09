@@ -1,31 +1,7 @@
 /** The background-agents feed's pure fold: jobs + extractions → ordered
  *  blobs, money/context doctrine included. */
 import { jobCost, type CallUsage } from "@/src/session/model";
-import { type JobKind, type JobRecord } from "@/src/jobs/model";
-
-interface FeedUsage extends NonNullable<JobRecord["usage"]> {
-	lastStep?: CallUsage;
-}
-
-export interface FeedJob extends JobRecord {
-	title: string;
-	usage?: FeedUsage;
-	contextLimit: number | null;
-}
-
-export interface FeedExtraction {
-	id: string;
-	chatId: string;
-	part?: { i: number; n: number };
-	title: string;
-	phase: string;
-	startedAt: number;
-}
-
-export interface ActivityFeed {
-	jobs: FeedJob[];
-	extractions: FeedExtraction[];
-}
+import type { ActivityExtraction, ActivityFeed, ActivityJob, JobKind } from "@/src/jobs/model";
 
 export interface ActivityBlob {
 	id: string;
@@ -42,7 +18,8 @@ export interface ActivityBlob {
 	steps?: number;
 }
 
-export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
+export function toBlobs(feed: Pick<ActivityFeed, "jobs" | "extractions"> | undefined): ActivityBlob[] {
+	if (!feed) return [];
 	const blobs: ActivityBlob[] = feed.jobs.map((job) => {
 		const usage = job.usage;
 		let context: ActivityBlob["context"] = null;

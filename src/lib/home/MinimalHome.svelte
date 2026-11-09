@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { ListTree } from "@lucide/svelte";
 	import type { ChatSummary, GraphCostSummary } from "@/src/session/model";
-import type { GraphSnapshot } from "@/src/graph/model";
+	import type { GraphSnapshot } from "@/src/graph/model";
 	import { serverEvents } from "$lib/state/server-events";
+	import { fetchGraph, fetchGraphCosts } from "$lib/api/graph";
+	import { listChats } from "$lib/api/chats";
 	import { hint } from "$lib/hint";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import NotesImport from "./NotesImport.svelte";
@@ -21,9 +23,10 @@ import type { GraphSnapshot } from "@/src/graph/model";
 	let chainsOpen = $state(false);
 
 	function readState() {
-		fetch("/api/graph").then((r) => r.json() as Promise<GraphSnapshot>).then((value) => (snapshot = value)).catch(() => {});
-		fetch("/api/graph/costs").then((r) => r.json() as Promise<GraphCostSummary>).then((value) => (costs = value)).catch(() => {});
-		fetch("/api/chats").then((r) => r.json() as Promise<{ chats: ChatSummary[] }>).then((body) => (chats = body.chats)).catch(() => {});
+		const failed = (what: string) => (error: unknown) => console.error(`[home] ${what} load failed:`, error);
+		fetchGraph().then((value) => (snapshot = value)).catch(failed("graph"));
+		fetchGraphCosts().then((value) => (costs = value)).catch(failed("costs"));
+		listChats().then((value) => (chats = value)).catch(failed("sessions"));
 	}
 
 	$effect(() => {

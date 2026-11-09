@@ -1,4 +1,4 @@
-import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings } from "@/src/settings/model";
+import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings, type PromptSegmentInfo } from "@/src/settings/model";
 import type { KeyAction } from "@/src/settings/model";
 import type { SearchEngineId } from "@/src/tools/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
@@ -41,19 +41,11 @@ export function composeSlotModel(
 
 export const PROMPT_IN_USE_HINT = "Your version is in use";
 
-export interface SegmentInfo {
-	path: string;
-	sourceText: string;
-	overrideText: string | null;
-	enabled: boolean;
-	shared: boolean;
-}
-
 export interface PromptSection {
 	id: "teacher" | "prober" | "shared";
 	label: string;
 	hint?: string;
-	segments: SegmentInfo[];
+	segments: PromptSegmentInfo[];
 }
 
 export function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
@@ -83,7 +75,7 @@ export function composePromptSwitch(agent: AgentSettings | undefined, path: stri
 	return { ...agent, prompts };
 }
 
-export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[] }): PromptSection[] {
+export function sectionedSegments(view: { prober: PromptSegmentInfo[]; teacher: PromptSegmentInfo[] }): PromptSection[] {
 	const own = (who: "prober" | "teacher") => view[who].filter((segment) => !segment.shared);
 	return [
 		{ id: "teacher", label: "Teacher", segments: own("teacher") },

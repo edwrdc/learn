@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { deleteKey as removeKey, fetchKeys, saveKey as putKey } from "$lib/api/settings";
 import { untrack } from "svelte";
 	import { type AuthKeyStatus } from "@/src/settings/model";
-	import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "./keys";
+	import { classifyKeys, keyStatusLine } from "./keys";
+	import type { AuthProviderInfo } from "@/src/settings/model";
 	import { notifySettingsSaved } from "$lib/state/settings-signal";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
@@ -9,15 +11,14 @@ import { untrack } from "svelte";
 	import CustomEndpointSection from "./CustomEndpointSection.svelte";
 	import { focusOnMount } from "$lib/dom";
 
-	interface KeysResponse { keys: AuthKeyStatus[]; providers?: ProviderKeyInfo[] }
 
 
 	let { initialRow }: { initialRow?: string } = $props();
 	let statuses = $state<AuthKeyStatus[] | null>(null);
-	let providers = $state<ProviderKeyInfo[] | undefined>(undefined);
+	let providers = $state<AuthProviderInfo[] | undefined>(undefined);
 	let loading = $state(true);
 	let openRow = $state<string | null>(untrack(() => initialRow ?? null));
-	let adding = $state<ProviderKeyInfo | null>(null);
+	let adding = $state<AuthProviderInfo | null>(null);
 	let addError = $state<string | null>(null);
 	let addValue = $state("");
 	let customOpen = $state(false);
@@ -66,13 +67,15 @@ import { untrack } from "svelte";
 	});
 
 	function reload() {
-		return fetch("/api/keys")
-			.then((r) => r.json() as Promise<KeysResponse>)
+		return fetchKeys()
 			.then((body) => {
-				statuses = body.keys ?? [];
-				if (body.providers) providers = body.providers;
+				statuses = body.keys;
+				providers = body.providers;
 			})
-			.catch(() => (statuses = []))
+			.catch((error) => {
+				console.error("[settings] keys load failed:", error);
+				statuses = [];
+			})
 			.finally(() => (loading = false));
 	}
 
@@ -81,14 +84,10 @@ import { untrack } from "svelte";
 	});
 
 	async function saveKey(id: string, value: string): Promise<string | null> {
-		const res = await fetch(`/api/keys/${id}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ value }),
-		});
-		if (!res.ok) {
-			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			return body.error ?? `Save failed (${res.status})`;
+		try {
+			await putKey(id, value);
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
 		}
 		await reload();
 		notifySettingsSaved("keys");
@@ -96,7 +95,7 @@ import { untrack } from "svelte";
 	}
 
 	async function deleteKey(id: string) {
-		await fetch(`/api/keys/${id}`, { method: "DELETE" }).catch(() => undefined);
+		await removeKey(id).catch((error) => console.error(`[settings] delete ${id} failed:`, error));
 		await reload();
 		notifySettingsSaved("keys");
 	}
@@ -114,7 +113,7 @@ import { untrack } from "svelte";
 		rowBusy = false;
 	}
 
-	async function saveNewProvider(provider: ProviderKeyInfo) {
+	async function saveNewProvider(provider: AuthProviderInfo) {
 		if (!addValue.trim()) return;
 		const error = await saveKey(provider.envVar, addValue);
 		if (error) addError = error;

@@ -19,7 +19,6 @@
 
 	let open = $state(false);
 	let bar = $state<HTMLDivElement | null>(null);
-	modelCatalog.ensure();
 
 	$effect(() => {
 		if (!open || typeof document === "undefined") return;
@@ -40,7 +39,7 @@
 		};
 	});
 
-	const limits = $derived(modelCatalog.catalog ? catalogLimits(modelCatalog.catalog) : undefined);
+	const limits = $derived(modelCatalog.value ? catalogLimits(modelCatalog.value) : undefined);
 	const ctx = $derived(contextWindow({ turns }, limits));
 	const costInfo = $derived(sessionCost({ turns }));
 	const pricedCount = $derived(turns.length - costInfo.unpriced);

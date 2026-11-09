@@ -1,3 +1,5 @@
+import { mintDictationToken } from "$lib/api/settings";
+import { ApiError } from "$lib/api/http";
 export const DG_URL =
 	"wss://api.deepgram.com/v1/listen" +
 	"?model=nova-3" +
@@ -28,13 +30,12 @@ export function rmsToMeter(rms: number): number {
 }
 
 async function mintFreshToken(): Promise<string> {
-	const res = await fetch("/api/stt/token");
-	const data = (await res.json()) as { token?: string; error?: string };
-	if (!res.ok || !data.token) {
-		if (res.status === 503) throw new Error(DICTATION_KEYLESS);
-		throw new Error(data.error ?? `token route ${res.status}`);
+	try {
+		return await mintDictationToken();
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 503) throw new Error(DICTATION_KEYLESS);
+		throw error;
 	}
-	return data.token;
 }
 
 export function createWarmMinter(mint: () => Promise<string>, now: () => number = Date.now, ttlMs = WARM_TOKEN_TTL_MS) {

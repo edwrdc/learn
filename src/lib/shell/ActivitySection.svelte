@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { abortProcess } from "$lib/api/chats";
+	import { ApiError } from "$lib/api/http";
 	import { Activity, Bot, FileText, PenTool, Play, Search, Square, Waypoints } from "@lucide/svelte";
 	import { jobAgentLabel } from "@/src/tools/model";
 	import { formatUsd } from "$lib/format";
@@ -15,7 +17,7 @@
 		return () => clearInterval(timer);
 	});
 
-	const blobs = $derived(toBlobs(activity.feed));
+	const blobs = $derived(toBlobs(activity.value));
 	const totalCost = $derived.by(() => {
 		const priced = blobs.map((b) => b.cost).filter((c): c is number => c !== null);
 		return priced.length === 0 ? null : priced.reduce((a, c) => a + c, 0);
@@ -29,25 +31,16 @@
 	async function abort(blob: ActivityBlob) {
 		abortStates = { ...abortStates, [blob.id]: "pending" };
 		try {
-			const res = await fetch("/api/activity/abort", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					kind: blob.process,
-					id: blob.process === "extraction" ? blob.chatId : blob.id,
-				}),
-			});
-			if (!res.ok) {
-				if (res.status === 404 || res.status === 409) {
-					activity.refresh();
-					const { [blob.id]: _drop, ...rest } = abortStates;
-					abortStates = rest;
-					return;
-				}
-				throw new Error(String(res.status));
+			await abortProcess(blob.process, blob.process === "extraction" ? blob.chatId : blob.id);
+		} catch (error) {
+			if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+				// Already over: the feed was stale.
+				void activity.refresh();
+				const { [blob.id]: _drop, ...rest } = abortStates;
+				abortStates = rest;
+				return;
 			}
-			activity.refresh();
-		} catch {
+			console.error("[activity] abort failed:", error);
 			abortStates = { ...abortStates, [blob.id]: "failed" };
 		}
 	}

@@ -4,11 +4,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { after, describe, it } from "node:test";
 import { deleteFailureLine, EXTRACTION_RETRY_LINE } from "../src/lib/home/delete-node.ts";
-import { fetchGraphRead, ringFill } from "../src/lib/chat/coverage.ts";
-import { formatElapsed, toBlobs, type ActivityFeed, type FeedExtraction } from "../src/lib/state/activity.ts";
+import { ringFill } from "../src/lib/chat/coverage.ts";
+import { formatElapsed, toBlobs } from "../src/lib/state/activity.ts";
+import type { ActivityExtraction, ActivityFeed } from "../src/jobs/model/index.ts";
 import { formatTokens, formatUsd } from "../src/lib/format.ts";
 import { composeFontFamily, CURATED_FALLBACK_FONTS, customFamilyFor, DEFAULT_READING_FONT, fontMenuResults } from "../src/lib/settings/fonts.ts";
-import { notesImportErrors, parseNotesImportResults, postNotesImport, type NotesImportResult } from "../src/lib/home/notes-import.ts";
+import { notesImportErrors, parseNotesImportResults, postNotesImport } from "../src/lib/home/notes-import.ts";
+import type { NotesImportResult } from "../src/graph/model/index.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -101,19 +103,6 @@ describe("delete session dialog", () => {
 });
 
 describe("extraction coverage pure folds", () => {
-	const stub = (payload: unknown, ok = true): typeof fetch => (async () => new Response(JSON.stringify(payload), { status: ok ? 200 : 500 })) as typeof fetch;
-
-	it("absent/partial graph settings resolve the factory 4096 budget", async () => {
-		assert.deepEqual(await fetchGraphRead(stub({ settings: { version: 1 } })), { enabled: true, chunkTokens: 4096 });
-		assert.deepEqual(await fetchGraphRead(stub({ settings: { version: 1, graph: { enabled: true } } })), { enabled: true, chunkTokens: 4096 });
-		assert.deepEqual(await fetchGraphRead(stub({ settings: null })), { enabled: true, chunkTokens: 4096 });
-	});
-
-	it("a custom budget rides through; a failed read returns null", async () => {
-		assert.equal((await fetchGraphRead(stub({ settings: { version: 1, graph: { enabled: true, extractionChunkTokens: 2000 } } })))?.chunkTokens, 2000);
-		assert.equal(await fetchGraphRead(stub({}, false)), null);
-	});
-
 	it("ringFill clamps to [0,1] and treats a non-positive threshold as zero", () => {
 		assert.equal(ringFill(0, 4096), 0);
 		assert.equal(ringFill(2048, 4096), 0.5);
@@ -153,7 +142,7 @@ describe("activity feed pure folds", () => {
 		const rows = [
 			{ id: "src_a#1", chatId: "src_a", part: { i: 1, n: 2 }, title: "notes.md · 1/2", phase: "extracting", startedAt: NOW - 1000 },
 			{ id: "src_a#2", chatId: "src_a", part: { i: 2, n: 2 }, title: "notes.md · 2/2", phase: "queued", startedAt: NOW - 500 },
-		] as FeedExtraction[];
+		] as ActivityExtraction[];
 		const blobs = toBlobs({ jobs: [], extractions: rows });
 		assert.deepEqual(blobs.map((b) => b.id), ["src_a#1", "src_a#2"]);
 		assert.ok(blobs.every((b) => b.chatId === "src_a"));

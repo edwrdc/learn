@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from "svelte";
 	import { FileText, ListTree, Loader2, Search, Settings, Upload, Waypoints } from "@lucide/svelte";
-	import { ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, DEFAULT_RENDER_SETTINGS, EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE, LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout, labelZoomDisplay, sanitizeRenderSettings, snapToLadder, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphNode, type GraphSnapshot } from "@/src/graph/model";
+	import { ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE, LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout, labelZoomDisplay, sanitizeRenderSettings, snapToLadder, toLadderPosition, toOffSliderPosition, toSliderPosition, type ExtractionRunView, type GraphNode, type GraphSnapshot } from "@/src/graph/model";
 import { propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
 	import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
-	import { activity } from "$lib/state/activity.svelte";
 	import { serverEvents } from "$lib/state/server-events";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { fetchExtractionRuns, fetchGraph, fetchGraphCosts, savePositions } from "$lib/api/graph";
+	import { saveSettingsSection } from "$lib/api/settings";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import { formatTokens } from "$lib/format";
@@ -30,7 +32,9 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let snapshot = $state<GraphSnapshot | null>(null);
 	let selected = $state<{ node: GraphNode; sourceIds: string[]; anchor: { x: number; y: number } } | null>(null);
 	let query = $state("");
-	let settings = $state<GraphRenderSettings>(DEFAULT_RENDER_SETTINGS);
+	/** This view's edits win over the saved record until the page reloads. */
+	let localRender = $state<GraphRenderSettings | null>(null);
+	const settings = $derived(localRender ?? sanitizeRenderSettings(userSettings.record?.graphRender));
 	let renderer = $state.raw<GraphCanvasRenderer | null>(null);
 	let rendererReady = $state(false);
 	let fitted = false;
@@ -40,7 +44,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let ctxNode = $state<{ id: string; name: string; x: number; y: number } | null>(null);
 	let ctxAnchor = $state<HTMLDivElement | null>(null);
 	let deleting = $state<{ id: string; name: string }[] | null>(null);
-	let pipelineRuns = $state<Array<{ id: string; chatId: string; title: string; phase: string; startedAt: number }>>([]);
+	let pipelineRuns = $state<ExtractionRunView[]>([]);
 	let costs = $state<GraphCostSummary | null>(null);
 	let searchInput = $state<HTMLInputElement | null>(null);
 	let costOpen = $state(false);
@@ -50,9 +54,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let labelTick = $state(0);
 	let now = $state(Date.now());
 	let rowIds = new Set<string>();
-	let userTouched = false;
-	let serverLoaded = false;
-	let savePending = false;
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 	let cameraTimer: ReturnType<typeof setTimeout> | undefined;
 	let lastCamera: { k: number; x: number; y: number } | null = null;
@@ -85,43 +86,38 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 
 	async function readGraph() {
 		try {
-			const res = await fetch("/api/graph");
-			snapshot = (await res.json()) as GraphSnapshot;
-		} catch {
+			snapshot = await fetchGraph();
+		} catch (error) {
+			console.error("[graph] load failed:", error);
 		}
 	}
 	async function readCosts() {
 		try {
-			const res = await fetch("/api/graph/costs");
-			costs = (await res.json()) as GraphCostSummary;
-		} catch {
+			costs = await fetchGraphCosts();
+		} catch (error) {
+			console.error("[graph] costs load failed:", error);
 		}
 	}
 	async function readStatus() {
 		try {
-			const res = await fetch("/api/graph/status");
-			const body = (await res.json()) as { runs: typeof pipelineRuns };
-			pipelineRuns = body.runs;
-			const ids = new Set(body.runs.map((run) => run.id));
+			const runs = await fetchExtractionRuns();
+			pipelineRuns = runs;
+			const ids = new Set(runs.map((run) => run.id));
 			if ([...rowIds].some((id) => !ids.has(id))) refreshTick += 1;
 			rowIds = ids;
-		} catch {
+		} catch (error) {
+			console.error("[graph] status load failed:", error);
 		}
-	}
-	function saveSettings() {
-		if (!serverLoaded) {
-			savePending = true;
-			return;
-		}
-		void fetch("/api/settings/graphRender", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(settings),
-		}).catch(() => {});
 	}
 	function changeSettings(update: (current: GraphRenderSettings) => GraphRenderSettings) {
-		userTouched = true;
-		settings = update(settings);
+		const next = update(settings);
+		localRender = next;
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			saveSettingsSection("graphRender", next)
+				.then((record) => userSettings.set(record))
+				.catch((error) => console.error("[graph] display settings not saved:", error));
+		}, 400);
 	}
 
 	function dispatchCostsRefresh() {
@@ -183,33 +179,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	$effect(() => {
 		void pipelineRuns;
 		dispatchCostsRefresh();
-	});
-
-	$effect(() => {
-		fetch("/api/settings")
-			.then((res) => (res.ok ? (res.json() as Promise<{ settings: { graphRender?: unknown } | null }>) : null))
-			.then((body) => {
-				const raw = body?.settings?.graphRender;
-				if (raw !== undefined && !userTouched) settings = sanitizeRenderSettings(raw);
-			})
-			.catch(() => {})
-			.finally(() => {
-				serverLoaded = true;
-				if (savePending) {
-					savePending = false;
-					saveSettings();
-				}
-			});
-	});
-	$effect(() => {
-		void settings;
-		if (!userTouched) return;
-		if (!serverLoaded) {
-			savePending = true;
-			return;
-		}
-		clearTimeout(saveTimer);
-		saveTimer = setTimeout(saveSettings, 400);
 	});
 
 	$effect(() => {
@@ -292,11 +261,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 					persistCamera(transform);
 				},
 				onCommit: (next) => {
-					void fetch("/api/graph/positions", {
-						method: "PUT",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify(next),
-					}).catch(() => {});
+					savePositions(next).catch((error) => console.error("[graph] positions not saved:", error));
 				},
 			},
 			initialCamera,
@@ -380,7 +345,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	});
 
 	onMount(() => {
-		activity.init();
 	});
 
 	const costTotals = $derived(costs ? displayCostTotals(costs) : { totalDollars: 0, unpricedRuns: 0 });

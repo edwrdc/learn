@@ -9,9 +9,10 @@
  */
 import { chatStore } from "@/src/session";
 import { extractionStatuses } from "@/src/graph";
+import type { ExtractionRunView } from "@/src/graph/model";
 
 export async function GET() {
-	const runs = await Promise.all(extractionStatuses().map(async (run) => ({
+	const runs: ExtractionRunView[] = await Promise.all(extractionStatuses().map(async (run) => ({
 		// One source's rows share chatId; the row id is the job's own key.
 		id: run.id,
 		chatId: run.chatId,

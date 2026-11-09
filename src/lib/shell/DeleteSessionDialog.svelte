@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { deleteChat } from "$lib/api/chats";
+	import { ApiError } from "$lib/api/http";
 	import { tick } from "svelte";
 	import type { ChatDeleteMode } from "@/src/graph/model";
 import type { ChatListItem } from "@/src/session/model";
@@ -44,16 +46,13 @@ import type { ChatListItem } from "@/src/session/model";
 		busy = true;
 		failure = null;
 		try {
-			const res = await fetch(`/api/chats/${chat.id}?mode=${mode}`, { method: "DELETE" });
-			const body = (await res.json()) as { error?: string; code?: string; graphRevision?: number };
-			if (!res.ok) {
-				failure = { code: body.code ?? "error", error: body.error ?? `Delete failed (${res.status})` };
-				busy = false;
-				return;
-			}
-			onDeleted(chat.id, mode, body.graphRevision ?? 0);
-		} catch {
-			failure = { code: "network", error: "Delete failed — network error. Try again." };
+			const { graphRevision } = await deleteChat(chat.id, mode);
+			onDeleted(chat.id, mode, graphRevision);
+		} catch (error) {
+			failure =
+				error instanceof ApiError
+					? { code: error.body?.code ?? "error", error: error.message }
+					: { code: "network", error: "Delete failed — network error. Try again." };
 			busy = false;
 		}
 	}

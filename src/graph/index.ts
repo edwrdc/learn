@@ -3,7 +3,7 @@ export { coverageOf } from "./coverage.ts";
 export { auditorGraphTools, proberGraphTools } from "./extraction/graph-tools.ts";
 export type { GraphToolContext } from "./extraction/graph-tools.ts";
 export { NotesImportError, abortExtraction, createExtractionPipeline, extractionStatuses, stopExtraction } from "./extraction/pipeline.ts";
-export type { ExtractionPhase, ExtractionPipeline, RunningExtraction } from "./extraction/pipeline.ts";
+export type { ExtractionPipeline, RunningExtraction } from "./extraction/pipeline.ts";
 export { AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool } from "./extraction/submit-role.ts";
 export type { SubmitRunInput } from "./extraction/submit-role.ts";
 export { deleteGraphNode, graphCosts, graphRevision, graphView } from "./service.ts";

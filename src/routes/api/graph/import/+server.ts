@@ -14,35 +14,18 @@
 import { services } from "@/src/boot";
 import { BG_LLM_PERMITS } from "@/src/jobs";
 import { NotesImportError } from "@/src/graph";
-import { ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError } from "@/src/settings/model";
-import { type EmissionStats } from "@/src/graph/model";
+import { MODELS_NOT_CONFIGURED_CODE, ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError } from "@/src/settings/model";
+import type { NotesImportResult } from "@/src/graph/model";
 import type { RequestEvent } from "./$types";
-
-interface ImportResult {
-	requestIndex: number;
-	outcome: "completed" | "failed" | "partial" | "aborted" | "busy";
-	filePath: string;
-	ok: boolean;
-	stats?: EmissionStats;
-	error?: string;
-	/** The machine discriminator when ok:false is a config refusal — the
-	 * BYOK models refusal (owner, 2026-09-22) or the provider-key refusal
-	 * (2026-09-25); the client can open the setup/keys flow off it. */
-	code?: "models_not_configured" | (typeof PROVIDER_KEY_MISSING_CODE);
-	missing?: string[];
-	/** The key-refusal specifics (provider_key_missing only). */
-	provider?: string;
-	slots?: string[];
-}
 
 export async function POST({ request }: RequestEvent) {
 	const form = await request.formData();
 	const files = form.getAll("files").filter((f): f is File => f instanceof File);
 	if (files.length === 0) {
-		return Response.json({ results: [] as ImportResult[], error: "no files" }, { status: 400 });
+		return Response.json({ results: [] as NotesImportResult[], error: "no files" }, { status: 400 });
 	}
 
-	const results: ImportResult[] = [];
+	const results: NotesImportResult[] = [];
 	const queue = files.map((file, requestIndex) => ({ file, requestIndex }));
 	const workers = Array.from({ length: Math.min(BG_LLM_PERMITS, files.length) }, async () => {
 		for (;;) {
@@ -60,7 +43,7 @@ export async function POST({ request }: RequestEvent) {
 						ok: false,
 						requestIndex, outcome: "failed",
 						error: err.envelope.error,
-						code: "models_not_configured",
+						code: MODELS_NOT_CONFIGURED_CODE,
 						missing: err.envelope.missing,
 					});
 					continue;

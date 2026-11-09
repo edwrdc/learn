@@ -10,16 +10,15 @@
 	import { serverEvents } from "$lib/state/server-events";
 	import { sidebar } from "$lib/state/sidebar.svelte";
 	import { appearance } from "$lib/state/appearance.svelte";
-	import { activity } from "$lib/state/activity.svelte";
 	import { initKeyboard } from "$lib/state/keyboard";
 
 	let { children }: { children: Snippet } = $props();
 
+	$effect(() => appearance.apply());
+
 	onMount(() => {
 		serverEvents.start();
 		sidebar.init();
-		appearance.init();
-		activity.init();
 		const offKeyboard = initKeyboard();
 		return () => {
 			offKeyboard();

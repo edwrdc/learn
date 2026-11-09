@@ -2,6 +2,7 @@ import { compactionInFlight, deleteChatSession, isTurnRunning, requireChat, sess
 import { readJson } from "@/src/platform";
 import { stores } from "@/src/stores";
 import { type ChatDeleteMode } from "@/src/graph/model";
+import type { ChatView } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
 
 export async function GET({ params }: RequestEvent) {
@@ -19,13 +20,8 @@ export async function GET({ params }: RequestEvent) {
 	// (core/view.ts projectView). turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
 	const [turnInFlight, coverage] = await Promise.all([isTurnRunning(id), sessionCoverage(id)]);
-	return Response.json({
-		...chat,
-		messages: chat.messages,
-		turnInFlight,
-		compacting: compactionInFlight(id),
-		coverage,
-	});
+	const view: ChatView = { ...chat, turnInFlight, compacting: compactionInFlight(id), coverage };
+	return Response.json(view);
 }
 
 /**

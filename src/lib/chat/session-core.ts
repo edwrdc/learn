@@ -638,7 +638,7 @@ export class SessionModel {
 			this.onChange?.();
 		};
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
@@ -678,7 +678,7 @@ export class SessionModel {
 			this.tail = [...this.tail, { ...newAnswerResult(toolCallId, tool, answer), id: localId() }];
 		});
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "dismiss", toolCallId, answer } }),
@@ -700,7 +700,7 @@ export class SessionModel {
 			this.tail = [...this.tail, { ...newProblemDismissedMarker(problemCallId), id: localId() }];
 		});
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "dismiss-problem", problemCallId } }),

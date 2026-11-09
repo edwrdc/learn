@@ -1,10 +1,14 @@
 <script lang="ts">
+	import { abortProcess, fetchChat, fetchJobs as fetchChatJobs } from "$lib/api/chats";
+	import { renameSession } from "$lib/state/sessions";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import type { ChatView } from "@/src/session/model";
 import { untrack } from "svelte";
 	import { onMount, setContext, tick } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
 	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
 	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
-import { kbdEventForAction, slotsConfigured, type ModelsSettings } from "@/src/settings/model";
+import { kbdEventForAction, slotsConfigured } from "@/src/settings/model";
 import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";
@@ -37,9 +41,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import { CHAT_ACTIONS } from "./actions-context";
 	import { SESSION_MERMAID } from "./session-context";
 	import { sidebar } from "$lib/state/sidebar.svelte";
-	import { keys } from "$lib/state/keys.svelte";
+	import { noProviderKey } from "$lib/state/keys.svelte";
 	import { serverEvents } from "$lib/state/server-events";
-	import { watchSettings } from "$lib/state/settings-signal";
 	import { hint } from "$lib/hint";
 	import { toggleUserThinking } from "./thinking-store.svelte";
 	import { scrollSessionTarget } from "./session-nav";
@@ -87,7 +90,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	let text = $state("");
 	let code = $state("");
 	let textMirror = "";
-	let configured = $state(untrack(() => initialConfigured));
+	let configured = $derived(userSettings.record === undefined ? initialConfigured : slotsConfigured(userSettings.record?.models));
 	let setupOpen = $state(false);
 	let turns = $state.raw<TurnUsage[]>([]);
 	let jobs = $state.raw<import("@/src/jobs/model").JobRecord[]>([]);
@@ -183,14 +186,19 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		void syncFromServer();
 	});
 
-	async function syncTurns(): Promise<void> {
+	/** The chat's record, or null after logging why it could not be read. */
+	async function readRecord(): Promise<ChatView | null> {
 		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { turns?: TurnUsage[] };
-			if (Array.isArray(record.turns)) turns = record.turns;
-		} catch {
+			return await fetchChat(chatId);
+		} catch (error) {
+			console.error(`[chat ${chatId}] record load failed:`, error);
+			return null;
 		}
+	}
+
+	async function syncTurns(): Promise<void> {
+		const record = await readRecord();
+		if (record?.turns) turns = record.turns;
 	}
 
 	function autoContinue(next: LhMessage[]): void {
@@ -205,44 +213,30 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	}
 
 	async function syncFromServer(): Promise<void> {
-		const res = await fetch(`/api/chats/${chatId}`);
-		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[] };
-		if (Array.isArray(record.turns)) turns = record.turns;
-		if (!Array.isArray(record.messages)) return;
+		const record = await readRecord();
+		if (!record) return;
+		if (record.turns) turns = record.turns;
 		session.setMessages(record.messages);
 		if (status === "ready") autoContinue(record.messages);
 	}
 
 	async function syncCompaction(): Promise<void> {
 		const revision = ++compactionRevision;
-		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { compacting?: boolean };
-			// A frame that arrived after the read started owns the state.
-			if (revision !== compactionRevision) return;
-			if (typeof record.compacting === "boolean") compacting = record.compacting;
-		} catch {
-		}
+		const record = await readRecord();
+		// A frame that arrived after the read started owns the state.
+		if (!record || revision !== compactionRevision) return;
+		compacting = record.compacting;
 	}
 
 	async function adoptAppendOnly(): Promise<void> {
-		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { messages?: LhMessage[] };
-			if (Array.isArray(record.messages)) session.adoptRecord(record.messages);
-		} catch {
-		}
+		const record = await readRecord();
+		if (record) session.adoptRecord(record.messages);
 	}
 
 	async function fetchJobs(): Promise<void> {
 		try {
-			const res = await fetch(`/api/jobs?chatId=${encodeURIComponent(chatId)}`);
-			if (!res.ok) return;
-			const data = (await res.json()) as { jobs?: import("@/src/jobs/model").JobRecord[]; turnInFlight?: boolean };
-			const list = data.jobs ?? [];
+			const data = await fetchChatJobs(chatId);
+			const list = data.jobs;
 			for (const job of list) {
 				const previous = jobStatuses.get(job.id);
 				if (previous === "running" && job.status !== "running") {
@@ -261,7 +255,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			}
 			jobs = list;
 			firstJobsFetch = false;
-		} catch {
+		} catch (error) {
+			console.error(`[chat ${chatId}] jobs load failed:`, error);
 		}
 	}
 
@@ -314,11 +309,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 
 	function abortInFlightTurn(): void {
 		session.stop();
-		void fetch("/api/activity/abort", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ kind: "turn", id: chatId }),
-		}).catch(() => {});
+		abortProcess("turn", chatId).catch((error) => console.error(`[chat ${chatId}] turn abort failed:`, error));
 	}
 
 	function confirmAbort(mode: "turn" | "question" | "problem"): void {
@@ -347,15 +338,10 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		const value = next.trim();
 		if (!value || value === titleText) return;
 		try {
-			const res = await fetch(`/api/chats/${chatId}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: value }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
+			await renameSession(chatId, value);
 			titleText = value;
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: value } }));
-		} catch {
+		} catch (error) {
+			console.error(`[chat ${chatId}] rename failed:`, error);
 		}
 	}
 
@@ -440,17 +426,15 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		handlingRefusal = true;
 		let cancelled = false;
 		void (async () => {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`).catch(() => null);
+			const record = await readRecord();
 			if (cancelled) return;
-			const record = res?.ok ? ((await res.json().catch(() => null)) as { messages?: LhMessage[] } | null) : null;
-			if (cancelled) return;
-			if (Array.isArray(record?.messages)) session.setMessages(record.messages);
+			if (record) session.setMessages(record.messages);
 			if (draft !== null) {
 				applyText(draft.text);
 				code = draft.code;
 				draft = null;
 			}
-			if (unavailable && !Array.isArray(record?.messages)) {
+			if (unavailable && !record) {
 				handlingRefusal = false;
 				return;
 			}
@@ -509,20 +493,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		};
 	});
 
-	$effect(() => {
-		if (typeof window === "undefined") return;
-		const off = watchSettings((section) => {
-			if (section !== "models") return;
-			fetch("/api/settings")
-				.then((r) => r.json() as Promise<{ settings?: { models?: ModelsSettings } | null } | null>)
-				.then((body) => (configured = slotsConfigured(body?.settings?.models)))
-				.catch(() => {});
-		});
-		return off;
-	});
 
 	onMount(() => {
-		keys.init();
 		// Initial pin: fonts, KaTeX and images land after the first paint;
 		// the baseline opens a session at the exact bottom. An explicit hash
 		// (an anchor arrival) owns the position instead.
@@ -639,7 +611,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 {/snippet}
 
 {#snippet setupCta()}
-	{#if keys.zero}
+	{#if noProviderKey.value}
 		<div class="pointer-events-auto mb-2 flex justify-center">
 			<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
 		</div>

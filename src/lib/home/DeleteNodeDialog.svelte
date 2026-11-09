@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { deleteGraphNode } from "$lib/api/graph";
+	import { ApiError } from "$lib/api/http";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { deleteFailureLine } from "./delete-node";
 
@@ -41,20 +43,15 @@
 		let revision = 0;
 		try {
 			for (const node of nodes) {
-				const res = await fetch(`/api/graph/nodes/${encodeURIComponent(node.id)}`, { method: "DELETE" });
-				const body = (await res.json()) as { error?: string; code?: string; graphRevision?: number };
-				if (!res.ok) {
-					failure = { code: body.code ?? "error", error: body.error ?? `Delete failed (${res.status})` };
-					busy = false;
-					if (dead.length > 0) onDeleted(dead, revision);
-					return;
-				}
+				revision = (await deleteGraphNode(node.id)).graphRevision;
 				dead.push(node.id);
-				revision = body.graphRevision ?? revision;
 			}
 			onDeleted(dead, revision);
-		} catch {
-			failure = { code: "network", error: "Delete failed — network error. Try again." };
+		} catch (error) {
+			failure =
+				error instanceof ApiError
+					? { code: error.body?.code ?? "error", error: error.message }
+					: { code: "network", error: "Delete failed — network error. Try again." };
 			busy = false;
 			if (dead.length > 0) onDeleted(dead, revision);
 		}

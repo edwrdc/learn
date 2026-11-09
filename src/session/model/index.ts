@@ -21,7 +21,7 @@ export { parseAskInput, parseExplainInput, parseProbeDoneInput, parseQuizInput }
 export { activeProblemOf, continuationSignature, danglingQuestionOf, endsInDismissal, modelTextOf, needsContinuation, newAnswerResult, newGraphContextMessage, newHandoffMessage, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, newUserSteer, textOf } from "./transcript.ts";
 export type { GraphContextPick, LhMarkerMessage, LhMessage } from "./transcript.ts";
 export { CONCLUDE_ACK_TEXT, usageFromPi } from "./types.ts";
-export type { ArtifactPartProps, CallUsage, ChatListItem, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ExtractionStageUsage, PlanBlockData, SessionCoverage, TurnUsage } from "./types.ts";
+export type { ArtifactPartProps, CallUsage, ChatListItem, ChatRecord, ChatSettings, ChatSummary, ChatView, ExtractionRunUsage, ExtractionStageUsage, PlanBlockData, SessionCoverage, TurnUsage } from "./types.ts";
 export { projectView } from "./view.ts";
 export type { LhViewMessage, LiveExecution } from "./view.ts";
 export { titleFromPrompt } from "./title.ts";

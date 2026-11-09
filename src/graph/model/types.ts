@@ -16,9 +16,11 @@
  * is owned outright by its stream — cross-domain schema changes go through
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
+
+import type { RefusalCode } from "../../settings/model/index.ts";
 // ─── Knowledge graph (vision §1 — global, cross-session) ────────────────────
 
-import type { CallUsage, ExtractionRunUsage } from "../../session/model/index.ts";
+import type { CallUsage, ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
 
 /** One relation of the DERIVED view — chains are the stored truth (owner,
  *  2026-09-30: "the graph is a lossy image of what is truly stored"), and
@@ -288,3 +290,29 @@ export interface Position {
 	y: number;
 }
 
+export type ExtractionPhase = "queued" | "extracting" | "waiting" | "auditing" | "merging";
+
+/** One running extraction job as GET /api/graph/status reports it. */
+export interface ExtractionRunView {
+	id: string;
+	chatId: string;
+	title: string;
+	phase: ExtractionPhase;
+	startedAt: number;
+	usage: { extractor?: ExtractionStageUsage; auditor?: ExtractionStageUsage };
+}
+
+/** One file's outcome in POST /api/graph/import. A config refusal carries
+ *  the refusal envelope's code and specifics. */
+export interface NotesImportResult {
+	requestIndex: number;
+	filePath: string;
+	ok: boolean;
+	outcome: "completed" | "failed" | "partial" | "aborted" | "busy";
+	stats?: EmissionStats;
+	error?: string;
+	code?: RefusalCode;
+	missing?: string[];
+	provider?: string;
+	slots?: string[];
+}

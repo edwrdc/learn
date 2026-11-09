@@ -350,3 +350,12 @@ export interface SessionCoverage {
 	/** ISO of the newest fold in this session's coverage rows; null before any. */
 	lastFoldedAt: string | null;
 }
+
+/** GET /api/chats/:id: the record served verbatim (the client derives its
+ *  view) plus liveness — a running turn to re-attach to, a compaction in
+ *  flight — and the chat's coverage meter. */
+export interface ChatView extends ChatRecord {
+	turnInFlight: boolean;
+	compacting: boolean;
+	coverage: SessionCoverage | null;
+}
