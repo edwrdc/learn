@@ -11,7 +11,6 @@
  * by the pipeline and leave coverage untouched — the button stays honest.
  */
 import { services } from "@/src/boot";
-import { extractionStatuses } from "@/src/graph";
 import { readJson } from "@/src/platform";
 import type { RequestEvent } from "./$types";
 
@@ -22,7 +21,7 @@ export async function POST({ request }: RequestEvent) {
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
 	}
-	if (extractionStatuses().some((run) => run.kind === "chat" && run.chatId === chatId)) {
+	if (services().extraction.isRunning(chatId)) {
 		return Response.json({ error: "An extraction run is already in flight for this session" }, { status: 409 });
 	}
 	// Fire-and-forget, like the trigger: the dock + the coverage panel's

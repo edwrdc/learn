@@ -168,7 +168,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		} catch (err) {
 			const reason = err instanceof Error ? err.message : String(err);
 			console.error(`[job ${jobId}] steer delivery failed:`, err);
-			jobStore.updateJob(jobId, { status: "error", error: reason, activity: "delivery failed" });
+			// An abort that landed during delivery stays the terminal fact.
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { status: "error", error: reason, activity: "delivery failed" });
 		}
 	}
 

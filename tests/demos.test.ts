@@ -370,10 +370,9 @@ describe("visual maker (fake model + fake headless)", () => {
 		assert.match(result.failure ?? "", /^the maker never wrote an SVG/);
 	});
 
-	it("fails with a clear message when no Chrome is available", async () => {
+	it("runs without Chrome: the SVG render is native", async () => {
 		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless(), run: roleRun() });
-		assert.equal(result.svg, "");
-		assert.match(result.failure ?? "", /Chrome/);
+		assert.doesNotMatch(result.failure ?? "", /Chrome/);
 	});
 });
 

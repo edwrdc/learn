@@ -137,8 +137,6 @@ export const VISUAL_ROLE: JobRole<VisualToolInput, VisualResult, VisualRunState>
 			executionMode: "sequential",
 			execute: serverExecute("render_svg", renderSvgInput, async () => {
 				if (!(await state.read()).currentSvg) return "ERROR: nothing to render — call write_svg first.";
-				const reason = host.headless.unavailableReason();
-				if (reason) return `RENDER ERROR: ${reason}`;
 				await state.update((next) => {
 					next.pendingRender = true;
 				});
@@ -197,7 +195,6 @@ export const VISUAL_ROLE: JobRole<VisualToolInput, VisualResult, VisualRunState>
 		return [{ type: "text", text: VISUAL_UNLOOKED_MESSAGE }, imageOf(png)];
 	},
 	input: (raw) => ({ brief: typeof raw?.brief === "string" && raw.brief.trim() ? raw.brief.trim() : "(no brief)" }),
-	precheck: async (_input, host) => host.headless.unavailableReason(),
 	prompt: ({ brief }) =>
 		[
 			"Brief for ONE precise figure (from the teacher, verbatim — it is everything you know):",

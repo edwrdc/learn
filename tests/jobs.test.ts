@@ -591,6 +591,33 @@ describe("research runner (async protocol §3)", () => {
 		assert.deepEqual(search.queries, ["sigma.js latest version (5)"]);
 	});
 
+	it("an abort that lands while the steer is delivering stays aborted when the delivery fails", async () => {
+		const chat = await chatStore.createChat("Test: abort during delivery");
+		trackChat(chat.id);
+		await chatStore.saveMessages(chat.id, nativeToolMessages("which sigma version?", "research", "call-abort-deliver", RESEARCH_INPUT));
+		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-abort-deliver" });
+		trackJob(job.id);
+		const runner = createJobRunner({
+			engineFor: (role) => testEngines[role],
+			chatStore,
+			jobStore,
+			deliver: async () => {
+				jobStore.updateJob(job.id, { status: "error", error: "Aborted by learner", activity: "aborted" });
+				throw new Error("chat gone");
+			},
+			searchProvider: () => stubSearch(),
+		});
+		testEngines.researcher = researcherModel();
+		try {
+			await runner.runJob(job.id);
+		} finally {
+			testEngines.researcher = undefined;
+		}
+		const after = jobStore.getJob(job.id)!;
+		assert.equal(after.error, "Aborted by learner");
+		assert.equal(after.activity, "aborted");
+	});
+
 	it("a keyless fetch-only researcher still completes and delivers a sourced job result", async () => {
 		const url = "https://example.com/supplied-source";
 		const brief = `## Summary\nVerified supplied source. [Source](${url})\n\n## Sources\n- Source (${url})`;

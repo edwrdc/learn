@@ -127,7 +127,7 @@ async function createChat(title: string) {
 	return chat;
 }
 
-/** Put the chat in the TEACH phase: a committed probe_done call is the
+/** Put the chat in the TEACH phase: a successful probe_done result is the
  *  phase seam the plan/question tools hang off. A compaction marker sits
  *  between it and the turn, so the active view is a SUFFIX of the full
  *  transcript — the recovered view boundary must be an entry id, not a
@@ -152,7 +152,7 @@ async function seedProbeDone(chatId: string): Promise<void> {
 			toolCallId: "call-probe",
 			toolName: "probe_done",
 			content: [{ type: "text", text: "Probe complete." }],
-			details: null,
+			details: { ok: true },
 			isError: false,
 			timestamp: 3,
 		} as never,

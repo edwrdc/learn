@@ -36,12 +36,12 @@
  * Pure — safe on server, client, and tests.
  */
 
-import { hasProbeDone, type LhMessage } from "./transcript.ts";
+import { hasProbeDone, probeDoneSucceeded, type LhMessage } from "./transcript.ts";
 import type { PromptAgent } from "../../settings/model/index.ts";
 
 /** Which agent runs the session's next turn. Practice sessions are practice
- *  from turn one; otherwise the first probe_done call hands over to the
- *  teacher. */
+ *  from turn one; otherwise the first successful probe_done hands over to
+ *  the teacher. */
 export type ChatPhase = "probe" | "teach" | "practice";
 
 export function chatPhase(messages: readonly LhMessage[], kind: string | undefined): ChatPhase {
@@ -103,7 +103,7 @@ function advance(
 		// plan → teach only via the first nodeId-tagged quiz CALL (the call,
 		// not its answer — an errored-and-retried call still proves teaching
 		// began, and the retry lands in the same group anyway).
-		if (phase === "probe" && part.type === "tool-probe_done" && part.state === "output-available") {
+		if (phase === "probe" && part.type === "tool-probe_done" && part.state === "output-available" && probeDoneSucceeded(part.output)) {
 			phase = "plan";
 		}
 		// plan → teach via the first nodeId-tagged quizzing CALL — quiz OR
@@ -170,7 +170,7 @@ export function phaseTimeline(messages: readonly PhaseMessage[]): Phase3[] {
 // ─── the native fold (Wave D: record-side phase over LhMessage[]) ───────────
 
 /** The phase at `upToIndex` (inclusive; default: the last message) of a
- *  NATIVE record. probe→plan advances at the probe_done call's clean
+ *  NATIVE record. probe→plan advances at the probe_done call's successful
  *  toolResult; plan→teach at the assistant message carrying the first
  *  nodeId-tagged quiz CALL (mirrors the view fold — same seam, native
  *  shape). */
@@ -181,12 +181,8 @@ export function phaseAt3Lh(messages: readonly LhMessage[], upToIndex?: number): 
 		const m = messages[i]!;
 		const role = (m as { role?: string }).role;
 		if (role === "toolResult") {
-			const result = m as { toolName?: string; isError?: boolean };
-			if (
-				phase === "probe" &&
-				result.toolName === "probe_done" &&
-				!result.isError
-			) {
+			const result = m as { toolName?: string; isError?: boolean; details?: unknown };
+			if (phase === "probe" && result.toolName === "probe_done" && !result.isError && probeDoneSucceeded(result.details)) {
 				phase = "plan";
 			}
 		} else if (role === "assistant") {

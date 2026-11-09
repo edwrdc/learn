@@ -176,8 +176,6 @@ export const PDF_ROLE: JobRole<PdfToolInput, PdfResult, PdfRunState> = {
 				execute: serverExecute("pdf_render", pdfRenderInput, async ({ pages: spec, dpi }) => {
 					const resolution = dpi ?? 150;
 					host.onActivity?.(`pdf_render: ${spec} @${resolution}dpi`);
-					const reason = host.headless.unavailableReason();
-					if (reason) return `ERROR: ${reason}`;
 					const wanted = parsePageSpec(spec, await pdfPageCount(pdfPath)).slice(0, RENDER_BATCH_CAP);
 					if (wanted.length === 0) return "ERROR: no pages rendered (spec matched nothing?)";
 					await state.update((next) => {

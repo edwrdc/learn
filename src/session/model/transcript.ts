@@ -606,15 +606,20 @@ export function danglingQuestionOf(
 	return null;
 }
 
-/** The probe→teach construction seam (chat-handler): a probe_done call in
- *  the transcript — any state — means the probe is concluded: teach. */
+/** A probe_done result concluded the probe: its details are {ok:true}
+ *  (a refusal returns {ok:false, error} and leaves the probe open). */
+export function probeDoneSucceeded(details: unknown): boolean {
+	return typeof details === "object" && details !== null && (details as { ok?: unknown }).ok === true;
+}
+
+/** The probe→teach construction seam: a successful probe_done result in
+ *  the transcript means the probe is concluded: teach. */
 export function hasProbeDone(messages: readonly LhMessage[]): boolean {
-	for (const m of messages) {
-		if ((m as { role?: string }).role !== "assistant") continue;
-		const assistant = m as AssistantMessage;
-		if (assistant.content.some((b) => b.type === "toolCall" && b.name === "probe_done")) return true;
-	}
-	return false;
+	return messages.some((m) => {
+		if ((m as { role?: string }).role !== "toolResult") return false;
+		const result = m as { toolName?: string; isError?: boolean; details?: unknown };
+		return result.toolName === "probe_done" && !result.isError && probeDoneSucceeded(result.details);
+	});
 }
 
 // ─── the continuation fold (Wave D: the SDK's

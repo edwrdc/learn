@@ -15,13 +15,6 @@ export interface ProbeDoneContext {
 	deliver: (steer: SteerMessage) => void;
 }
 
-/** Does the transcript already carry a concluded probe (any state)?
- *  Wave B: the native scan (any probe_done tool call, any state) — same
- *  semantics the UIMessage part scan had. */
-function probeConcluded(messages: readonly LhMessage[]): boolean {
-	return hasProbeDone(messages);
-}
-
 /**
  * probe_done — the probe→planning seam (docs/probe-teach-split.md §2).
  *
@@ -42,7 +35,7 @@ function probeConcluded(messages: readonly LhMessage[]): boolean {
  *     live), so the agent sees the fixed PROBE_DONE_ACK_TEXT — never an
  *     echo. details = {ok:true} only.
  *
- * The first probe_done in the transcript is also the construction seam:
+ * The first successful probe_done is also the construction seam:
  * from that message on, every request builds the TEACHER agent.
  */
 export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AppTool<any>> {
@@ -73,7 +66,7 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AppTool<any
 							"probe_done only fires with no question outstanding.",
 					};
 				}
-				if (probeConcluded(record.messages)) {
+				if (hasProbeDone(record.messages)) {
 					return { ok: false, error: "The probe is already concluded — probe_done fires exactly once." };
 				}
 				try {

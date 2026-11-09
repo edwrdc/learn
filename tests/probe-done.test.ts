@@ -109,6 +109,7 @@ describe("probe_done: the probe→planning seam", () => {
 				toolCallId: "call_m1",
 				toolName: "probe_done",
 				content: [{ type: "text", text: "ok" }],
+				details: { ok: true },
 				isError: false,
 				timestamp: Date.now(),
 			} as never,

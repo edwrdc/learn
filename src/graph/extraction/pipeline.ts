@@ -517,6 +517,8 @@ export interface ExtractionPipeline {
 	/** Extract + audit + merge ONE chat. Single-flight per chat; resolves to
 	 *  the merger's append stats (or throws — no checkpoint on failure). */
 	runExtraction(chatId: string): Promise<EmissionStats>;
+	/** Is a chat run admitted (runExtraction would be a no-op)? */
+	isRunning(chatId: string): boolean;
 	/** The format-agnostic front door (2026-09-13): run the same pipeline
 	 *  over ONE raw notes file. The source id is deterministic per file
 	 *  path, so re-importing the same file re-runs extraction against the
@@ -1077,6 +1079,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	return { runExtraction, importNotes };
+	return { runExtraction, isRunning: (chatId) => inFlight.has(chatId), importNotes };
 }
 
