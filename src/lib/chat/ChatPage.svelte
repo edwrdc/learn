@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { emitAppEvent, emitKeyAction, onAppEvent, onKeyAction } from "$lib/events";
 	import { abortProcess, fetchChat, fetchJobs as fetchChatJobs } from "$lib/api/chats";
 	import { renameSession } from "$lib/state/sessions";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
@@ -8,7 +9,7 @@ import { untrack } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
 	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
 	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
-import { kbdEventForAction, slotsConfigured } from "@/src/settings/model";
+import { slotsConfigured } from "@/src/settings/model";
 import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";
@@ -388,7 +389,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		const running = status === "submitted" || status === "streaming";
 		if (running === previousRunning) return;
 		previousRunning = running;
-		window.dispatchEvent(new CustomEvent("lh:turn-state", { detail: { id: chatId, running } }));
+		emitAppEvent("turn-state", { id: chatId, running });
 	});
 
 	let previousStatus = $state(untrack(() => status));
@@ -440,7 +441,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			}
 			session.stop();
 			session.clearError();
-			if (unavailable) window.dispatchEvent(new Event(kbdEventForAction("open-model-picker")));
+			if (unavailable) emitKeyAction("open-model-picker");
 			else setupOpen = true;
 			handlingRefusal = false;
 		})();
@@ -519,11 +520,10 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			if (!turnInFlight && status === "ready") autoContinue(initialMessages);
 		}
 
-		const onRename = () => beginRename();
-		const onRenamed = (event: Event) => {
-			const { id, title: next } = (event as CustomEvent<{ id: string; title: string }>).detail;
+		const offRename = onKeyAction("rename-session", () => beginRename());
+		const offRenamed = onAppEvent("chat-renamed", ({ id, title: next }) => {
 			if (id === chatId) titleText = next;
-		};
+		});
 		const onAbort = () => {
 			const target = escAbortTarget({
 				abortAsk: abortAsk !== null,
@@ -540,11 +540,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 				figureFocus = null;
 			} else if (target === "plan") planOpen = false;
 		};
-		const onToggleThinking = () => toggleUserThinking();
-		window.addEventListener("lh:kbd-rename-session", onRename);
-		window.addEventListener("lh:chat-renamed", onRenamed);
-		window.addEventListener("lh:kbd-abort-turn", onAbort);
-		window.addEventListener(kbdEventForAction("toggle-user-thinking"), onToggleThinking);
+		const offAbort = onKeyAction("abort-turn", onAbort);
+		const offToggleThinking = onKeyAction("toggle-user-thinking", () => toggleUserThinking());
 
 		let hashTicks = 0;
 		const hashTimer = window.location.hash
@@ -572,10 +569,10 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			clearTimeout(jobsDebounce);
 			if (hashTimer) clearInterval(hashTimer);
 			if (flashTimer) clearTimeout(flashTimer);
-			window.removeEventListener("lh:kbd-rename-session", onRename);
-			window.removeEventListener("lh:chat-renamed", onRenamed);
-			window.removeEventListener("lh:kbd-abort-turn", onAbort);
-			window.removeEventListener(kbdEventForAction("toggle-user-thinking"), onToggleThinking);
+			offRename();
+			offRenamed();
+			offAbort();
+			offToggleThinking();
 			window.removeEventListener("hashchange", onHash);
 			window.removeEventListener("popstate", onHash);
 		};

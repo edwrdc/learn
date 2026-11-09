@@ -7,7 +7,7 @@
 	import { prettyModel } from "$lib/format";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
-	import { notifySettingsSaved, watchSettings } from "$lib/state/settings-signal";
+	import { emitAppEvent, onAppEvent } from "$lib/events";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
@@ -46,7 +46,7 @@
 		return setupStage(body ? body.providers : null);
 	}
 
-	$effect(() => watchSettings((section) => {
+	$effect(() => onAppEvent("settings-saved", ({ section }) => {
 		if (section === "keys") keysTick += 1;
 	}));
 
@@ -128,7 +128,7 @@
 		}
 		keyProvider = null;
 		keyValue = "";
-		notifySettingsSaved("keys");
+		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function save() {
@@ -150,7 +150,7 @@
 			error = err instanceof ApiError ? `Save failed: ${err.message}` : "Save failed. Check your connection and try again.";
 			return;
 		}
-		notifySettingsSaved("models");
+		emitAppEvent("settings-saved", { section: "models" });
 		onDone(models);
 	}
 </script>

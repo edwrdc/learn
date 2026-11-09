@@ -2,7 +2,8 @@
  *  cycles thinking, Escape falls back to dictation-cancel then abort, and
  *  registry actions dispatch or navigate. */
 import { goto } from "$app/navigation";
-import { actionForBinding, eventBinding, isTypingSurface, kbdEventForAction } from "@/src/settings/model";
+import { actionForBinding, eventBinding, isTypingSurface } from "@/src/settings/model";
+import { emitKeyAction } from "$lib/events";
 import { cheatSheet, settingsDialog } from "./dialogs.svelte";
 import { cancelDictation, dictationActive } from "$lib/chat/dictation.svelte";
 
@@ -11,9 +12,7 @@ export function initKeyboard(): () => void {
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Tab") {
 			event.preventDefault();
-			if (event.shiftKey) window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
-			else if (!event.metaKey && !event.ctrlKey && !event.altKey)
-				window.dispatchEvent(new CustomEvent("lh:kbd-cycle-fields"));
+			if (event.shiftKey) emitKeyAction("cycle-thinking");
 			return;
 		}
 		if (event.key === "Escape") {
@@ -35,7 +34,7 @@ export function initKeyboard(): () => void {
 				cancelDictation();
 				return;
 			}
-			window.dispatchEvent(new CustomEvent("lh:kbd-abort-turn"));
+			emitKeyAction("abort-turn");
 			return;
 		}
 		const action = actionForBinding(eventBinding(event));
@@ -56,10 +55,10 @@ export function initKeyboard(): () => void {
 				break;
 			case "find":
 				event.preventDefault();
-				window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+				emitKeyAction(action);
 				break;
 			default:
-				window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+				emitKeyAction(action);
 		}
 	};
 	window.addEventListener("keydown", onKeyDown);

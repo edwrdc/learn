@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { emitAppEvent } from "$lib/events";
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
 	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
 import { fuzzyScore } from "@/src/platform/model";
@@ -140,7 +141,7 @@ import { fuzzyScore } from "@/src/platform/model";
 		const remaining = deleting?.filter((node) => !ids.includes(node.id)) ?? [];
 		deleting = remaining.length > 0 ? remaining : null;
 		setSelection(new Set([...selection].filter((id) => !ids.includes(id))));
-		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision: revision } }));
+		emitAppEvent("graph-revision", { graphRevision: revision });
 	}
 
 	$effect(() => {

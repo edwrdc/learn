@@ -6,7 +6,7 @@
 	import ModelMenuList from "$lib/settings/ModelMenuList.svelte";
 	import ThinkingMenuList from "$lib/settings/ThinkingMenuList.svelte";
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
-	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { emitAppEvent, onKeyAction } from "$lib/events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
 	import { fetchChat, saveChatSettings } from "$lib/api/chats";
 	import { saveSettingsSection } from "$lib/api/settings";
@@ -75,7 +75,7 @@
 		try {
 			userSettings.set(await saveSettingsSection("models", next));
 			open = null;
-			notifySettingsSaved("models");
+			emitAppEvent("settings-saved", { section: "models" });
 		} catch (err) {
 			showFailure(err);
 		}
@@ -106,7 +106,6 @@
 	}
 
 	$effect(() => {
-		if (typeof window === "undefined") return;
 		const onOpenPicker = () => {
 			open = "model";
 			error = null;
@@ -118,11 +117,9 @@
 			const next = levels[(idx + 1) % levels.length];
 			if (next !== undefined) apply(effectiveProvider ?? "", effectiveId ?? "", next);
 		};
-		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
-		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
+		const offs = [onKeyAction("open-model-picker", onOpenPicker), onKeyAction("cycle-thinking", onCycleThinking)];
 		return () => {
-			window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-			window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
+			for (const off of offs) off();
 		};
 	});
 

@@ -2,7 +2,7 @@ export { AUTH_KEYS } from "./auth-keys.ts";
 export type { AuthKeyStatus, AuthProviderInfo } from "./auth-keys.ts";
 export { CUSTOM_ENDPOINT_PROVIDER_ID } from "./custom-endpoint.ts";
 export type { CustomEndpointConfig, CustomEndpointModel, CustomEndpointState } from "./custom-endpoint.ts";
-export { KEYBOARD_ACTIONS, actionForBinding, bindingForAction, eventBinding, formatBinding, isTypingSurface, kbdEventForAction, loadOverrides, saveOverrides } from "./keyboard.ts";
+export { KEYBOARD_ACTIONS, actionForBinding, bindingForAction, eventBinding, formatBinding, isTypingSurface, loadOverrides, saveOverrides } from "./keyboard.ts";
 export type { KeyAction, KeyScope } from "./keyboard.ts";
 export { modelKey, parseModelKey } from "./models.ts";
 export type { ModelCatalogEntry, ModelCatalogResponse } from "./models.ts";

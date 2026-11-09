@@ -5,9 +5,9 @@ import {
 	bindingForAction,
 	formatBinding,
 	IS_MAC,
-	kbdEventForAction,
 	KEYBOARD_ACTIONS,
 } from "../src/settings/model/keyboard.ts";
+import { kbdEventForAction } from "../src/lib/events.ts";
 
 /**
  * The ⌘B sidebar bug interlude (owner, 2026-09-25): ⌘B did nothing because

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CustomEndpointModel, CustomEndpointState as EndpointState } from "@/src/settings/model";
-	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { emitAppEvent } from "$lib/events";
 	import { discoverCustomModels, fetchCustomEndpoint, removeCustomEndpoint, saveCustomEndpoint } from "$lib/api/settings";
 	import { ApiError } from "$lib/api/http";
 
@@ -124,8 +124,8 @@
 		}
 		apiKey = "";
 		notice = "Custom endpoint saved.";
-		notifySettingsSaved("models");
-		notifySettingsSaved("keys");
+		emitAppEvent("settings-saved", { section: "models" });
+		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function remove() {
@@ -143,8 +143,8 @@
 			busy = null;
 		}
 		onOpenChange(false);
-		notifySettingsSaved("models");
-		notifySettingsSaved("keys");
+		emitAppEvent("settings-saved", { section: "models" });
+		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	const envOwnedKey = $derived(endpointState?.keySource === "env");

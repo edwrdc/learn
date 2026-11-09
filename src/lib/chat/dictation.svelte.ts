@@ -1,3 +1,4 @@
+import { onKeyAction } from "$lib/events";
 import { mintDictationToken } from "$lib/api/settings";
 import { ApiError } from "$lib/api/http";
 export const DG_URL =
@@ -120,17 +121,13 @@ export class DictationController {
 	mount(): () => void {
 		if (typeof window === "undefined") return () => {};
 		live = this;
-		const toggle = () => this.toggle();
-		const cancel = () => this.cancel();
-		window.addEventListener("lh:kbd-toggle-dictation", toggle);
-		window.addEventListener("lh:kbd-cancel-dictation", cancel);
+		const offToggle = onKeyAction("toggle-dictation", () => this.toggle());
 		if (!this.initialized) {
 			this.initialized = true;
 			warmTokens.refresh();
 		}
 		return () => {
-			window.removeEventListener("lh:kbd-toggle-dictation", toggle);
-			window.removeEventListener("lh:kbd-cancel-dictation", cancel);
+			offToggle();
 			if (live === this) live = null;
 		};
 	}

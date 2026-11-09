@@ -4,11 +4,11 @@
  *  tab becomes visible. A failed load keeps the last value and logs. */
 import type { ServerEventType } from "@/src/platform/model";
 import { serverEvents } from "./server-events";
-import { onSettingsSaved, type SettingsSection } from "./settings-signal";
+import { onAppEvent, type SavedSection } from "$lib/events";
 
 export interface ResourceOptions {
 	events?: ServerEventType[];
-	settings?: SettingsSection[];
+	settings?: SavedSection[];
 	visibility?: boolean;
 }
 
@@ -56,7 +56,7 @@ export class Resource<T> {
 		for (const type of this.options.events ?? []) serverEvents.subscribe(type, schedule);
 		if (this.options.events?.length) serverEvents.onResync(() => void this.refresh());
 		const sections = this.options.settings;
-		if (sections) onSettingsSaved((section) => sections.includes(section) && schedule());
+		if (sections) onAppEvent("settings-saved", ({ section }) => sections.includes(section) && schedule());
 		if (this.options.visibility) {
 			document.addEventListener("visibilitychange", () => {
 				if (document.visibilityState === "visible") void this.refresh();

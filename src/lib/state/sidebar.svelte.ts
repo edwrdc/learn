@@ -1,4 +1,4 @@
-import { kbdEventForAction } from "@/src/settings/model";
+import { onKeyAction } from "$lib/events";
 import { sidebarAutocloseWidth } from "../../../electron/shared.json";
 
 const STORAGE_KEY = "lh:sidebar-open";
@@ -27,7 +27,7 @@ class SidebarStore {
 		const stored = localStorage.getItem(STORAGE_KEY);
 		this.pref = stored === null ? true : stored === "1";
 		this.mounted = true;
-		window.addEventListener(kbdEventForAction("toggle-sidebar"), () => this.toggle());
+		onKeyAction("toggle-sidebar", () => this.toggle());
 		// Synchronize across tabs (the preference is per device, shared).
 		window.addEventListener("storage", (event) => {
 			if (event.key !== STORAGE_KEY) return;

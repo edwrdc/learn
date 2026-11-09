@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
 	import { listChats } from "$lib/api/chats";
 	import { renameSession } from "$lib/state/sessions";
 	import { page } from "$app/state";
@@ -6,7 +7,6 @@
 	import { onMount } from "svelte";
 	import { Dumbbell, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from "@lucide/svelte";
 	import { fuzzyScore } from "@/src/platform/model";
-import { kbdEventForAction } from "@/src/settings/model";
 import { type ChatDeleteMode } from "@/src/graph/model";
 import { type ChatListItem } from "@/src/session/model";
 	import { hint } from "$lib/hint";
@@ -97,7 +97,7 @@ import { type ChatListItem } from "@/src/session/model";
 		deleting = null;
 		chats = chats ? chats.filter((c) => c.id !== id) : chats;
 		if (pathname === `/chat/${id}`) void goto("/");
-		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision } }));
+		emitAppEvent("graph-revision", { graphRevision });
 	}
 
 	function openContext(event: MouseEvent, chat: ChatListItem) {
@@ -132,12 +132,8 @@ import { type ChatListItem } from "@/src/session/model";
 			serverEvents.subscribe("compaction-changed", scheduleRefresh),
 			serverEvents.onResync(() => void refresh()),
 		];
-		const onRenamed = (event: Event) => {
-			const { id, title } = (event as CustomEvent<{ id: string; title: string }>).detail;
-			patch(id, { title });
-		};
-		const onTurnState = (event: Event) => {
-			const { id, running } = (event as CustomEvent<{ id: string; running: boolean }>).detail;
+		const onRenamed = ({ id, title }: { id: string; title: string }) => patch(id, { title });
+		const onTurnState = ({ id, running }: { id: string; running: boolean }) => {
 			if (running) {
 				if (chats?.some((c) => c.id === id)) patch(id, { busy: true });
 				else void refresh();
@@ -150,15 +146,10 @@ import { type ChatListItem } from "@/src/session/model";
 			if (!open) sidebar.toggle();
 			requestAnimationFrame(() => searchRef?.focus());
 		};
-		window.addEventListener("lh:chat-renamed", onRenamed);
-		window.addEventListener("lh:turn-state", onTurnState);
-		window.addEventListener(kbdEventForAction("sessions-search"), onSearch);
+		offs.push(onAppEvent("chat-renamed", onRenamed), onAppEvent("turn-state", onTurnState), onKeyAction("sessions-search", onSearch));
 		void refresh();
 		return () => {
 			for (const off of offs) off();
-			window.removeEventListener("lh:chat-renamed", onRenamed);
-			window.removeEventListener("lh:turn-state", onTurnState);
-			window.removeEventListener(kbdEventForAction("sessions-search"), onSearch);
 			clearTimeout(debounce);
 		};
 	});

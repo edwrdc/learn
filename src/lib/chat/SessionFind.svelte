@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp, Search, X } from "@lucide/svelte";
-	import { kbdEventForAction } from "@/src/settings/model";
+	import { onKeyAction } from "$lib/events";
 import { stepSessionMatch } from "@/src/session/model";
 	import {
 		sameSessionRange,
@@ -85,8 +85,7 @@ import { stepSessionMatch } from "@/src/session/model";
 				input?.select();
 			});
 		};
-		window.addEventListener(kbdEventForAction("find"), onFind);
-		return () => window.removeEventListener(kbdEventForAction("find"), onFind);
+		return onKeyAction("find", onFind);
 	});
 
 	$effect(() => {

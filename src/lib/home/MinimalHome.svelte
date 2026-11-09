@@ -5,6 +5,7 @@
 	import { serverEvents } from "$lib/state/server-events";
 	import { fetchGraph, fetchGraphCosts } from "$lib/api/graph";
 	import { listChats } from "$lib/api/chats";
+	import { onAppEvent } from "$lib/events";
 	import { hint } from "$lib/hint";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import NotesImport from "./NotesImport.svelte";
@@ -36,7 +37,7 @@
 		if (chainSelectOpen) chainsOpen = true;
 	});
 	$effect(() => {
-		const offs = [serverEvents.subscribe("chats-changed", readState), serverEvents.subscribe("activity-changed", readState), serverEvents.onResync(readState)];
+		const offs = [serverEvents.subscribe("chats-changed", readState), serverEvents.subscribe("activity-changed", readState), serverEvents.onResync(readState), onAppEvent("graph-revision", readState)];
 		return () => {
 			for (const off of offs) off();
 		};

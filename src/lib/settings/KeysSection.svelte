@@ -4,7 +4,7 @@ import { untrack } from "svelte";
 	import { type AuthKeyStatus } from "@/src/settings/model";
 	import { classifyKeys, keyStatusLine } from "./keys";
 	import type { AuthProviderInfo } from "@/src/settings/model";
-	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { emitAppEvent } from "$lib/events";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
@@ -90,14 +90,14 @@ import { untrack } from "svelte";
 			return error instanceof Error ? error.message : String(error);
 		}
 		await reload();
-		notifySettingsSaved("keys");
+		emitAppEvent("settings-saved", { section: "keys" });
 		return null;
 	}
 
 	async function deleteKey(id: string) {
 		await removeKey(id).catch((error) => console.error(`[settings] delete ${id} failed:`, error));
 		await reload();
-		notifySettingsSaved("keys");
+		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function saveRow(id: string) {

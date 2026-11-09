@@ -5,7 +5,7 @@
 	import { deletePromptOverride, fetchKeys, fetchPromptSegments, fetchSearchStatus, savePromptOverride } from "$lib/api/settings";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { prettyModel } from "$lib/format";
-	import { watchSettings } from "$lib/state/settings-signal";
+	import { onAppEvent } from "$lib/events";
 	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL } from "./compose";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
@@ -78,7 +78,7 @@
 			});
 	});
 
-	$effect(() => watchSettings((section) => {
+	$effect(() => onAppEvent("settings-saved", ({ section }) => {
 		if (section === "agent") readPrompts();
 	}));
 
