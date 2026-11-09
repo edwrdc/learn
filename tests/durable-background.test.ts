@@ -28,25 +28,26 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-background-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { jobStore } = await import("../src/store/jobs.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { jobStore } = await import("../src/jobs/store.ts");
 const {
 	ChatRuntimeInitError,
 	closeChatRuntime,
 	openChatRuntime,
-} = await import("../src/store/durable.ts");
-const { BackgroundRunsDoc, configureBackgroundRuns } = await import("../src/server/durable-background.ts");
-type RunDescriptor = import("../src/server/durable-background.ts").RunDescriptor;
-const { createJobRunner, researchModelOverride } = await import("../src/agent/subagents/runner.ts");
-const { setTurnRunner, abortJob } = await import("../src/server/jobs.ts");
-const { isJobLive } = await import("../src/agent/subagents/aborts.ts");
+} = await import("../src/session/durable.ts");
+const { BackgroundRunsDoc, configureBackgroundRuns } = await import("../src/jobs/runtime.ts");
+type RunDescriptor = import("../src/jobs/runtime.ts").RunDescriptor;
+const { createJobRunner, researchModelOverride } = await import("../src/jobs/runner.ts");
+const { setTurnRunner, abortJob } = await import("../src/jobs/wake.ts");
+const { isJobLive } = await import("../src/jobs/aborts.ts");
 const { LiveDoc } = await import("@earendil-works/pi-durable");
 // The composition root wires the background host services at module init.
-await import("../src/server/chat-handler.ts");
-type PiEngine = import("../src/agent/models.ts").PiEngine;
-type SearchProvider = import("../src/core/search.ts").SearchProvider;
-type SteerMessage = import("../src/core/contracts.ts").SteerMessage;
-type ResearchResult = import("../src/core/contracts.ts").ResearchResult;
+await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+type PiEngine = import("../src/platform/engines.ts").PiEngine;
+type SearchProvider = import("../src/tools/model/search.ts").SearchProvider;
+type SteerMessage = import("../src/jobs/model/types.ts").SteerMessage;
+type ResearchResult = import("../src/jobs/model/types.ts").ResearchResult;
 
 const BRIEF = `## Summary\nRestart-checked.\n\n## Sources\n- [docs](https://example.com/docs)`;
 const PROMPT_INPUT = { question: "Does restart reattach?", context: "durable background test" };

@@ -12,11 +12,11 @@
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { closeChatRuntime } from "../src/store/durable.ts";
-import type { PiEngine } from "../src/agent/models.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { chatStore } from "../src/session/store.ts";
+import { closeChatRuntime } from "../src/session/durable.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 

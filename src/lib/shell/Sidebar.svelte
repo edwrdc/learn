@@ -3,7 +3,10 @@
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { Dumbbell, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from "@lucide/svelte";
-	import { fuzzyScore, kbdEventForAction, type ChatDeleteMode, type ChatListItem } from "@/src/core";
+	import { fuzzyScore } from "@/src/platform/model";
+import { kbdEventForAction } from "@/src/settings/model";
+import { type ChatDeleteMode } from "@/src/graph/model";
+import { type ChatListItem } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import LhMark from "$lib/ui/LhMark.svelte";

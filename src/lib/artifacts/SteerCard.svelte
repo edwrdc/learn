@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Check, CircleX } from "@lucide/svelte";
-	import { isSubagentFailure, type LhMessage, type LhViewMessage, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/core";
+	import { isSubagentFailure, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/jobs/model";
+import { type LhMessage, type LhViewMessage } from "@/src/session/model";
 	import DemoOutputCard from "./DemoOutputCard.svelte";
 	import VisualOutputCard from "./VisualOutputCard.svelte";
 	import ResearchBrief from "./ResearchBrief.svelte";

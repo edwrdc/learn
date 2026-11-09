@@ -1,5 +1,5 @@
 /** Pure setup-dialog seams: stage selection and slot prefill. */
-import type { ModelCatalogEntry, ModelSlotName } from "@/src/core";
+import type { ModelCatalogEntry, ModelSlotName } from "@/src/settings/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { populateLevel } from "./compose";
 

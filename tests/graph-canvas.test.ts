@@ -30,7 +30,7 @@ import {
 	DEFAULT_REGION_TUNING,
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
-} from "../src/core/render-settings.ts";
+} from "../src/graph/model/render-settings.ts";
 
 describe("zoomRatioOf (the sigma-compatible camera ratio)", () => {
 	test("1 at fit zoom, smaller when zoomed in, larger when zoomed out", () => {

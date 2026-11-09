@@ -16,8 +16,8 @@ import {
 	isTurnRunning,
 	noteTurnSettled,
 	noteTurnStarted,
-} from "../src/server/turn-liveness.ts";
-import { subscribe, type ServerEvent } from "../src/core/events.ts";
+} from "../src/session/turn-liveness.ts";
+import { subscribe, type ServerEvent } from "../src/platform/model/events.ts";
 
 describe("turn claim", () => {
 	it("begin/end round trip; a second begin is rejected until the turn ends", async () => {

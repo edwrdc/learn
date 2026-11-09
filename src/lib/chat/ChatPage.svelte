@@ -2,32 +2,9 @@
 import { untrack } from "svelte";
 	import { onMount, setContext, tick } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
-	import {
-		activeProblemOf,
-		continuationSignature,
-		dismissedAnswer,
-		findPendingToolCall,
-		firstSourceTextParts,
-		isProviderKeyRefusal,
-		kbdEventForAction,
-		messageAnchorId,
-		messageIdFromHash,
-		needsContinuation,
-		phaseAt3,
-		phaseTimeline,
-		questionNeedsReveal,
-		slotsConfigured,
-		teachStepIndex,
-		textPartMessageId,
-		toolQuestionKind,
-		type ChatSettings,
-		type GraphSnapshot,
-		type LhMessage,
-		type LhViewMessage,
-		type ModelsSettings,
-		type QuestionAnswerData,
-		type TurnUsage,
-	} from "@/src/core";
+	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, toolQuestionKind, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
+import { isProviderKeyRefusal, kbdEventForAction, slotsConfigured, type ModelsSettings } from "@/src/settings/model";
+import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import PhaseChip from "./PhaseChip.svelte";
@@ -112,7 +89,7 @@ import { untrack } from "svelte";
 	let configured = $state(untrack(() => initialConfigured));
 	let setupOpen = $state(false);
 	let turns = $state.raw<TurnUsage[]>([]);
-	let jobs = $state.raw<import("@/src/core").JobRecord[]>([]);
+	let jobs = $state.raw<import("@/src/jobs/model").JobRecord[]>([]);
 	let coverageTick = $state(0);
 	let dockReserve = $state(208);
 	let planOpen = $state(false);
@@ -162,7 +139,7 @@ import { untrack } from "svelte";
 			for (let p = parts.length - 1; p >= 0; p--) {
 				const part = parts[p]!;
 				if (!part.type.startsWith("tool-plan_") || part.state !== "output-available") continue;
-				const tree = (part.output as { tree?: import("@/src/core").PlanTree } | undefined)?.tree;
+				const tree = (part.output as { tree?: import("@/src/session/model").PlanTree } | undefined)?.tree;
 				if (tree && Array.isArray(tree.nodes)) return tree;
 			}
 		}
@@ -263,7 +240,7 @@ import { untrack } from "svelte";
 		try {
 			const res = await fetch(`/api/jobs?chatId=${encodeURIComponent(chatId)}`);
 			if (!res.ok) return;
-			const data = (await res.json()) as { jobs?: import("@/src/core").JobRecord[]; turnInFlight?: boolean };
+			const data = (await res.json()) as { jobs?: import("@/src/jobs/model").JobRecord[]; turnInFlight?: boolean };
 			const list = data.jobs ?? [];
 			for (const job of list) {
 				const previous = jobStatuses.get(job.id);
@@ -766,9 +743,9 @@ import { untrack } from "svelte";
 										{#if part.type === "data-graph-context"}
 											<GraphContextCard data={part.data as { propositions: { id: string; name: string; statement: string }[]; chains: string[] }} />
 										{:else if part.type === "data-compaction"}
-											<CompactionDivider data={part.data as { content: string; details: import("@/src/core").CompactionDetails }} />
+											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} />
 										{:else if part.type === "data-compaction-cut"}
-											<CompactionDivider data={part.data as { content: string; details: import("@/src/core").CompactionDetails }} cut />
+											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} cut />
 										{:else if part.type === "data-practice-thinking"}
 											<ThinkingCard data={part.data as { problemCallId: string; text: string }} />
 										{:else if part.type === "data-practice-next"}
@@ -812,7 +789,7 @@ import { untrack } from "svelte";
 															<hr class="my-3 border-border" />
 														{/if}
 													{:else if part.type === "data-plan-block"}
-														<PlanBlock data={part.data as import("@/src/core").PlanBlockData} onOpen={() => (planOpen = true)} />
+														<PlanBlock data={part.data as import("@/src/session/model").PlanBlockData} onOpen={() => (planOpen = true)} />
 													{:else if ["tool-quiz", "tool-probe", "tool-ask_user_question", "tool-explain", "tool-recall"].includes(part.type)}
 														{#if part.state === "output-available"}
 															<AnsweredCard answer={part.output as QuestionAnswerData} input={part.input} />

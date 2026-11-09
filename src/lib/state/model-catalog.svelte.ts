@@ -1,6 +1,6 @@
 /** GET /api/models, cached per page load; every menu open refreshes
  *  (stale-while-revalidate). */
-import type { ModelCatalogResponse } from "@/src/core";
+import type { ModelCatalogResponse } from "@/src/settings/model";
 
 let cache: ModelCatalogResponse | undefined;
 let inflight: Promise<ModelCatalogResponse> | undefined;

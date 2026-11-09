@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
-import type { PiEngine } from "../src/agent/models.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 
 const originalEnv = { LH_DATA_DIR: process.env.LH_DATA_DIR, NODE_ENV: process.env.NODE_ENV, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY };
@@ -12,22 +12,23 @@ process.env.LH_DATA_DIR = TMP;
 process.env.NODE_ENV = "production";
 process.env.OPENROUTER_API_KEY = "test-key-presence-gate";
 
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, TMP);
 const { createFauxCore, fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
 const { Harness, ConversationBusy } = await import("@earendil-works/pi-durable");
-const { withChatOperation } = await import("../src/server/chat-operations.ts");
-const { chatStore } = await import("../src/store/chats.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { handleChatInput, foregroundEngineOverride } = await import("../src/server/chat-handler.ts");
-const { deleteChatSession } = await import("../src/server/chats.ts");
-const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/store/durable.ts");
-const { beginTurn, endTurn, isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { runningTurn, unregisterTurn } = await import("../src/server/turn-runs.ts");
-const { ensureCompacted } = await import("../src/server/compaction.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-const { subscribe } = await import("../src/core/events.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
+const { withChatOperation } = await import("../src/session/chat-operations.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { stores } = await import("../src/stores.ts");
+const { handleChatInput, foregroundEngineOverride } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+const { deleteChatSession } = await import("../src/session/operations.ts");
+const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
+const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { runningTurn, unregisterTurn } = await import("../src/session/turn-runs.ts");
+const { ensureCompacted } = await import("../src/session/compaction.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
 const created: string[] = [];
 const oldOverride = foregroundEngineOverride.current;
 
@@ -97,7 +98,7 @@ async function finish(chatId: string, model: ReturnType<typeof gatedEngine>) {
 
 describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, () => {
 	it("shares FIFO ordering across module copies, keeps other chats independent, and removes only its own tail", async () => {
-		const copy = await import("../src/server/chat-operations.ts?copy=" + Date.now());
+		const copy = await import("../src/session/chat-operations.ts?copy=" + Date.now());
 		assert.notEqual(copy.withChatOperation, withChatOperation);
 		const firstEntered = deferred();
 		const firstRelease = deferred();

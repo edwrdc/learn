@@ -2,7 +2,7 @@
 import { untrack } from "svelte";
 	import { tick, type Snippet } from "svelte";
 	import { ArrowDown } from "@lucide/svelte";
-	import type { Phase3, TurnUsage } from "@/src/core";
+	import type { Phase3, TurnUsage } from "@/src/session/model";
 	import { dockStateKey } from "$lib/chat/dock-state-key.ts";
 	import type { SteerQueueItem } from "$lib/chat/session-core.ts";
 	import QueuedSteers from "./QueuedSteers.svelte";
@@ -11,7 +11,7 @@ import { untrack } from "svelte";
 	import PracticeDock from "./PracticeDock.svelte";
 	import StatsBar from "./StatsBar.svelte";
 	import type { StickToBottom } from "./stick.svelte";
-	import type { QuestionAnswerData } from "@/src/core";
+	import type { QuestionAnswerData } from "@/src/session/model";
 
 	type Pending = { tool: string; toolCallId: string; input: unknown } | null;
 	type Practice = { toolCallId: string; input: unknown } | null;

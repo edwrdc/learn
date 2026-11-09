@@ -32,20 +32,21 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-fg-recovery-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const { appendMessages, closeChatRuntime, openChatRuntime, peekChatRuntime, readEntries } = await import(
-	"../src/store/durable.ts"
+	"../src/session/durable.ts"
 );
-const { foregroundEngineOverride, handleChatRequest } = await import("../src/server/chat-handler.ts");
-const { runningTurn } = await import("../src/server/turn-runs.ts");
-const { isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
-const { subscribe } = await import("../src/core/events.ts");
-const { danglingQuestionOf } = await import("../src/core/native-messages.ts");
-const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/core/question-core.ts");
-type QuestionData = import("../src/core/question-core.ts").QuestionData;
-type PiEngine = import("../src/agent/models.ts").PiEngine;
-type LhMessage = import("../src/core/native-messages.ts").LhMessage;
+const { foregroundEngineOverride, handleChatRequest } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { danglingQuestionOf } = await import("../src/session/model/transcript.ts");
+const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/session/model/questions.ts");
+type QuestionData = import("../src/session/model/questions.ts").QuestionData;
+type PiEngine = import("../src/platform/engines.ts").PiEngine;
+type LhMessage = import("../src/session/model/transcript.ts").LhMessage;
 
 const PLAN_CALL = { mermaid: "graph TD\n  primitives[Number primitives] --> operators[Arithmetic operators]" };
 const COMPACTION_ID = "msg_compaction_probe";

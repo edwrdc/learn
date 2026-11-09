@@ -25,12 +25,12 @@ import {
 	teachExplainToolFor,
 	teachQuizToolFor,
 	type TeacherToolContext,
-} from "../src/agent/tools.ts";
-import { TOGGLEABLE_TOOLS } from "../src/core/pending.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/core/question-core.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { PATHS } from "../config.ts";
+} from "../src/session/tools/registry.ts";
+import { TOGGLEABLE_TOOLS } from "../src/session/model/pending.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/session/model/questions.ts";
+import { chatStore } from "../src/session/store.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 const dataDir = path.join(PATHS.root, "data");
 fs.mkdirSync(dataDir, { recursive: true });
@@ -64,7 +64,7 @@ const validQuiz = {
 	nodeId: "arith",
 };
 
-import type { AppTool, AppToolResult } from "../src/agent/tool-adapter.ts";
+import type { AppTool, AppToolResult } from "../src/tools/adapter.ts";
 
 /** The Wave A boundary predicate (2026-09-26): pi's loop structurally
  *  validates against the TypeBox parameters, then execute re-runs the
@@ -465,7 +465,7 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 	});
 	it("the craft now lives in the shared prompt chunk (both agents compose it)", async () => {
 		const shared = await fs.promises.readFile(
-			path.join(PATHS.root, "src/agent/prompts/shared/20-question-tools.md"),
+			path.join(PATHS.root, "src/session/prompts/shared/20-question-tools.md"),
 			"utf-8",
 		);
 		assert.ok(shared.includes("asymmetry"), "the option craft moved here, not deleted");

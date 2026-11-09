@@ -18,16 +18,16 @@ const {
 	removeCustomEndpoint,
 	saveCustomEndpoint,
 	syncCustomEndpointProvider,
-} = await import("../src/server/custom-endpoint.ts");
-const { modelCatalog, validateModelsSettings } = await import("../src/server/model-catalog.ts");
-const { keyStatuses } = await import("../src/server/keys.ts");
-const { setCustomEndpointProvider, piEngineForSpec, piModels } = await import("../src/agent/models.ts");
-const { stores } = await import("../src/server/stores.ts");
+} = await import("../src/settings/custom-endpoint.ts");
+const { modelCatalog, validateModelsSettings } = await import("../src/settings/model-catalog.ts");
+const { keyStatuses } = await import("../src/settings/keys.ts");
+const { setCustomEndpointProvider, piEngineForSpec, piModels } = await import("../src/platform/engines.ts");
+const { stores } = await import("../src/stores.ts");
 const { settingsStore } = stores;
 const { chatStore } = stores;
-const { handleChatInput } = await import("../src/server/chat-handler.ts");
-const { runningTurn } = await import("../src/server/turn-runs.ts");
-const { resolveRoleSpec } = await import("../src/core/settings-resolution.ts");
+const { handleChatInput } = await import("../src/session/turn.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { resolveRoleSpec } = await import("../src/settings/model/resolution.ts");
 
 const KEY = "test-custom-endpoint-key-123456";
 const KEY_B = "test-custom-endpoint-key-B-123456";
@@ -174,7 +174,7 @@ describe("custom endpoint E2E", () => {
 	it("a restored run refuses an edited endpoint base URL and its snapshot carries no credential", async () => {
 		const saved = saveLocal({ apiKey: KEY });
 		assert.ok(saved.ok, saved.ok ? "" : saved.error);
-		const { engineForModel } = await import("../src/server/chat-handler.ts");
+		const { engineForModel } = await import("../src/session/turn.ts");
 		const snapshot = { provider: "custom-endpoint", modelId: MODEL_ID, baseUrl: `${base}/v1` };
 		const engine = engineForModel(snapshot);
 		assert.ok(engine, "the captured endpoint restores");
@@ -515,7 +515,7 @@ describe("custom endpoint E2E", () => {
 
 describe("custom endpoint URL boundary (pure)", () => {
 	it("accepts HTTPS anywhere and HTTP only on loopback", async () => {
-		const { normalizeCustomEndpointBaseUrl } = await import("../src/core/custom-endpoint.ts");
+		const { normalizeCustomEndpointBaseUrl } = await import("../src/settings/model/custom-endpoint.ts");
 		assert.equal(normalizeCustomEndpointBaseUrl("https://api.example.com/v1/").ok, true);
 		assert.equal(normalizeCustomEndpointBaseUrl("http://localhost:8080/v1").ok, true);
 		assert.equal(normalizeCustomEndpointBaseUrl("http://127.0.0.1:8080/v1").ok, true);

@@ -25,13 +25,9 @@
  * (PUT /api/settings/agent) — file presence alone is never the override.
  */
 
-import {
-	allSegmentPaths,
-	isValidSegmentPath,
-	promptOverrides,
-	readSettingsRecord,
-	writeSettingsRecord,
-} from "@/src/server";
+import { allSegmentPaths } from "@/src/session";
+import { isValidSegmentPath } from "@/src/settings/model";
+import { promptOverrides, readSettings, writeSettings } from "@/src/settings";
 import type { RequestEvent } from "./$types";
 
 /** SvelteKit hands the catch-all over already decoded; the store's validator
@@ -62,12 +58,12 @@ export async function DELETE({ params }: RequestEvent) {
 	if (!path) return Response.json({ error: "invalid segment path" }, { status: 400 });
 	// Clear the record's switch FIRST (crash between the two leaves "off +
 	// file" — valid — never an orphaned ON), then unlink the file.
-	const record = readSettingsRecord();
+	const record = readSettings();
 	const hadSwitch = record?.agent?.prompts?.[path] === true;
 	if (record && record.agent?.prompts?.[path] !== undefined) {
 		const prompts = { ...record.agent.prompts };
 		delete prompts[path];
-		writeSettingsRecord({ ...record, agent: { ...record.agent, prompts } });
+		writeSettings({ ...record, agent: { ...record.agent, prompts } });
 	}
 	promptOverrides.deleteOverride(path);
 	// switchCleared tells the caller their on-switch went off WITH the file

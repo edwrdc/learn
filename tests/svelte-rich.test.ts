@@ -5,18 +5,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import {
-	answerForPresentation,
-	buildAnswer,
-	normalizeOptions,
-	parseAskInput,
-	parseExplainInput,
-	parseQuizInput,
-	repairMathForDisplay,
-	resolveCorrect,
-	transformMathDelimiters,
-	type QuestionData,
-} from "../src/core/index.ts";
+import { answerForPresentation } from "../src/session/model/answer-presentation.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { parseAskInput, parseExplainInput, parseQuizInput } from "../src/session/model/tool-parts.ts";
+import { repairMathForDisplay, transformMathDelimiters } from "../src/tools/model/math-delims.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);

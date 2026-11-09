@@ -28,22 +28,13 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall, type Usage } from "@earendil-works/pi-ai";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { newPlanBlockMessage } from "../src/core/native-messages.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import type {
-	AuditVerdicts,
-	CoverageEntry,
-	ExtractionRunUsage,
-	GraphChain,
-	GraphNode,
-
-	NotesSource,
-	SessionCheckpoint,
-	SessionFindings,
-} from "../src/core/contracts.ts";
-import type { GraphStore } from "../src/core/ports.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { newPlanBlockMessage } from "../src/session/model/transcript.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import type { AuditVerdicts, CoverageEntry, GraphChain, GraphNode, NotesSource, SessionCheckpoint, SessionFindings } from "../src/graph/model/types.ts";
+import type { ExtractionRunUsage } from "../src/session/model/types.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
 import {
 	abortExtraction,
 	createExtractionPipeline,
@@ -57,13 +48,13 @@ import {
 	NOTES_PREAMBLE,
 	EXTRACTOR_INSTRUCTIONS,
 	NOTES_EXTRACTOR_INSTRUCTIONS,
-} from "../src/agent/subagents/extraction.ts";
-import { getGraph, simplifyChains } from "../src/core/graph.ts";
-import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
-import { coverageOf, coverageSlots, messageViewLines } from "../src/core/coverage.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { subscribe } from "../src/core/events.ts";
-import { PATHS } from "../config.ts";
+} from "../src/graph/extraction/pipeline.ts";
+import { getGraph, simplifyChains } from "../src/graph/snapshot.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/settings/model/settings.ts";
+import { coverageOf, coverageSlots, messageViewLines } from "../src/graph/coverage.ts";
+import { chatStore } from "../src/session/store.ts";
+import { subscribe } from "../src/platform/model/events.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 

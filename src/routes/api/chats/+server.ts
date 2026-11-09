@@ -1,7 +1,10 @@
-import { chainsForSelection, formatChainLine } from "@/src/core";
-import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
-import type { ChatListItem } from "@/src/core";
+import { chainsForSelection, formatChainLine } from "@/src/graph/model";
+import { newGraphContextMessage, type GraphContextPick } from "@/src/session/model";
+import { compactionInFlight, createChat, isTurnRunning, listChats } from "@/src/session";
+import { readSettings } from "@/src/settings";
+import { stores } from "@/src/stores";
+import { titleFromPrompt } from "@/src/graph/model";
+import type { ChatListItem } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -36,7 +39,7 @@ export async function POST({ request: req }: RequestEvent) {
 	// (PUT /api/chats/:id/settings). No strong slot configured (fresh BYOK
 	// boot) → no stamp; the turn gate's 503 models_not_configured envelope
 	// refuses honestly until the setup flow fills the slot.
-	const strong = readSettingsRecord()?.models?.strong;
+	const strong = readSettings()?.models?.strong;
 	if (strong?.model) {
 		await stores.chatStore.saveSettings(chat.id, {
 			model: { provider: strong.model.provider, id: strong.model.id },

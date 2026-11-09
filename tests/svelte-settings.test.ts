@@ -1,7 +1,7 @@
 /** Svelte ports of the settings-surface SSR pins. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { KEYBOARD_ACTIONS } from "../src/core/index.ts";
+import { KEYBOARD_ACTIONS } from "../src/settings/model/keyboard.ts";
 import { closeSvelteSsr, loadSvelteModule, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);

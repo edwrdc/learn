@@ -3,7 +3,7 @@
  * src/store/prompt-overrides.ts — override file CRUD, the mirror-layout
  * path discipline (traversal guard), and the SOURCE-DERIVED segment list
  * (the loader mirrors teacher-agent.ts's composeInstructions discovery;
- * these tests pin that the mirror tracks the real src/agent/prompts tree).
+ * these tests pin that the mirror tracks the real src/session/prompts tree).
  *
  * TEST-DIR ISOLATION (contract fix, interlude 2026-09-26): data/prompts
  * holds REAL user override files — this suite must never touch it (the
@@ -30,26 +30,26 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { routeEvent } from "./support-route-event.ts";
 import { createFauxCore } from "@earendil-works/pi-ai";
-import type { PiEngine } from "../src/agent/models.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 
 // ── the seam, BEFORE any config-loading import ──────────────────────────────
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-prompt-overrides-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { PROMPTS_OVERRIDE_DIR } = await import("../config.ts");
-const teacherAgent = await import("../src/agent/teacher-agent.ts");
-const { allSegmentPaths, effectivePromptSegments } = await import("../src/agent/prompt-segments.ts");
-const { isValidSegmentPath } = await import("../src/core/prompt-segments.ts");
-const { promptOverrides } = await import("../src/store/prompt-overrides.ts");
+const { PROMPTS_OVERRIDE_DIR } = await import("../src/platform/config.ts");
+const teacherAgent = await import("../src/session/agents.ts");
+const { allSegmentPaths, effectivePromptSegments } = await import("../src/session/prompts.ts");
+const { isValidSegmentPath } = await import("../src/settings/model/prompt-segments.ts");
+const { promptOverrides } = await import("../src/settings/prompt-overrides.ts");
 // Route-level pins drive the actual app/api handlers (framework-free
 // Request/Response), isolated under the same temp LH_DATA_DIR.
 const { PUT: putSettingsSection } = await import("../src/routes/api/settings/[section]/+server.ts");
 const { DELETE: deletePromptText } = await import("../src/routes/api/settings/prompts/[...segment]/+server.ts");
-const { readSettingsRecord } = await import("../src/server/index.ts");
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
-const { prepareConversation } = await import("../src/server/durable-registry.ts");
-const { effectiveSettings, stores } = await import("../src/server/stores.ts");
+const { readSettings } = await import("../src/settings/store.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
+const { prepareConversation } = await import("../src/session/durable-registry.ts");
+const { effectiveSettings, stores } = await import("../src/stores.ts");
 const { BACKGROUND_CONTEXT } = await import("@earendil-works/chord/context");
 
 /** The REAL repo prompts dir this suite must never touch (read-only). */
@@ -270,11 +270,11 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 					.sort()
 					.map((f) => fs.readFileSync(path.join(dir, f), "utf-8").trim())
 					.filter(Boolean);
-			const base = fs.readFileSync("src/agent/system-prompt.md", "utf-8").trim();
+			const base = fs.readFileSync("src/session/system-prompt.md", "utf-8").trim();
 			return [
 				base,
-				...fragmentsOf(`src/agent/prompts/${kind}`),
-				...fragmentsOf("src/agent/prompts/shared"),
+				...fragmentsOf(`src/session/prompts/${kind}`),
+				...fragmentsOf("src/session/prompts/shared"),
 			].join("\n\n---\n\n");
 		};
 		assert.equal(composeInstructions("teacher"), oldLoader("teacher"));
@@ -359,20 +359,20 @@ describe("delete clears the switch — the record and file agree by construction
 		promptOverrides.writeOverride(SEGMENT, "custom teaching");
 		const on = await putSection("agent", { prompts: { [SEGMENT]: true } });
 		assert.equal(on.status, 200, "ON with a real file is valid");
-		assert.equal(readSettingsRecord()?.agent?.prompts?.[SEGMENT], true, "switch landed in the record");
+		assert.equal(readSettings()?.agent?.prompts?.[SEGMENT], true, "switch landed in the record");
 
 		const res = await deleteSegment(["teacher", "20-teaching.md"]);
 		assert.equal(res.status, 200);
 		const body = (await res.json()) as { deleted: boolean; switchCleared: boolean };
 		assert.deepEqual(body, { path: SEGMENT, deleted: true, switchCleared: true }, "the response names what happened");
 
-		assert.equal(readSettingsRecord()?.agent?.prompts?.[SEGMENT], undefined, "the switch is GONE from the record");
+		assert.equal(readSettings()?.agent?.prompts?.[SEGMENT], undefined, "the switch is GONE from the record");
 		assert.equal(promptOverrides.readOverride(SEGMENT), null, "the file is gone");
 		// And the trap's step 4 — flipping any tool toggle afterwards —
 		// just works (nothing orphaned to mirror):
 		const followUp = await putSection("agent", { tools: { research: false } });
 		assert.equal(followUp.status, 200, "a subsequent agent write succeeds");
-		assert.equal(readSettingsRecord()?.agent?.tools?.research, false);
+		assert.equal(readSettings()?.agent?.tools?.research, false);
 	});
 
 	it("DELETE is idempotent for file and switch — nothing to clear, still 200", async () => {
@@ -400,7 +400,7 @@ describe("an orphaned ON heals to OFF on write — never a 400 (the invariant: a
 		const res = await putSection("agent", { tools: { research: false }, prompts: { [SEGMENT]: true } });
 		assert.equal(res.status, 200, "the write heals instead of 400-ing — the user is never stuck");
 
-		const record = readSettingsRecord();
+		const record = readSettings();
 		assert.equal(record?.agent?.prompts?.[SEGMENT], undefined, "the orphaned ON landed as OFF (key dropped)");
 		assert.equal(record?.agent?.tools?.research, false, "the rest of the write landed — nothing was silently dropped");
 
@@ -416,7 +416,7 @@ describe("an orphaned ON heals to OFF on write — never a 400 (the invariant: a
 		// store never guarded — the record is the only place it exists).
 		const on = await putSection("agent", { prompts: { "teacher/99-vanished.md": true, [SEGMENT]: true } });
 		assert.equal(on.status, 200, "vanished-fragment ON heals too, not a 400");
-		assert.equal(readSettingsRecord()?.agent?.prompts?.["teacher/99-vanished.md"], undefined, "the vanished key healed to OFF");
+		assert.equal(readSettings()?.agent?.prompts?.["teacher/99-vanished.md"], undefined, "the vanished key healed to OFF");
 		promptOverrides.deleteOverride(SEGMENT);
 	});
 

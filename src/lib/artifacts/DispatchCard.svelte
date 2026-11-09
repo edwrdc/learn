@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { getContext } from "svelte";
 	import { Check, Settings, X } from "@lucide/svelte";
-	import { isModelsRefusal, isProviderKeyRefusal, type JobKind, type JobRecord } from "@/src/core";
+	import { isModelsRefusal, isProviderKeyRefusal } from "@/src/settings/model";
+import { type JobKind, type JobRecord } from "@/src/jobs/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 

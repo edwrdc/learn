@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { piEngineForSpec, piModels } from "../src/agent/models.ts";
-import { modelCatalog, validateChatSettings, validateModelsSettings } from "../src/server/model-catalog.ts";
-import { callCost } from "../src/core/prices.ts";
+import { piEngineForSpec, piModels } from "../src/platform/engines.ts";
+import { modelCatalog, validateChatSettings, validateModelsSettings } from "../src/settings/model-catalog.ts";
+import { callCost } from "../src/session/model/prices.ts";
 
 const specimens = [
 	{ id: "recursive/flint-v1.0:free", input: ["text"] },

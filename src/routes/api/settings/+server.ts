@@ -14,7 +14,7 @@
  * (core/settings-resolution.ts resolveSettings — browser-safe).
  */
 
-import { settingsStore } from "@/src/server";
+import { settingsStore } from "@/src/settings";
 
 export async function GET() {
 	return Response.json({ settings: settingsStore.readSettings() });

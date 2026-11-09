@@ -10,10 +10,10 @@ import test from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { PATHS } from "../config.ts";
-import { activityFeed } from "../src/server/observability.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { activityFeed } from "../src/jobs/activity.ts";
 
 test("activityFeed: running jobs across ALL chats, running-only, title-joined, oldest first", async () => {
 	const chatA = await chatStore.createChat("feed chat A");

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { answerForPresentation, parseAskInput, parseQuizInput, type QuestionAnswerData } from "@/src/core";
+	import { answerForPresentation, parseAskInput, parseQuizInput, type QuestionAnswerData } from "@/src/session/model";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import ConfidenceRail from "./ConfidenceRail.svelte";
 	import GlyphMark from "./GlyphMark.svelte";

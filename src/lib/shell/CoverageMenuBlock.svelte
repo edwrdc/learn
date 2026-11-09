@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatTokens } from "$lib/format";
 	import { activity } from "$lib/state/activity.svelte";
-	import type { SessionCoverage } from "@/src/core";
+	import type { SessionCoverage } from "@/src/session/model";
 
 
 	let { chatId }: { chatId: string } = $props();

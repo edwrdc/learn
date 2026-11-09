@@ -2,7 +2,8 @@
  *  actions, knowledge summary lines, sidebar rows, stats folds. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import type { ChatListItem, ModelCatalogEntry, TurnUsage } from "../src/core/index.ts";
+import type { ChatListItem, TurnUsage } from "../src/session/model/types.ts";
+import type { ModelCatalogEntry } from "../src/settings/model/models.ts";
 import { enterAction } from "../src/lib/chat/chat-logic.ts";
 import { catalogLimits } from "../src/lib/state/model-catalog.ts";
 import { knowledgeEmpty, knowledgeLines } from "../src/lib/home/minimal-home.ts";

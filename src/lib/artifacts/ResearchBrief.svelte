@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PdfResult, ResearchResult } from "@/src/core";
+	import type { PdfResult, ResearchResult } from "@/src/jobs/model";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 
 	let { output, kind = "research" }: { output: unknown; kind?: "research" | "pdf" } = $props();

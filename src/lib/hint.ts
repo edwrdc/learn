@@ -1,7 +1,7 @@
 /** Hover/focus tooltips without wrapper DOM — an attachment on the control
  *  itself: the label plus the action's LIVE binding ("Dictate (⌘D)"), 500ms
  *  hover delay, hides on leave/blur/Escape. */
-import { bindingForAction, formatBinding, type KeyAction } from "@/src/core";
+import { bindingForAction, formatBinding, type KeyAction } from "@/src/settings/model";
 
 export const TOOLTIP_DELAY_MS = 500;
 

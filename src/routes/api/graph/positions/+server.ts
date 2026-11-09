@@ -9,7 +9,7 @@
  *   PUT → 200 {positions: {...}} with whatever survived sanitizing
  *         (empty object = nothing written).
  */
-import { commitPositions } from "@/src/server";
+import { commitPositions } from "@/src/graph";
 import type { RequestEvent } from "./$types";
 
 export async function PUT({ request }: RequestEvent) {

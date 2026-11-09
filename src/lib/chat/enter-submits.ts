@@ -1,7 +1,7 @@
 /** Window-level Enter submits from anywhere (typing surfaces and overlay
  *  buttons keep their own lane), plus the shared "focused button keeps
  *  native Enter" rule. */
-import { isTypingSurface } from "@/src/core";
+import { isTypingSurface } from "@/src/settings/model";
 
 const OVERLAY_ROOTS = '[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"]';
 

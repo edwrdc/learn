@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Maximize, Minus, Plus, X } from "@lucide/svelte";
-	import { derivedNodeStatus, derivePlanStatuses, type PlanNodeStatus } from "@/src/core";
+	import { derivedNodeStatus, derivePlanStatuses, type PlanNodeStatus } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "$lib/home/pan-zoom.ts";

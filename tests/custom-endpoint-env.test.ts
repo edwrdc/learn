@@ -18,8 +18,8 @@ const {
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
 	saveCustomEndpoint,
-} = await import("../src/server/custom-endpoint.ts");
-const { piEngineForSpec } = await import("../src/agent/models.ts");
+} = await import("../src/settings/custom-endpoint.ts");
+const { piEngineForSpec } = await import("../src/platform/engines.ts");
 
 const MODEL_ID = "deepseek-flash";
 const model = {

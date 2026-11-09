@@ -18,8 +18,8 @@ import {
 	resolveRoleSpec,
 	resolveSettings,
 	resolveSlot,
-} from "../src/core/settings-resolution.ts";
-import { BACKGROUND_MODEL_ROLES, type UserSettings } from "../src/core/settings.ts";
+} from "../src/settings/model/resolution.ts";
+import { BACKGROUND_MODEL_ROLES, type UserSettings } from "../src/settings/model/settings.ts";
 
 describe("resolveSettings", () => {
 	it("null record (first boot): non-model knobs land on factory defaults; every model view is EMPTY", () => {

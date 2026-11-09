@@ -19,7 +19,7 @@ import test from "node:test";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-reader-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const {
 	appendEntries,
 	appendEntry,
@@ -29,9 +29,9 @@ const {
 	openChatRuntime,
 	projectEntries,
 	readEntries,
-} = await import("../src/store/durable.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-type LhMessage = import("../src/core/native-messages.ts").LhMessage;
+} = await import("../src/session/durable.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+type LhMessage = import("../src/session/model/transcript.ts").LhMessage;
 type Message = import("@earendil-works/pi-ai").Message;
 
 const PYTHON = process.env.PYTHON ?? "python3";

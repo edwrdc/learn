@@ -6,7 +6,7 @@
  * server seam (events-stream.ts); the framework route stays a thin
  * wrapper (the import law; tests drive the seam directly).
  */
-import { eventsResponse } from "@/src/server";
+import { eventsResponse } from "@/src/platform";
 
 export function GET(): Response {
 	return eventsResponse();

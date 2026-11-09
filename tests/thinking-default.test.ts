@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_THINKING_ORDER } from "../src/core/settings.ts";
+import { DEFAULT_THINKING_ORDER } from "../src/settings/model/settings.ts";
 import { defaultOrderLevel, populateLevel } from "../src/lib/settings/compose.ts";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 

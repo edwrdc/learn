@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ListTree } from "@lucide/svelte";
-	import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
+	import type { ChatSummary, GraphCostSummary } from "@/src/session/model";
+import type { GraphSnapshot } from "@/src/graph/model";
 	import { serverEvents } from "$lib/state/server-events";
 	import { hint } from "$lib/hint";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";

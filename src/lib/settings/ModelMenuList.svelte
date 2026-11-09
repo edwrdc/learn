@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { fuzzyScore, type ModelCatalogEntry } from "@/src/core";
+	import { fuzzyScore } from "@/src/platform/model";
+import { type ModelCatalogEntry } from "@/src/settings/model";
 	import { formatTokens } from "$lib/format";
 
 	let {

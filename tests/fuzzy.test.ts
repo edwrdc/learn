@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { fuzzyScore } from "../src/core/fuzzy.ts";
+import { fuzzyScore } from "../src/platform/model/fuzzy.ts";
 
 // The picker's search ranking (pi's /model pattern): tokens must each match
 // some field; exact beats prefix beats buried substring; whole-query

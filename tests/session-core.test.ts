@@ -22,12 +22,13 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { absorbed, pendingCallTool, SessionModel } from "../src/lib/chat/session-core.ts";
-import type { ChatInput } from "../src/core/input-events.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
-import { activeProblemOf, danglingQuestionOf, projectView } from "../src/core/index.ts";
-import { dismissedAnswer } from "../src/core/question-core.ts";
-import { buildAnswer, type QuestionData } from "../src/core/question-core.ts";
+import type { ChatInput } from "../src/session/model/input-events.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/session/model/transcript.ts";
+import { activeProblemOf, danglingQuestionOf } from "../src/session/model/transcript.ts";
+import { projectView } from "../src/session/model/view.ts";
+import { dismissedAnswer } from "../src/session/model/questions.ts";
+import { buildAnswer, type QuestionData } from "../src/session/model/questions.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

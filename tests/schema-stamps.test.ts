@@ -21,11 +21,11 @@ import test from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-stamps-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { readRenderSettings, writeRenderSettings } = await import("../src/store/render-settings.ts");
-const { GRAPH_FORMAT_FILE } = await import("../config.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { readRenderSettings, writeRenderSettings } = await import("../src/graph/render-settings-store.ts");
+const { GRAPH_FORMAT_FILE } = await import("../src/platform/config.ts");
 
 test.after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

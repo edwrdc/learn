@@ -7,15 +7,15 @@ import "./support-tmp-data.ts";
 import "./support-durable.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createWebTools } from "../src/agent/tools/web.ts";
-import { jobTools } from "../src/agent/tools/jobs.ts";
-import { RESEARCHER_INSTRUCTIONS } from "../src/agent/subagents/researcher.ts";
-import { runBackgroundConversation } from "../src/server/durable-background.ts";
-import type { PiEngine } from "../src/agent/models.ts";
+import { createWebTools } from "../src/tools/web/web.ts";
+import { jobTools } from "../src/jobs/tools.ts";
+import { RESEARCHER_INSTRUCTIONS } from "../src/jobs/roles/research.ts";
+import { runBackgroundConversation } from "../src/jobs/runtime.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
-import type { JobStore } from "../src/core/ports.ts";
-import type { JobRecord } from "../src/core/contracts.ts";
-import type { SearchHit, SearchProvider } from "../src/core/search.ts";
+import type { JobStore } from "../src/jobs/model/ports.ts";
+import type { JobRecord } from "../src/jobs/model/types.ts";
+import type { SearchHit, SearchProvider } from "../src/tools/model/search.ts";
 
 /** The researcher's real durable loop (a child conversation in a disposable
  *  test runtime); unique run keys keep tests from reattaching. */
@@ -285,8 +285,8 @@ describe("keyless research dispatch (jobTools)", () => {
 // Exercise live registry factories too: search status must not override
 // the existing per-role/user-toggle policy.
 
-import { createProberTools, createTeacherTools } from "../src/agent/tools.ts";
-import type { ChatStore } from "../src/core/ports.ts";
+import { createProberTools, createTeacherTools } from "../src/session/tools/registry.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
 
 /** A chat-store stub — the registry factories only CLOSE OVER it at build
  *  time (quiz/plan superRefines read it at execute time, never here). */

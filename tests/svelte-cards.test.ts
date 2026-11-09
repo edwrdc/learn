@@ -1,7 +1,7 @@
 /** Svelte ports of the question/answered/probe/practice card contracts. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/index.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { practiceMetaRows, hasPracticeMeta } from "../src/lib/chat/practice-meta.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 

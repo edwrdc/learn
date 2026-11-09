@@ -1,5 +1,5 @@
 /** Provider-key presence (pure): tool keys never unlock models. */
-import type { AuthKeyStatus, ModelCatalogResponse } from "@/src/core";
+import type { AuthKeyStatus, ModelCatalogResponse } from "@/src/settings/model";
 
 export interface ProviderKeyInfo { id: string; envVar: string; label: string }
 

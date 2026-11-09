@@ -15,7 +15,7 @@ import {
 	BACKGROUND_MODEL_ROLES,
 	isHexColor,
 	sanitizeUserSettings,
-} from "../src/core/settings.ts";
+} from "../src/settings/model/settings.ts";
 
 describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {

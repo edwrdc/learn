@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PlanBlockData, PlanNodeStatus } from "@/src/core";
+	import type { PlanBlockData, PlanNodeStatus } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import PlanDiagram from "./PlanDiagram.svelte";
 	import { GRAPH_PAD, TEXT_CAP_SCALE } from "./plan-layout";

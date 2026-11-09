@@ -13,14 +13,14 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { PATHS } from "../config.ts";
+import { PATHS } from "../src/platform/config.ts";
 import {
 	providerEventNote,
 	providerEventObserver,
 	providerEventsCap,
 	providerEventsDir,
 	providerEventsEnabled,
-} from "../src/agent/provider-events.ts";
+} from "../src/platform/provider-events.ts";
 
 const ENV = "LH_PROVIDER_EVENTS";
 const REAL_DIR = path.join(PATHS.debug, "provider-events");

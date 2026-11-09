@@ -12,7 +12,7 @@
  * wrapper over the server barrel (the import law); tests drive the seams
  * (turn-runs + the durable turn view) directly.
  */
-import { getChat, runningTurn, piTurnResponse, settledTurnResponse } from "@/src/server";
+import { getChat, runningTurn, piTurnResponse, settledTurnResponse } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 export async function GET({ params }: RequestEvent): Promise<Response> {

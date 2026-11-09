@@ -23,20 +23,20 @@ import { routeEvent } from "./support-route-event.ts";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-dismissal-park-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { openChatRuntime } = await import("../src/store/durable.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { openChatRuntime } = await import("../src/session/durable.ts");
 const { applyParkedDismissal, parkDismissal, takeParkedDismissal } = await import(
-	"../src/server/dismissal-park.ts"
+	"../src/session/dismissal-park.ts"
 );
-const { beginTurn, endTurn, isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { subscribe } = await import("../src/core/events.ts");
+const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
 const {
 	activeProblemOf,
 	answeredCallIds,
 	danglingQuestionOf,
 	dismissedAnswer,
-} = await import("../src/core/index.ts");
-const newMessageId = (await import("../src/core/native-messages.ts")).newMessageId;
+} = await Promise.all([import("../src/session/model/transcript.ts"), import("../src/session/model/questions.ts")]).then((ms) => Object.assign({}, ...ms));
+const newMessageId = (await import("../src/session/model/transcript.ts")).newMessageId;
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

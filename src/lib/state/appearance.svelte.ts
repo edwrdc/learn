@@ -4,7 +4,7 @@
  * settings writes call `onAppearanceChange`.
  */
 import { browser } from "$app/environment";
-import type { AppearanceSettings, UserSettings } from "@/src/core";
+import type { AppearanceSettings, UserSettings } from "@/src/settings/model";
 import { appearanceVars, resolveAppearance, staleVarNames } from "$lib/settings/appearance";
 
 

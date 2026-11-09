@@ -34,9 +34,9 @@ import {
 	shuffleOptions,
 	type QuestionData,
 	toClientQuestion,
-} from "../src/core/question-core.ts";
-import { toolQuestionKind } from "../src/core/pending.ts";
-import { parseQuizInput } from "../src/core/tool-parts.ts";
+} from "../src/session/model/questions.ts";
+import { toolQuestionKind } from "../src/session/model/pending.ts";
+import { parseQuizInput } from "../src/session/model/tool-parts.ts";
 
 // ─── the authoring contract (TypeBox schemas + execute-time refinements) ──
 // Schema-valid ⇔ gradeable: a quiz whose correctAnswer can't be resolved

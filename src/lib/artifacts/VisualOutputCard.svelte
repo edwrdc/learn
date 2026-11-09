@@ -2,7 +2,7 @@
 import { untrack } from "svelte";
 	import { getContext } from "svelte";
 	import { Download, Maximize } from "@lucide/svelte";
-	import type { VisualResult } from "@/src/core";
+	import type { VisualResult } from "@/src/jobs/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
 	import { SESSION_MERMAID } from "$lib/chat/session-context";
 	import type { SessionMermaidApi } from "$lib/chat/types";

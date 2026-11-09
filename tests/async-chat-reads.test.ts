@@ -5,21 +5,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { routeEvent } from "./support-route-event.ts";
-import type { ChatRecord, ExtractionRunUsage } from "../src/core/contracts.ts";
-import type { ChatStore } from "../src/core/ports.ts";
+import type { ChatRecord, ExtractionRunUsage } from "../src/session/model/types.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-async-chat-reads-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime, readEntries } = await import("../src/store/durable.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { graphSnapshot, mergeFindings } = await import("../src/core/graph.ts");
-const { graphCosts } = await import("../src/server/graph.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime, openChatRuntime, readEntries } = await import("../src/session/durable.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { graphSnapshot, mergeFindings } = await import("../src/graph/snapshot.ts");
+const { graphCosts } = await import("../src/graph/service.ts");
+const { stores } = await import("../src/stores.ts");
+const { beginTurn, endTurn } = await import("../src/session/turn-liveness.ts");
 const { GET } = await import("../src/routes/api/chats/[id]/+server.ts");
 
 after(() => {

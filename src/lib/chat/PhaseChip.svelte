@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Phase3 } from "@/src/core";
+	import type { Phase3 } from "@/src/session/model";
 	let { phase }: { phase: Phase3 } = $props();
 	const CHIP_LABEL: Record<Phase3, string> = { probe: "Probing", plan: "Planning", teach: "Teaching" };
 </script>

@@ -253,7 +253,7 @@ export function latestTree(messages: readonly PopupMessage[]) {
 		for (let p = parts.length - 1; p >= 0; p--) {
 			const part = parts[p]!;
 			if (!part.type.startsWith("tool-plan_") || part.state !== "output-available") continue;
-			const output = part.output as { tree?: import("@/src/core").PlanTree } | undefined;
+			const output = part.output as { tree?: import("@/src/session/model").PlanTree } | undefined;
 			if (output?.tree && Array.isArray(output.tree.nodes)) return output.tree;
 		}
 	}

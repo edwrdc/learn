@@ -23,18 +23,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { validateToolArguments } from "@earendil-works/pi-ai";
-import { healEncodedArguments } from "../src/core/argument-heal.ts";
-import { stripModelValueDebris } from "../src/core/value-debris.ts";
+import { healEncodedArguments } from "../src/tools/model/argument-heal.ts";
+import { stripModelValueDebris } from "../src/platform/model/value-debris.ts";
 import {
 	coerceCorrectAnswer,
 	normalizeQuizType,
 	quizInputObject,
 	quizInputProblems,
-} from "../src/core/question-core.ts";
-import { parseQuizInput } from "../src/core/tool-parts.ts";
-import { resolveTargetId } from "../src/core/chains.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { probeQuizTool } from "../src/agent/tools.ts";
+} from "../src/session/model/questions.ts";
+import { parseQuizInput } from "../src/session/model/tool-parts.ts";
+import { resolveTargetId } from "../src/graph/model/chains.ts";
+import { bareQuestionTools } from "../src/session/agents.ts";
+import { probeQuizTool } from "../src/session/tools/registry.ts";
 
 /** The incident's exact encoding: the value wrapped in literal quotes. */
 function QUOTED(value: string): string {

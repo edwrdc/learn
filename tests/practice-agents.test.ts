@@ -17,11 +17,11 @@ import {
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
-} from "../src/core/native-messages.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
-import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/agent/tools/practice.ts";
-import { composeInstructions } from "../src/agent/teacher-agent.ts";
-import { allSegmentPaths } from "../src/agent/prompt-segments.ts";
+} from "../src/session/model/transcript.ts";
+import { CONCLUDE_ACK_TEXT } from "../src/session/model/types.ts";
+import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/session/tools/practice.ts";
+import { composeInstructions } from "../src/session/agents.ts";
+import { allSegmentPaths } from "../src/session/prompts.ts";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -224,7 +224,7 @@ describe("the practice agent", () => {
 // ── persistent nudges (shipped defaults, no model calls) ──────────────────────
 
 describe("persistent practice nudges", () => {
-	const doctrine = readFileSync(new URL("../src/agent/prompts/practice/10-doctrine.md", import.meta.url), "utf8");
+	const doctrine = readFileSync(new URL("../src/session/prompts/practice/10-doctrine.md", import.meta.url), "utf8");
 	const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim();
 	const approvedParagraphs = [
 		"- When a nudge does not land, reassess where the learner is stuck and offer only the next necessary piece of information. Do not jump to the full solution. Tentative answers, questions, and thinking aloud remain work in progress.",

@@ -13,7 +13,7 @@
  * /auth/grant (their docs, token-based auth FAQ) — plain read/transcribe
  * keys return FORBIDDEN here.
  */
-import { keyValue } from "@/src/server";
+import { keyValue } from "@/src/settings";
 
 export async function GET() {
 	const key = keyValue("DEEPGRAM_API_KEY");

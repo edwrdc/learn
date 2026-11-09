@@ -17,7 +17,7 @@ import {
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
 	SETTINGS_SECTIONS,
-} from "../src/server/settings-body.ts";
+} from "../src/settings/settings-body.ts";
 
 describe("parseGeneralSettingsBody", () => {
 	it("parses {} and {autoUpdate} replace-whole", () => {

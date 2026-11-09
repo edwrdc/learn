@@ -1,4 +1,4 @@
-import { graphView } from "@/src/server";
+import { graphView } from "@/src/graph";
 
 /**
  * The home graph view's data endpoint (W4; vision §1 "Home page") — thin

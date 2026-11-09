@@ -3,7 +3,7 @@
  * per window, a window-local fan-out, and resync callbacks fired on every
  * (re)open. Consumers react by refetching truth; payloads stay fact-only.
  */
-import { SERVER_EVENT_TYPES, type ServerEventType, type ServerEvents } from "@/src/core";
+import { SERVER_EVENT_TYPES, type ServerEventType, type ServerEvents } from "@/src/platform/model";
 
 type Listener = (payload: unknown) => void;
 

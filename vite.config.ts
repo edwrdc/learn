@@ -31,7 +31,7 @@ function nodeCryptoClientShim(): Plugin {
 		enforce: "pre",
 		resolveId(source, importer, options) {
 			if (source !== "node:crypto" || options?.ssr !== false) return null;
-			if (!importer?.includes("/src/core/")) return null;
+			if (!importer?.includes("/src/") || importer.includes("/src/lib/")) return null;
 			return shim;
 		},
 	};

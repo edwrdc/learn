@@ -12,8 +12,8 @@
  */
 import assert from "node:assert";
 import test from "node:test";
-import type { LhViewMessage } from "../src/core/view.ts";
-import { phaseAt3, phaseTimeline, type Phase3 } from "../src/core/phases.ts";
+import type { LhViewMessage } from "../src/session/model/view.ts";
+import { phaseAt3, phaseTimeline, type Phase3 } from "../src/session/model/phases.ts";
 
 /** Text-only user message. */
 function user(text: string): LhViewMessage {
@@ -129,8 +129,8 @@ test("phaseAt3: empty transcript is probe", () => {
 
 // ─── the native fold (phaseAt3Lh over LhMessage[]) ──────────────────────────
 
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { phaseAt3Lh } from "../src/core/phases.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { phaseAt3Lh } from "../src/session/model/phases.ts";
 
 /** A native toolResult (the probe_done conclusion). */
 function toolResult(toolName: string, isError = false): LhMessage {

@@ -17,8 +17,8 @@ import {
 	toolTimeoutMs,
 	toToolResult,
 	type ToolExecuteContext,
-} from "../src/agent/tool-execute.ts";
-import { askUserQuestionTool } from "../src/agent/tools.ts";
+} from "../src/tools/execute.ts";
+import { askUserQuestionTool } from "../src/session/tools/registry.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 

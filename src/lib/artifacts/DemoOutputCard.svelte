@@ -2,7 +2,7 @@
 import { untrack } from "svelte";
 	import { getContext } from "svelte";
 	import { Download } from "@lucide/svelte";
-	import type { DemoResult } from "@/src/core";
+	import type { DemoResult } from "@/src/jobs/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { buildDemoSrcDoc, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState, type DemoBridgeState } from "./demo-bridge";

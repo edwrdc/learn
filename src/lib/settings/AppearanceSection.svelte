@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppearanceSettings } from "@/src/core";
+	import type { AppearanceSettings } from "@/src/settings/model";
 	import { appearance } from "$lib/state/appearance.svelte";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";

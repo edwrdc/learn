@@ -7,7 +7,7 @@ import {
 	IS_MAC,
 	kbdEventForAction,
 	KEYBOARD_ACTIONS,
-} from "../src/core/keyboard.ts";
+} from "../src/settings/model/keyboard.ts";
 
 /**
  * The ⌘B sidebar bug interlude (owner, 2026-09-25): ⌘B did nothing because

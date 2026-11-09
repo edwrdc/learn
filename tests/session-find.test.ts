@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import { findSessionTextMatches, stepSessionMatch } from "../src/core/session-find.ts";
+import { findSessionTextMatches, stepSessionMatch } from "../src/session/model/find.ts";
 import { sessionFindRanges, sessionRangeIdentity, sameSessionRange } from "../src/lib/chat/session-find-dom.ts";
 import { clearSessionFindHighlights, injectFindStyles, sessionFindHasForegroundLayer } from "../src/lib/chat/session-find.ts";
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/core";
+	import type { ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { prettyModel } from "$lib/format";
 	import { backdropDismiss } from "$lib/backdrop";

@@ -1,5 +1,5 @@
 /** The Keys section's pure projection: grouping and status lines. */
-import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
+import { AUTH_KEYS, type AuthKeyStatus } from "@/src/settings/model";
 
 export interface ProviderKeyInfo { id: string; envVar: string; label: string }
 

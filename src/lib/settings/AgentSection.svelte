@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { COMPACTION_THRESHOLD_FLOOR, MODEL_SLOTS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelCatalogEntry, type ModelsSettings, type ModelSlotName } from "@/src/core";
+	import { COMPACTION_THRESHOLD_FLOOR, MODEL_SLOTS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelCatalogEntry, type ModelsSettings, type ModelSlotName } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { prettyModel } from "$lib/format";
 	import { watchSettings } from "$lib/state/settings-signal";

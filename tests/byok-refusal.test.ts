@@ -8,8 +8,9 @@ import {
 	modelsNotConfigured,
 	providerKeyMissing,
 	PROVIDER_KEY_MISSING_CODE,
-} from "../src/core/settings.ts";
-import type { ModelCatalogEntry, ModelSlotName } from "../src/core/index.ts";
+} from "../src/settings/model/settings.ts";
+import type { ModelCatalogEntry } from "../src/settings/model/models.ts";
+import type { ModelSlotName } from "../src/settings/model/settings.ts";
 
 /**
  * The BYOK universal gate rendered honestly (owner, 2026-09-22): the server

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { CURRENT_SETTINGS_VERSION, type UserSettings } from "@/src/core";
+	import { CURRENT_SETTINGS_VERSION, type UserSettings } from "@/src/settings/model";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
 	import { settingsDialog, type SettingsSectionId } from "$lib/state/dialogs.svelte";

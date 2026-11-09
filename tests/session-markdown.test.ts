@@ -9,10 +9,10 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { messageMarkdown, sessionMarkdown } from "../src/core/session-markdown.ts";
-import { messageViewLines } from "../src/core/coverage.ts";
-import { coverageSlots } from "../src/core/coverage.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { messageMarkdown, sessionMarkdown } from "../src/session/model/markdown.ts";
+import { messageViewLines } from "../src/graph/coverage.ts";
+import { coverageSlots } from "../src/graph/coverage.ts";
 
 function user(id: string, text: string): LhMessage {
 	return { id, role: "user", content: text, timestamp: Date.now() } as never;

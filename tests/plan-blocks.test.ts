@@ -10,11 +10,11 @@
  */
 import assert from "node:assert";
 import test from "node:test";
-import type { PlanTree } from "../src/core/contracts.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { planBlocksFor } from "../src/core/plan-blocks.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import type { PlanBlockData } from "../src/core/contracts.ts";
+import type { PlanTree } from "../src/session/model/plan-types.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { planBlocksFor } from "../src/session/model/plan-blocks.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import type { PlanBlockData } from "../src/session/model/types.ts";
 
 // 5-node fixture: a → b → c, b → d, d → e.
 const TREE: PlanTree = {

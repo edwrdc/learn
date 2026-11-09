@@ -29,21 +29,22 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { Value } from "typebox/value";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
-import { PATHS } from "../config.ts";
-import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
-import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
-import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
-import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
-import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
-import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/core/contracts.ts";
-import type { JobRecord } from "../src/core/contracts.ts";
-import { createTeacherTools } from "../src/agent/tools.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { runningTurn } from "../src/server/turn-runs.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import type { PiEngine } from "../src/agent/models.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/jobs/tools.ts";
+import { runDemoBuilder } from "../src/jobs/roles/demo.ts";
+import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/jobs/headless.ts";
+import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/jobs/runner.ts";
+import { runVisualMaker } from "../src/jobs/roles/visual.ts";
+import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/jobs/model/types.ts";
+import type { JobRecord } from "../src/jobs/model/types.ts";
+import { createTeacherTools } from "../src/session/tools/registry.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { runningTurn } from "../src/session/turn-runs.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 
 /**
  * A fake deliver seam + a runner wired like the chat-handler's, per test:

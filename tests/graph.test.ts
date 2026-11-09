@@ -19,15 +19,15 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
-import type { AuditVerdicts, GraphChain, GraphNode, SessionFindings } from "../src/core/contracts.ts";
-import type { QuestionAnswerData } from "../src/core/question-core.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/core/graph.ts";
-import { coverageSlots } from "../src/core/coverage.ts";
-import { graphStore } from "../src/store/graph.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { LEDGER_FILES, PATHS, SOURCES_FILE } from "../config.ts";
+import type { AuditVerdicts, GraphChain, GraphNode, SessionFindings } from "../src/graph/model/types.ts";
+import type { QuestionAnswerData } from "../src/session/model/questions.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/graph/snapshot.ts";
+import { coverageSlots } from "../src/graph/coverage.ts";
+import { graphStore } from "../src/graph/store.ts";
+import { chatStore } from "../src/session/store.ts";
+import { LEDGER_FILES, PATHS, SOURCES_FILE } from "../src/platform/config.ts";
 
 /** The wired fs adapters, exactly what src/server/stores.ts passes in production. */
 const graphDeps = { chatStore, graphStore } as const satisfies GraphDeps;
@@ -655,15 +655,15 @@ describe("graph ledger store", () => {
 
 // ─── session deletion (wave 6 — the first destructive ledger operation) ─────
 
-import { deleteChatTraces, type ChatDeletionStats } from "../src/core/graph-deletion.ts";
-import { deleteChatSession, sessionCoverage } from "../src/server/chats.ts";
-import { beginTurn, endTurn } from "../src/server/turn-liveness.ts";
-import { jobStore } from "../src/store/jobs.ts";
+import { deleteChatTraces, type ChatDeletionStats } from "../src/graph/model/deletion.ts";
+import { deleteChatSession, sessionCoverage } from "../src/session/operations.ts";
+import { beginTurn, endTurn } from "../src/session/turn-liveness.ts";
+import { jobStore } from "../src/jobs/store.ts";
 import {
 	deleteNodeTraces,
 	type NodeDeletionStats,
-} from "../src/core/graph-deletion.ts";
-import { deleteGraphNode, graphRevision } from "../src/server/graph.ts";
+} from "../src/graph/model/deletion.ts";
+import { deleteGraphNode, graphRevision } from "../src/graph/service.ts";
 
 describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () => {
 	/** Two-session scenario: dA creates the shared node X + the orphan Y and

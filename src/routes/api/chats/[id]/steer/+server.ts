@@ -10,8 +10,9 @@
 // back to a plain text send (the settle race). Stranding safety: the
 // registry copy survives a question termination or abort and rides the
 // chat's next run.
-import { ChatInputError, newUserSteer, parseUserSteerInput } from "@/src/core";
-import { getChat, steerLiveChat } from "@/src/server";
+import { ChatInputError, newUserSteer, parseUserSteerInput } from "@/src/session/model";
+import { getChat } from "@/src/session";
+import { steerLiveChat } from "@/src/jobs";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request, params }: RequestEvent): Promise<Response> {

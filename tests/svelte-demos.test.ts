@@ -1,8 +1,8 @@
 /** Svelte ports of the demo/visual artifact cards and the bridge. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { buildAbortSteer, buildSubagentSteer } from "../src/core/contracts.ts";
-import { projectView } from "../src/core/view.ts";
+import { buildAbortSteer, buildSubagentSteer } from "../src/jobs/model/types.ts";
+import { projectView } from "../src/session/model/view.ts";
 import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
 import { slugFilename } from "../src/lib/artifacts/download.ts";
 import { chartSize } from "../src/lib/markdown/mermaid.ts";

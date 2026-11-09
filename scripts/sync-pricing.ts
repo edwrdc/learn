@@ -30,7 +30,7 @@ const DATA_DIR = path.join(
 	"providers",
 	"data",
 );
-const OUT = path.join(import.meta.dirname, "..", "src", "core", "prices.ts");
+const OUT = path.join(import.meta.dirname, "..", "src", "session", "model", "prices.ts");
 
 /** One raw catalog entry (fields we consume; the files carry more). */
 interface CatalogModel {

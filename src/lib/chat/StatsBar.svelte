@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
-	import { contextWindow, sessionCost, turnCost, type TurnUsage } from "@/src/core";
+	import { contextWindow, sessionCost, turnCost, type TurnUsage } from "@/src/session/model";
 	import { formatTokens, formatUsd, prettyModel } from "$lib/format";
 	import ModelControl from "./ModelControl.svelte";
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";

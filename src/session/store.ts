@@ -1,0 +1,339 @@
+/**
+ * ChatStore — the chat record adapter: METADATA in fs JSON, TRANSCRIPT in
+ * the durable store (src/store/durable.ts).
+ *
+ * Implements core/ports.ts ChatStore; the record shapes live in
+ * core/contracts.ts (ChatRecord/ChatSummary). One JSON file per chat keeps
+ * everything that is not the transcript — title, timestamps, plan tree,
+ * usage logs, settings, the schema stamp. The transcript is a read
+ * projection over the chat's durable entries, so `getChat` is async: the
+ * durable read is the truth, never a second cache.
+ *
+ * LEGACY IMPORT: a record written before the migration
+ * still carries `messages`. On first access the store copies the original
+ * file byte-for-byte into the chat's runtime directory
+ * (data/durable/<id>/legacy-chat.json), appends every message as a durable
+ * entry, and only then rewrites the JSON without `messages`. The import is
+ * idempotent — the empty-transcript check is the key — and the backup is
+ * never deleted automatically (session deletion removes it with the rest).
+ *
+ * Wired in the composition root (src/server/stores.ts); nothing else
+ * constructs it.
+ */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { PATHS } from "../platform/index.ts";
+import { emit } from "../platform/model/index.ts";
+import type { ChatStore } from "./model/ports.ts";
+import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, TurnUsage } from "./model/types.ts";
+import type { PlanTree } from "./model/plan-types.ts";
+import { CURRENT_CHAT_VERSION } from "./model/types.ts";
+import type { LhMessage } from "./model/transcript.ts";
+import { danglingQuestionOf } from "./model/transcript.ts";
+import { phaseAt3Lh } from "./model/phases.ts";
+import {
+	appendEntries,
+	appendMessages,
+	closeChatRuntime,
+	draftForMessage,
+	isEmptyTranscript,
+	openChatRuntime,
+	projectEntries,
+	readEntries,
+	removeChatRuntimeFiles,
+} from "./durable.ts";
+
+/** The on-disk metadata record: everything except the transcript. */
+type ChatMeta = Omit<ChatRecord, "messages">;
+
+interface ParsedRecord {
+	meta: ChatMeta;
+	/** Present only on a record written before the durable migration. */
+	legacyMessages?: LhMessage[];
+}
+
+function chatFile(id: string): string {
+	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
+	return path.join(PATHS.chats, `${id}.json`);
+}
+
+/** Per-chat record queue: the old store was synchronous, so its
+ *  read-modify-write could not interleave. Async callers keep that
+ *  ordering by chaining here. It also owns the legacy import: every
+ *  read and mutation runs inside it, after the import is complete.
+ *
+ *  globalThis, not module level: Next dev (and any `?route-copy` import)
+ *  loads this module more than once, and a per-instance queue would let two
+ *  first reads import the same legacy transcript twice. The Harness handle
+ *  map is global for the same reason. */
+interface LhGlobal {
+	__lhChatMetaQueues?: Map<string, Promise<unknown>>;
+}
+
+function metaQueues(): Map<string, Promise<unknown>> {
+	const g = globalThis as typeof globalThis & LhGlobal;
+	return (g.__lhChatMetaQueues ??= new Map());
+}
+
+async function withMetaLock<T>(id: string, run: () => Promise<T>): Promise<T> {
+	const queues = metaQueues();
+	const previous = queues.get(id) ?? Promise.resolve();
+	const next = previous.then(run, run);
+	const tail = next.catch(() => undefined);
+	queues.set(id, tail);
+	try {
+		return await next;
+	} finally {
+		if (queues.get(id) === tail) queues.delete(id);
+	}
+}
+
+/** Parse the metadata file. Null for unknown, corrupt, or future-version
+ *  records (the honest downgrade refusal: a read-modify-write store must
+ *  never rewrite what it does not understand). */
+function readRecord(id: string): ParsedRecord | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
+	} catch {
+		return null;
+	}
+	const v = (parsed as { version?: unknown }).version;
+	if (typeof v === "number" && v > CURRENT_CHAT_VERSION) {
+		console.error(
+			`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`,
+		);
+		return null;
+	}
+	const { messages, ...meta } = parsed as ChatRecord;
+	return { meta, legacyMessages: Array.isArray(messages) ? messages : undefined };
+}
+
+/** THE WRITE CHOKE POINT: every metadata persist goes through here and
+ *  carries the CURRENT version stamp (lazy migration: existing files are
+ *  stamped on their next write). */
+function writeMeta(meta: ChatMeta): void {
+	fs.mkdirSync(PATHS.chats, { recursive: true });
+	fs.writeFileSync(
+		chatFile(meta.id),
+		JSON.stringify({ ...meta, version: CURRENT_CHAT_VERSION }, null, "\t"),
+		"utf-8",
+	);
+}
+
+/** Import a pre-migration record: back up the original verbatim inside the
+ *  chat's runtime directory, append its messages as durable entries, then
+ *  drop `messages` from the metadata file. Called with the chat's queue
+ *  held. Idempotent: the transcript's emptiness is the key, so a crash
+ *  between the entry commit and the JSON rewrite simply re-reads the same
+ *  durable transcript on the next access. */
+async function importLegacy(id: string, meta: ChatMeta, messages: LhMessage[]): Promise<void> {
+	const runtime = await openChatRuntime(id);
+	if (await isEmptyTranscript(runtime)) {
+		const backup = path.join(runtime.dir, "legacy-chat.json");
+		if (!fs.existsSync(backup)) fs.copyFileSync(chatFile(id), backup);
+		await appendEntries(id, messages.map(draftForMessage));
+	}
+	writeMeta(meta);
+}
+
+/** THE RECORD BOUNDARY: every metadata read and write runs in the chat's
+ *  queue and after the legacy import, so a mutation that arrives before the
+ *  first read cannot strip a transcript it never moved, and concurrent first
+ *  accesses import it once. Null means unknown, corrupt, or newer-schema —
+ *  refused before any runtime is opened. */
+async function withRecord<T>(
+	id: string,
+	run: (parsed: ParsedRecord) => T | Promise<T>,
+): Promise<T | null> {
+	return withMetaLock(id, async () => {
+		const parsed = readRecord(id);
+		if (!parsed) return null;
+		if (parsed.legacyMessages !== undefined) await importLegacy(id, parsed.meta, parsed.legacyMessages);
+		return run(parsed);
+	});
+}
+
+/** One metadata mutation, persisted once. An unknown record is the callers'
+ *  "Chat not found" contract. */
+async function mutateMeta(id: string, update: (meta: ChatMeta) => ChatMeta | Promise<ChatMeta>): Promise<ChatMeta> {
+	const meta = await withRecord(id, async (parsed) => {
+		const next = await update(parsed.meta);
+		writeMeta(next);
+		return next;
+	});
+	if (!meta) throw new Error(`Chat not found: ${id}`);
+	return meta;
+}
+
+async function readChat(id: string): Promise<ChatRecord | null> {
+	const parsed = await withRecord(id, (record) => record);
+	if (!parsed) return null;
+	const runtime = await openChatRuntime(id);
+	const messages = projectEntries(await readEntries(runtime));
+	return { ...parsed.meta, messages };
+}
+
+function createChat(title: string, kind?: "practice"): ChatRecord {
+	const now = new Date().toISOString();
+	const record: ChatRecord = {
+		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		title: title.trim() || "Untitled session",
+		createdAt: now,
+		updatedAt: now,
+		messages: [],
+		// Practice sessions carry the marker; teach stays ABSENT (absence
+		// reads as teach — pre-practice records never migrate).
+		...(kind === "practice" ? { kind: "practice" as const } : {}),
+	};
+	const { messages: _messages, ...meta } = record;
+	writeMeta(meta);
+	emit("chats-changed", {});
+	return { ...record, version: CURRENT_CHAT_VERSION };
+}
+
+/** The full record, or null if unknown / corrupt / newer-schema. */
+async function getChat(id: string): Promise<ChatRecord | null> {
+	return readChat(id);
+}
+
+async function listChats(): Promise<ChatSummary[]> {
+	let names: string[];
+	try {
+		fs.mkdirSync(PATHS.chats, { recursive: true });
+		names = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
+	} catch {
+		return [];
+	}
+	const out: ChatSummary[] = [];
+	for (let i = 0; i < names.length; i += 3) {
+		const batch = names.slice(i, i + 3);
+		const records = await Promise.all(batch.map((name) => readChat(name.slice(0, -5)).catch(() => null)));
+		for (const record of records) {
+			if (!record) continue;
+			// Per-record isolation: a record whose projection fails must not blank
+			// the whole sidebar.
+			try {
+				const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
+				out.push({
+					...summary,
+					// Normalized kind: absent record field reads as teach.
+					kind: summary.kind ?? "teach",
+					messageCount: messages.length,
+					// Record-derived status for the session picker: phase from the
+					// transcript's explicit events, pending question/problem from the
+					// native dangling-call scans.
+					phase: phaseAt3Lh(messages),
+					pendingQuestion: danglingQuestionOf(messages) !== null,
+				} as ChatSummary);
+			} catch (err) {
+				console.error(`[chat ${record.id}] summary projection failed:`, err);
+			}
+		}
+	}
+	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+/** Upsert supplied native messages by id; omitted messages remain.
+ *  New ids append, changed messages edit their existing entries.
+ *  SILENT by the events law: callers emit their own record change. */
+async function saveMessages(id: string, messages: LhMessage[]): Promise<void> {
+	await mutateMeta(id, async (meta) => {
+		await appendMessages(id, messages);
+		return { ...meta, updatedAt: new Date().toISOString() };
+	});
+}
+
+/** Mark conversation activity: `updatedAt` is the sidebar's sort key and the
+ *  displayed "updated" time. The transcript writes themselves go to the
+ *  durable store, so every accepted mutation boundary calls this. */
+async function touchChat(id: string): Promise<void> {
+	await mutateMeta(id, (meta) => ({ ...meta, updatedAt: new Date().toISOString() }));
+}
+
+/** Append one usage entry to the record's turn log — idempotent per turn
+ *  id: each REQUEST carries its own id, so a replay of the same turn's
+ *  persist appends once, while continuation turns (which share a response
+ *  message id) each keep their usage. */
+async function appendTurnUsage(id: string, entry: TurnUsage): Promise<void> {
+	await mutateMeta(id, (meta) => {
+		const turns = meta.turns ?? [];
+		return { ...meta, turns: turns.some((t) => t.id === entry.id) ? turns : [...turns, entry] };
+	});
+}
+
+/** Append one extraction-run usage entry — idempotent per startedAt. */
+async function appendExtractionUsage(id: string, entry: ExtractionRunUsage): Promise<void> {
+	await mutateMeta(id, (meta) => {
+		const extractions = meta.extractions ?? [];
+		return {
+			...meta,
+			extractions: extractions.some((r) => r.startedAt === entry.startedAt)
+				? extractions
+				: [...extractions, entry],
+		};
+	});
+}
+
+/** Persist the per-chat model/thinking settings — replace-whole. Like
+ *  saveTree: a settings tweak is not conversation activity, so it
+ *  deliberately does NOT bump updatedAt (sidebar order must not churn). */
+async function saveSettings(id: string, settings: ChatSettings): Promise<void> {
+	await mutateMeta(id, (meta) => ({ ...meta, settings }));
+}
+
+/** Rename a session. Like saveSettings, a rename is NOT conversation
+ *  activity: updatedAt stays put so sidebar order never churns. */
+async function renameChat(id: string, title: string): Promise<ChatRecord> {
+	const renamed = await mutateMeta(id, (meta) => ({
+		...meta,
+		title: title.trim() || "Untitled session",
+	}));
+	emit("chats-changed", {});
+	const record = await readChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	return { ...record, ...renamed };
+}
+
+/** Hard-delete the session: close the runtime FIRST (no new work while it
+ *  closes, admitted commits settled), then remove its database, journals,
+ *  and the legacy backup, then the metadata file. False when the id is
+ *  unknown; removal failures throw. The graph-ledger purge and job cleanup
+ *  are the caller's choreography (core/graph-deletion.ts + the DELETE route). */
+async function deleteChat(id: string): Promise<boolean> {
+	// The metadata queue owns the whole removal: a mutation that arrives
+	// afterwards re-reads the (now absent) file inside the same lock and
+	// refuses, instead of rewriting metadata over a deleted runtime.
+	return withMetaLock(id, async () => {
+		const file = chatFile(id);
+		const hadRecord = fs.existsSync(file);
+		const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
+		await closeChatRuntime(id);
+		removeChatRuntimeFiles(id);
+		if (hadRecord) fs.unlinkSync(file);
+		if (hadRecord || hadRuntime) emit("chats-changed", {}); // only a real removal — the present-entry law
+		return hadRecord || hadRuntime;
+	});
+}
+
+/** Persist the session plan tree (plan tools call this in execute).
+ *  Deliberately does NOT bump updatedAt: tree mutations piggyback on the
+ *  turn's saveMessages, and sidebar ordering shouldn't churn on tree edits. */
+async function saveTree(id: string, tree: PlanTree): Promise<void> {
+	await mutateMeta(id, (meta) => ({ ...meta, tree }));
+}
+
+export const chatStore: ChatStore = {
+	createChat,
+	getChat,
+	listChats,
+	saveMessages,
+	touchChat,
+	saveTree,
+	saveSettings,
+	renameChat,
+	deleteChat,
+	appendTurnUsage,
+	appendExtractionUsage,
+};

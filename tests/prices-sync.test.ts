@@ -23,7 +23,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PRICES } from "../src/core/prices.ts";
+import { PRICES } from "../src/session/model/prices.ts";
 import { buildPrices } from "../scripts/sync-pricing.ts";
 
 test("PRICES matches pi-ai's shipped catalogs exactly — the sync was run after the last bump", () => {

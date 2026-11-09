@@ -12,12 +12,12 @@
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { describe, it } from "node:test";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { createProberTools, type ProberToolContext } from "../src/agent/tools.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { parseAgentSettingsBody } from "../src/server/settings-body.ts";
-import { chatStore } from "../src/store/chats.ts";
-import type { AgentSettings } from "../src/core/settings.ts";
+import { bareQuestionTools } from "../src/session/agents.ts";
+import { createProberTools, type ProberToolContext } from "../src/session/tools/registry.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { parseAgentSettingsBody } from "../src/settings/settings-body.ts";
+import { chatStore } from "../src/session/store.ts";
+import type { AgentSettings } from "../src/settings/model/settings.ts";
 
 describe("the tool-toggle bridge (the P2 seam)", () => {
 	const toolNames = (tools: Record<string, unknown>) => Object.keys(tools).sort();

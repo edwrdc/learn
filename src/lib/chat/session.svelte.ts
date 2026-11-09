@@ -2,7 +2,7 @@
  *  The model owns the state machine; this class mirrors its state into a
  *  rune so components re-render on change. */
 import { SessionModel, type SessionState } from "./session-core.ts";
-import type { ChatInput, LhMessage, QuestionAnswerData } from "@/src/core";
+import type { ChatInput, LhMessage, QuestionAnswerData } from "@/src/session/model";
 
 export class SessionView {
 	readonly model: SessionModel;

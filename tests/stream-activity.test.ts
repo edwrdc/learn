@@ -7,8 +7,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { LhViewMessage } from "../src/core/view.ts";
-import { streamingToolActivity } from "../src/core/pending.ts";
+import type { LhViewMessage } from "../src/session/model/view.ts";
+import { streamingToolActivity } from "../src/session/model/pending.ts";
 
 function msg(role: string, parts: unknown[]): LhViewMessage {
 	return { id: "m1", role, parts } as unknown as LhViewMessage;

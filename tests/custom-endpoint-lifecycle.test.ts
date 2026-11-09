@@ -4,14 +4,14 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
-import type { UserSettings } from "../src/core/settings.ts";
+import type { UserSettings } from "../src/settings/model/settings.ts";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-lifecycle-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 
-const { saveCustomEndpoint, removeCustomEndpoint } = await import("../src/server/custom-endpoint.ts");
-const { stores } = await import("../src/server/stores.ts");
+const { saveCustomEndpoint, removeCustomEndpoint } = await import("../src/settings/custom-endpoint.ts");
+const { stores } = await import("../src/stores.ts");
 const { settingsStore } = stores;
 
 const BASE_URL = "http://127.0.0.1:9/v1";

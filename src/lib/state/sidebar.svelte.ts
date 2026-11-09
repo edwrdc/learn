@@ -1,4 +1,4 @@
-import { kbdEventForAction } from "@/src/core";
+import { kbdEventForAction } from "@/src/settings/model";
 
 const STORAGE_KEY = "lh:sidebar-open";
 const SIDEBAR_AUTOCLOSE = 928;

@@ -9,11 +9,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as fs from "node:fs";
 
-import { chatStore } from "../src/store/chats.ts";
-import { graphStore } from "../src/store/graph.ts";
-import { PATHS, SOURCES_FILE } from "../config.ts";
-import { callCost, contextWindow, jobCost, sessionCost, sumSteps, turnCost } from "../src/core/prices.ts";
-import type { CallUsage, ExtractionRunUsage, JobRecord, TurnUsage } from "../src/core/contracts.ts";
+import { chatStore } from "../src/session/store.ts";
+import { graphStore } from "../src/graph/store.ts";
+import { PATHS, SOURCES_FILE } from "../src/platform/config.ts";
+import { callCost, contextWindow, jobCost, sessionCost, sumSteps, turnCost } from "../src/session/model/prices.ts";
+import type { CallUsage, ExtractionRunUsage, TurnUsage } from "../src/session/model/types.ts";
+import type { JobRecord } from "../src/jobs/model/types.ts";
 
 const call = (over: Partial<CallUsage> = {}): CallUsage => ({
 	inputTokens: 0,

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { ArtifactPartProps, JobRecord } from "@/src/core";
+	import type { ArtifactPartProps } from "@/src/session/model";
+import type { JobRecord } from "@/src/jobs/model";
 	import DispatchCard from "./DispatchCard.svelte";
 
 	let { part, jobs }: { part: ArtifactPartProps["part"]; jobs: JobRecord[] } = $props();

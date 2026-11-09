@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fetchGraphRead, ringFill } from "./coverage";
-	import type { SessionCoverage } from "@/src/core";
+	import type { SessionCoverage } from "@/src/session/model";
 	import { formatTokens, timeAgo } from "$lib/format";
 	import { hint } from "$lib/hint";
 	import { activity } from "$lib/state/activity.svelte";

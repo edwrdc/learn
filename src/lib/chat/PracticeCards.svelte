@@ -1,6 +1,6 @@
 <script lang="ts">
 	import PracticeMetadata from "./PracticeMetadata.svelte";
-	import type { ArtifactPartProps } from "@/src/core";
+	import type { ArtifactPartProps } from "@/src/session/model";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import ThinkingBlock from "./ThinkingBlock.svelte";
 

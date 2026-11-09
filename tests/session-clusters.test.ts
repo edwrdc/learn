@@ -11,20 +11,22 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { GraphChain, GraphNode, NotesSource, ChatSummary } from "../src/core/contracts.ts";
-import type { ChatStore, GraphStore } from "../src/core/ports.ts";
+import type { GraphChain, GraphNode, NotesSource } from "../src/graph/model/types.ts";
+import type { ChatSummary } from "../src/session/model/types.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
 import {
 	graphSessionIndex,
 	graphSessionPropositions,
 	graphSnapshot,
 	type GraphDeps,
-} from "../src/core/graph.ts";
+} from "../src/graph/snapshot.ts";
 import {
 	attachImpToCommunities,
 	birthSessionOf,
 	birthSessionPartition,
 	impClusterKey,
-} from "../src/core/session-clusters.ts";
+} from "../src/graph/model/session-clusters.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 

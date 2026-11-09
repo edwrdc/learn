@@ -5,7 +5,7 @@
  * core/prices.ts. See that module's header for why /api/jobs stays
  * chat-scoped and untouched.
  */
-import { activityFeed } from "@/src/server";
+import { activityFeed } from "@/src/jobs";
 
 export async function GET() {
 	return Response.json(await activityFeed());

@@ -35,17 +35,17 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-golden-"));
 fs.cpSync(GOLDEN, TMP, { recursive: true });
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { jobStore } = await import("../src/store/jobs.ts");
-const { settingsStore } = await import("../src/store/settings.ts");
-const { readRenderSettings } = await import("../src/store/render-settings.ts");
-const { getGraph, deriveView } = await import("../src/core/graph.ts");
-const { sanitizeRenderSettings } = await import("../src/core/render-settings.ts");
-const { toLlmMessages } = await import("../src/core/native-messages.ts");
-const { phaseAt3Lh } = await import("../src/core/phases.ts");
-const { danglingQuestionOf, activeProblemOf } = await import("../src/core/native-messages.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { jobStore } = await import("../src/jobs/store.ts");
+const { settingsStore } = await import("../src/settings/store.ts");
+const { readRenderSettings } = await import("../src/graph/render-settings-store.ts");
+const { getGraph, deriveView } = await import("../src/graph/snapshot.ts");
+const { sanitizeRenderSettings } = await import("../src/graph/model/render-settings.ts");
+const { toLlmMessages } = await import("../src/session/model/transcript.ts");
+const { phaseAt3Lh } = await import("../src/session/model/phases.ts");
+const { danglingQuestionOf, activeProblemOf } = await import("../src/session/model/transcript.ts");
 
 const TEACH = "chat_mv27rrra_feff23b6";
 const PRACTICE = "chat_mv293wv5_10656952";

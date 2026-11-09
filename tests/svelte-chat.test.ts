@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import {
-	buildAnswer,
-	normalizeOptions,
-	resolveCorrect,
-	type QuestionData,
-} from "../src/core/index.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);

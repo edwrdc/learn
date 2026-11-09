@@ -1,4 +1,6 @@
-import { compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage, stores, type ChatDeleteMode } from "@/src/server";
+import { compactionInFlight, deleteChatSession, getChat, isTurnRunning, sessionCoverage } from "@/src/session";
+import { stores } from "@/src/stores";
+import { type ChatDeleteMode } from "@/src/graph/model";
 import type { RequestEvent } from "./$types";
 
 export async function GET({ params }: RequestEvent) {

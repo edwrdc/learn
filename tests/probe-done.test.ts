@@ -11,12 +11,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { probeDoneTool } from "../src/agent/tools/probe.ts";
-import type { SteerMessage } from "../src/core/contracts.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { HANDOFF_TEXT } from "../src/core/contracts.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { PATHS } from "../config.ts";
+import { probeDoneTool } from "../src/session/tools/probe.ts";
+import type { SteerMessage } from "../src/jobs/model/types.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { HANDOFF_TEXT } from "../src/session/model/types.ts";
+import { chatStore } from "../src/session/store.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 const dataDir = path.join(PATHS.root, "data");
 fs.mkdirSync(dataDir, { recursive: true });

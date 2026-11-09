@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
-	import { chainsForSelection, formatChainLine, fuzzyScore, type GraphNode, type ReasoningChain } from "@/src/core";
+	import { chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
+import { fuzzyScore } from "@/src/platform/model";
 	import TopBar from "$lib/chat/TopBar.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 

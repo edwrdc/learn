@@ -1,4 +1,4 @@
-import { findSessionTextMatches } from "@/src/core";
+import { findSessionTextMatches } from "@/src/session/model";
 
 /** Only marked session surfaces enter Find. Offscreen scroller content counts;
  * hidden/unmounted sections do not. Never walk embedded documents or drafts.

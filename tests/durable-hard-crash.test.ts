@@ -21,11 +21,12 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-hard-crash-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
-const { isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
-const { foregroundEngineOverride } = await import("../src/server/chat-handler.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
+const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
+const { foregroundEngineOverride } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "hard-crash-child.mts");
 const ROOT = path.resolve(import.meta.dirname, "..");

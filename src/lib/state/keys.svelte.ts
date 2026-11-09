@@ -1,4 +1,4 @@
-import type { AuthKeyStatus } from "@/src/core";
+import type { AuthKeyStatus } from "@/src/settings/model";
 import { watchSettings } from "./settings-signal";
 import { hasProviderKey, type ProviderKeyInfo } from "./keys";
 export { hasProviderKey, strongKeyless, type ProviderKeyInfo } from "./keys";

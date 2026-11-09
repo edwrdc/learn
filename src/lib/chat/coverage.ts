@@ -1,6 +1,6 @@
 /** Extraction coverage: the settings read that denominates the ring, and
  *  the donut fold. */
-import { resolveSettings, type UserSettings } from "@/src/core";
+import { resolveSettings, type UserSettings } from "@/src/settings/model";
 
 export interface GraphRead {
 	enabled: boolean;

@@ -6,7 +6,7 @@
  * are refused so a credential is never replayed to another origin.
  */
 
-import { discoverCustomEndpointModels } from "@/src/server";
+import { discoverCustomEndpointModels } from "@/src/settings";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request }: RequestEvent) {

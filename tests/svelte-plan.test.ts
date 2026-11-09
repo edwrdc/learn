@@ -1,7 +1,8 @@
 /** Svelte ports of the plan layout and plan surfaces. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import type { PlanBlockData, PlanTree } from "../src/core/contracts.ts";
+import type { PlanBlockData } from "../src/session/model/types.ts";
+import type { PlanTree } from "../src/session/model/plan-types.ts";
 import {
 	blockLayout,
 	edgePathD,

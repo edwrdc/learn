@@ -4,7 +4,7 @@
  *  collapsed default are pure SSR of the shipped component. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import type { GraphChain, GraphNode } from "../src/core/contracts.ts";
+import type { GraphChain, GraphNode } from "../src/graph/model/types.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);

@@ -1,5 +1,5 @@
-import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings } from "@/src/core";
-import type { KeyAction } from "@/src/core";
+import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings } from "@/src/settings/model";
+import type { KeyAction } from "@/src/settings/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
 export const THINKING_LABEL: Record<string, string> = {

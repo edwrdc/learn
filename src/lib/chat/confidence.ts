@@ -1,4 +1,4 @@
-import { CONFIDENCE_STOPS } from "@/src/core";
+import { CONFIDENCE_STOPS } from "@/src/session/model";
 
 export const CONFIDENCE_COLORS: readonly string[] = ["#ef4444", "#f97316", "#eab308", "#84cc16", "#22c55e", "#10b981"];
 

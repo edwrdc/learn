@@ -11,11 +11,13 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createProberTools } from "../src/agent/tools.ts";
-import { auditorGraphTools } from "../src/agent/tools/graph.ts";
-import type { ChatStore, GraphStore, JobStore } from "../src/core/ports.ts";
-import type { ChatSummary } from "../src/core/contracts/chat.ts";
-import type { GraphChain, GraphNode } from "../src/core/contracts/graph.ts";
+import { createProberTools } from "../src/session/tools/registry.ts";
+import { auditorGraphTools } from "../src/graph/extraction/graph-tools.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
+import type { JobStore } from "../src/jobs/model/ports.ts";
+import type { ChatSummary } from "../src/session/model/types.ts";
+import type { GraphChain, GraphNode } from "../src/graph/model/types.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 

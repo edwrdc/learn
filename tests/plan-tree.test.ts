@@ -12,12 +12,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { derivePlanStatuses, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/core/contracts.ts";
-import { createTree, emptyTree, PlanTreeError } from "../src/core/plan-tree.ts";
-import { planTools } from "../src/agent/tools/plan.ts";
-import { parseMermaidPlan } from "../src/agent/tools/mermaid-plan.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { PATHS } from "../config.ts";
+import { derivePlanStatuses, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/session/model/plan-types.ts";
+import { createTree, emptyTree, PlanTreeError } from "../src/session/model/plan-tree.ts";
+import { planTools } from "../src/session/tools/plan.ts";
+import { parseMermaidPlan } from "../src/session/tools/mermaid-plan.ts";
+import { chatStore } from "../src/session/store.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 const N = (id: string, title = id, summary?: string) => ({ id, title, ...(summary ? { summary } : {}) });
 const E = (from: string, to: string) => ({ from, to });

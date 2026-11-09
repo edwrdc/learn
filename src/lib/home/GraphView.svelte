@@ -1,17 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from "svelte";
 	import { FileText, ListTree, Loader2, Search, Settings, Upload, Waypoints } from "@lucide/svelte";
-	import {
-		ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE,
-		DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, DEFAULT_RENDER_SETTINGS,
-		EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE,
-		LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER,
-		REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE,
-		fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout,
-		labelZoomDisplay, propositionSessionHref, sanitizeRenderSettings, snapToLadder,
-		toLadderPosition, toOffSliderPosition, toSliderPosition,
-		type GraphCostSummary, type GraphNode, type GraphSnapshot,
-	} from "@/src/core";
+	import { ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, DEFAULT_RENDER_SETTINGS, EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE, LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout, labelZoomDisplay, sanitizeRenderSettings, snapToLadder, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphNode, type GraphSnapshot } from "@/src/graph/model";
+import { propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
 	import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
 	import { activity } from "$lib/state/activity.svelte";

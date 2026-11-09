@@ -10,17 +10,17 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { quizInputProblems } from "../src/core/question-core.ts";
+import { quizInputProblems } from "../src/session/model/questions.ts";
 import { Value } from "typebox/value";
-import { repairMathForDisplay, restoreMathEscapes } from "../src/core/math-delims.ts";
+import { repairMathForDisplay, restoreMathEscapes } from "../src/tools/model/math-delims.ts";
 import {
 	parseAskInput,
 	parseProbeDoneInput,
 	parseQuizInput,
 	parseExplainInput,
-} from "../src/core/tool-parts.ts";
-import { quizInputSchema, probeQuizInputSchema } from "../src/core/question-core.ts";
-import { probeDoneInputSchema } from "../src/core/contracts/probe.ts";
+} from "../src/session/model/tool-parts.ts";
+import { quizInputSchema, probeQuizInputSchema } from "../src/session/model/questions.ts";
+import { probeDoneInputSchema } from "../src/session/model/probe-types.ts";
 
 const TEACHER_QUIZ = {
 	question: "What does Tarski's convention-T define?",

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { KEYBOARD_ACTIONS, eventBinding, formatBinding, loadOverrides, saveOverrides, type KeyAction, type KeyScope } from "@/src/core";
+	import { KEYBOARD_ACTIONS, eventBinding, formatBinding, loadOverrides, saveOverrides, type KeyAction, type KeyScope } from "@/src/settings/model";
 	import Controls from "./Controls.svelte";
 	import { nextOverrides } from "./compose";
 

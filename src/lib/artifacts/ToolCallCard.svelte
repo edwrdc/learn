@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronRight } from "@lucide/svelte";
-	import type { ArtifactPartProps } from "@/src/core";
+	import type { ArtifactPartProps } from "@/src/session/model";
 
 	let { part }: { part: ArtifactPartProps["part"] } = $props();
 	const tool = $derived(part.type.replace(/^tool-/, ""));

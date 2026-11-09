@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PlanNodeStatus } from "@/src/core";
+	import type { PlanNodeStatus } from "@/src/session/model";
 	import {
 		ARROW_HEAD, GLOW_BLUR, GLOW_MARGIN, HEAD_W, LINE_H, NODE_H, NODE_W_MIN, STROKE_W,
 		blockLayout, edgePathD, wrapTitle, type LayoutNode,

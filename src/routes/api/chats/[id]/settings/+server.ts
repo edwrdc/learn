@@ -1,12 +1,7 @@
-import {
-	clampChatLevel,
-	effectiveSettings,
-	getChat,
-	parseSettingsBody,
-	stores,
-	validateChatSettings,
-} from "@/src/server";
-import type { ChatSettings } from "@/src/core";
+import { clampChatLevel, parseSettingsBody, validateChatSettings } from "@/src/settings";
+import { effectiveSettings, stores } from "@/src/stores";
+import { getChat } from "@/src/session";
+import type { ChatSettings } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
 
 /**

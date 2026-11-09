@@ -1,4 +1,4 @@
-import { deleteGraphNode } from "@/src/server";
+import { deleteGraphNode } from "@/src/graph";
 import type { RequestEvent } from "./$types";
 
 /**

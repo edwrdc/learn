@@ -24,8 +24,8 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-birth-stamp-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const { POST } = await import("../src/routes/api/chats/+server.ts");
-const { readSettings, writeSettings } = await import("../src/store/settings.ts");
-const { chatStore } = await import("../src/store/chats.ts");
+const { readSettings, writeSettings } = await import("../src/settings/store.ts");
+const { chatStore } = await import("../src/session/store.ts");
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import type { AuthKeyStatus, ModelCatalogResponse } from "../src/core/index.ts";
+import type { AuthKeyStatus } from "../src/settings/model/auth-keys.ts";
+import type { ModelCatalogResponse } from "../src/settings/model/models.ts";
 import { svgImageSource } from "../src/lib/artifacts/svg.ts";
 import { hasProviderKey, strongKeyless } from "../src/lib/state/keys.ts";
 import { hintText, TOOLTIP_DELAY_MS } from "../src/lib/hint.ts";
@@ -175,7 +176,7 @@ describe("setup stage 1 (static)", () => {
 describe("tooltip composition", () => {
 	it("hintText appends the live binding and uses 500ms", async () => {
 		assert.equal(TOOLTIP_DELAY_MS, 500);
-		const { IS_MAC } = await import("../src/core/keyboard.ts");
+		const { IS_MAC } = await import("../src/settings/model/keyboard.ts");
 		assert.equal(hintText("Dictate", "toggle-dictation"), IS_MAC ? "Dictate (⌘D)" : "Dictate (Ctrl+D)");
 		assert.equal(hintText("Close", undefined, "escape"), "Close (Esc)");
 		assert.equal(hintText("Send", undefined, "enter"), "Send (↵)");

@@ -10,7 +10,8 @@
  * flight (the dock is the source of truth for that); failures are logged
  * by the pipeline and leave coverage untouched — the button stays honest.
  */
-import { extraction, extractionStatuses } from "@/src/server";
+import { services } from "@/src/boot";
+import { extractionStatuses } from "@/src/graph";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request }: RequestEvent) {
@@ -29,7 +30,7 @@ export async function POST({ request }: RequestEvent) {
 	}
 	// Fire-and-forget, like the trigger: the dock + the coverage panel's
 	// running flags track progress; the promise never blocks the response.
-	void extraction.runExtraction(chatId).catch((err: unknown) => {
+	void services().extraction.runExtraction(chatId).catch((err: unknown) => {
 		console.error(`[chat ${chatId}] manual extraction failed:`, err);
 	});
 	return Response.json({ started: true }, { status: 202 });

@@ -16,10 +16,11 @@
  * PUT/DELETE /api/settings/prompts/[...segment].
  */
 
-import { effectivePromptSegments, readSettingsRecord } from "@/src/server";
+import { effectivePromptSegments } from "@/src/session";
+import { readSettings } from "@/src/settings";
 
 export async function GET() {
-	const switches = readSettingsRecord()?.agent?.prompts ?? {};
+	const switches = readSettings()?.agent?.prompts ?? {};
 	return Response.json({
 		prober: effectivePromptSegments("prober", switches),
 		teacher: effectivePromptSegments("teacher", switches),

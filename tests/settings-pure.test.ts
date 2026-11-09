@@ -19,8 +19,9 @@ import {
 	nextOverrides,
 } from "../src/lib/settings/compose.ts";
 import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../src/lib/settings/keys.ts";
-import type { AgentSettings, AuthKeyStatus, ModelsSettings } from "../src/core";
-import { slotsConfigured } from "../src/core";
+import type { AgentSettings, ModelsSettings } from "../src/settings/model/settings.ts";
+import type { AuthKeyStatus } from "../src/settings/model/auth-keys.ts";
+import { slotsConfigured } from "../src/settings/model/settings.ts";
 import { setupStage } from "../src/lib/settings/setup.ts";
 
 describe("resolveAppearance — delta over factory", () => {

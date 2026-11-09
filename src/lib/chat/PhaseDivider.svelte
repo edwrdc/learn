@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Phase3 } from "@/src/core";
+	import type { Phase3 } from "@/src/session/model";
 	let { phase, nodeCount }: { phase: Phase3; nodeCount?: number } = $props();
 	const CHIP_LABEL: Record<Phase3, string> = { probe: "Probing", plan: "Planning", teach: "Teaching" };
 	const label = $derived(phase === "plan" && nodeCount ? `Plan · ${nodeCount} node${nodeCount === 1 ? "" : "s"}` : CHIP_LABEL[phase]);

@@ -59,9 +59,9 @@ process.env.LH_IGNORE_ENV_KEYS = "1";
 
 // Import AFTER env setup — module init runs the boot deletion + fill-gap.
 const { deleteKey, envKeysIgnored, initAuthEnv, keyStatuses, keyValue, saveKey } = await import(
-	"../src/server/keys.ts"
+	"../src/settings/keys.ts"
 );
-const { authStore } = await import("../src/store/auth.ts");
+const { authStore } = await import("../src/settings/auth-store.ts");
 
 after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });

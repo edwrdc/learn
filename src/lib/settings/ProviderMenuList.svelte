@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fuzzyScore } from "@/src/core";
+	import { fuzzyScore } from "@/src/platform/model";
 
 	let {
 		providers,

@@ -17,10 +17,10 @@ import test from "node:test";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-store-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, TMP);
-const { chatStore } = await import("../src/store/chats.ts");
-const { subscribe } = await import("../src/core/events.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
 const {
 	appendEntries,
 	closeChatRuntime,
@@ -30,12 +30,12 @@ const {
 	peekChatRuntime,
 	projectTranscript,
 	readEntries,
-} = await import("../src/store/durable.ts");
+} = await import("../src/session/durable.ts");
 const { newMessageId, newPlanBlockMessage, newUserMessage, toLlmMessages } = await import(
-	"../src/core/native-messages.ts"
+	"../src/session/model/transcript.ts"
 );
-type LhMessage = import("../src/core/native-messages.ts").LhMessage;
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
+type LhMessage = import("../src/session/model/transcript.ts").LhMessage;
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 
 test.after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });
@@ -250,8 +250,8 @@ test("the legacy import queue is process-global: two module copies import once",
 	// Next dev (and any `?route-copy` import) can load chats.ts twice. The
 	// queue and the Harness handle map must be shared, or two simultaneous
 	// first reads both see an empty transcript and append the same messages.
-	const specifier = "../src/store/chats.ts?route-copy=2";
-	const copy = (await import(specifier)) as typeof import("../src/store/chats.ts");
+	const specifier = "../src/session/store.ts?route-copy=2";
+	const copy = (await import(specifier)) as typeof import("../src/session/store.ts");
 	assert.notEqual(copy.chatStore, chatStore, "the second module instance is distinct");
 	const chat = chatStore.createChat("module copies");
 	const legacy = {

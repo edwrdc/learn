@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CustomEndpointConfig, CustomEndpointModel } from "@/src/core";
+	import type { CustomEndpointConfig, CustomEndpointModel } from "@/src/settings/model";
 	import { notifySettingsSaved } from "$lib/state/settings-signal";
 
 	interface EndpointState {

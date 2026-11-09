@@ -11,11 +11,7 @@
  *          silently falling back.
  */
 
-import {
-	customEndpointState,
-	removeCustomEndpoint,
-	saveCustomEndpoint,
-} from "@/src/server";
+import { customEndpointState, removeCustomEndpoint, saveCustomEndpoint } from "@/src/settings";
 import type { RequestEvent } from "./$types";
 
 export async function GET() {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { bindingForAction, formatBinding, KEYBOARD_ACTIONS } from "@/src/core";
+	import { bindingForAction, formatBinding, KEYBOARD_ACTIONS } from "@/src/settings/model";
 	import { backdropDismiss } from "$lib/backdrop";
 	import { cheatSheet } from "$lib/state/dialogs.svelte";
 

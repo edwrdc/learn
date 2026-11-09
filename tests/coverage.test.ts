@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import * as fs from "node:fs";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { newAnswerResult, newPlanBlockMessage, newUserMessage } from "../src/core/native-messages.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { newAnswerResult, newPlanBlockMessage, newUserMessage } from "../src/session/model/transcript.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
 import {
@@ -13,8 +13,8 @@ import {
 	messageFingerprint,
 	messageViewLines,
 	teacherProseBlocks,
-} from "../src/core/coverage.ts";
-import type { CoverageEntry } from "../src/core/contracts/graph.ts";
+} from "../src/graph/coverage.ts";
+import type { CoverageEntry } from "../src/graph/model/types.ts";
 
 /**
  * Extraction coverage — the pure core under the TEACHER-PROSE ruling

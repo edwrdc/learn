@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as zlib from "node:zlib";
-import { providerSafePng } from "../src/agent/subagents/headless.ts";
+import { providerSafePng } from "../src/jobs/headless.ts";
 
 /**
  * The 2026-09-19 visual-maker fix (the "image format is illegal" 400s):

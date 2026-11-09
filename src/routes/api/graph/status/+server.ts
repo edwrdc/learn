@@ -7,7 +7,8 @@
  * per-chunk jobs, owner 2026-09-28). Titles joined from the chat store;
  * a missing chat record still reports the run.
  */
-import { chatStore, extractionStatuses } from "@/src/server";
+import { chatStore } from "@/src/session";
+import { extractionStatuses } from "@/src/graph";
 
 export async function GET() {
 	const runs = await Promise.all(extractionStatuses().map(async (run) => ({

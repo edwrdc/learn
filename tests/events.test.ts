@@ -7,8 +7,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emit, subscribe, type ServerEvent } from "../src/core/events.ts";
-import { eventsResponse } from "../src/server/events-stream.ts";
+import { emit, subscribe, type ServerEvent } from "../src/platform/model/events.ts";
+import { eventsResponse } from "../src/platform/events-stream.ts";
 
 // ─── the bus ────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,8 @@
 /** The background-agents feed's pure fold: jobs + extractions → ordered
  *  blobs, money/context doctrine included. */
-import { isModelsRefusal, isProviderKeyRefusal, jobCost, type JobKind, type JobRecord, type CallUsage } from "@/src/core";
+import { isModelsRefusal, isProviderKeyRefusal } from "@/src/settings/model";
+import { jobCost, type CallUsage } from "@/src/session/model";
+import { type JobKind, type JobRecord } from "@/src/jobs/model";
 
 interface FeedUsage extends NonNullable<JobRecord["usage"]> {
 	lastStep?: CallUsage;

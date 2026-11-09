@@ -2,12 +2,7 @@
  *  cycles thinking, Escape falls back to dictation-cancel then abort, and
  *  registry actions dispatch or navigate. */
 import { goto } from "$app/navigation";
-import {
-	actionForBinding,
-	eventBinding,
-	isTypingSurface,
-	kbdEventForAction,
-} from "@/src/core";
+import { actionForBinding, eventBinding, isTypingSurface, kbdEventForAction } from "@/src/settings/model";
 import { cheatSheet, settingsDialog } from "./dialogs.svelte";
 import { cancelDictation, dictationActive } from "$lib/chat/dictation.svelte";
 

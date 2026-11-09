@@ -1,25 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	activeCompactionOf,
-	calculateContextTokens,
-	estimateContextTokens,
-	estimateMessageTokens,
-	buildCompactionPrompt,
-	compactionCutIndex,
-	estimateTokens,
-	keptIndexFor,
-	newCompactionMarker,
-	newUserMessage,
-	planTreeToText,
-	serializeForSummary,
-	toLlmMessages,
-	COMPACTED_HISTORY_HEADER,
-	type LhMessage,
-	type LhMarkerMessage,
-} from "../src/core/index.ts";
+import { activeCompactionOf, calculateContextTokens, estimateContextTokens, estimateMessageTokens, buildCompactionPrompt, compactionCutIndex, estimateTokens, keptIndexFor, newCompactionMarker, planTreeToText, serializeForSummary } from "../src/session/model/compaction.ts";
+import { newUserMessage, toLlmMessages, type LhMessage, type LhMarkerMessage } from "../src/session/model/transcript.ts";
+import { COMPACTED_HISTORY_HEADER } from "../src/session/model/types.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { projectView } from "../src/core/view.ts";
+import { projectView } from "../src/session/model/view.ts";
 
 /**
  * COMPACTION (owner round 14, 2026-10-05) — the pure core: the cut walk,

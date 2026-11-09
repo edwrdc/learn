@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp, Search, X } from "@lucide/svelte";
-	import { kbdEventForAction, stepSessionMatch } from "@/src/core";
+	import { kbdEventForAction } from "@/src/settings/model";
+import { stepSessionMatch } from "@/src/session/model";
 	import {
 		sameSessionRange,
 		sessionFindRanges,

@@ -14,21 +14,7 @@
  */
 
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import {
-	needsContinuation,
-	newAnswerResult,
-	newNextMessage,
-	newProblemDismissedMarker,
-	newThinkingMessage,
-	newUserMessage,
-	projectView,
-	type ChatInput,
-	type LhMarkerMessage,
-	type LhMessage,
-	type LhViewMessage,
-	type LiveExecution,
-	type QuestionAnswerData,
-} from "@/src/core";
+import { needsContinuation, newAnswerResult, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, projectView, type ChatInput, type LhMarkerMessage, type LhMessage, type LhViewMessage, type LiveExecution, type QuestionAnswerData } from "@/src/session/model";
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
 

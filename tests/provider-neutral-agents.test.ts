@@ -16,13 +16,13 @@ import {
 	type JsonObject, type TranscriptContext, type Usage,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/agent/models.ts";
-import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
-import { runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
-import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
-import { AUTH_PROVIDER_KEYS } from "../src/core/auth-keys.ts";
-import { providerEventsDir } from "../src/agent/provider-events.ts";
-import type * as appContracts from "../src/core/contracts.ts";
+import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/platform/engines.ts";
+import { runVisualMaker } from "../src/jobs/roles/visual.ts";
+import { runPdfReaderAgent } from "../src/jobs/roles/pdf.ts";
+import type { HeadlessApi } from "../src/jobs/headless.ts";
+import { AUTH_PROVIDER_KEYS } from "../src/settings/model/auth-keys.ts";
+import { providerEventsDir } from "../src/platform/provider-events.ts";
+import type * as appContracts from "../src/jobs/model/types.ts";
 
 const OR_KEY = "dummy-openrouter-MUST-NOT-REACH-other-endpoints";
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><rect width="20" height="20" fill="white"/></svg>';

@@ -8,7 +8,8 @@
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { watchSettings } from "$lib/state/settings-signal";
 	import { composeSlotModel, defaultOrderLevel, populateLevel, THINKING_LABEL } from "$lib/settings/compose";
-	import type { ChatSettings, ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } from "@/src/core";
+	import type { ChatSettings } from "@/src/session/model";
+import type { ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
 	let { chatId }: { chatId?: string } = $props();

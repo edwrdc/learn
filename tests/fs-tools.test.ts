@@ -5,12 +5,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 
-import type { AppTool } from "../src/agent/tool-adapter.ts";
-import { expandBraces, globToRegex, matchGlob, walkFiles } from "../src/agent/tools/fs-shared.ts";
-import { findTool } from "../src/agent/tools/find.ts";
-import { grepTool } from "../src/agent/tools/grep.ts";
-import { lsTool } from "../src/agent/tools/ls.ts";
-import { readTool } from "../src/agent/tools/read.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
+import { expandBraces, globToRegex, matchGlob, walkFiles } from "../src/tools/fs/shared.ts";
+import { findTool } from "../src/tools/fs/find.ts";
+import { grepTool } from "../src/tools/fs/grep.ts";
+import { lsTool } from "../src/tools/fs/ls.ts";
+import { readTool } from "../src/tools/fs/read.ts";
 
 /**
  * The learner-filesystem tools (sources v1, 2026-09-19): ls/find/grep as

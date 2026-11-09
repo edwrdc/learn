@@ -6,9 +6,9 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createGraphSimulation, incrementalLayout, inferenceDepths } from "../src/core/layout.ts";
-import { settleGraphLayout } from "../src/core/layout-settle.ts";
-import type { GraphChain, GraphNode, Position } from "../src/core/contracts.ts";
+import { createGraphSimulation, incrementalLayout, inferenceDepths } from "../src/graph/model/layout.ts";
+import { settleGraphLayout } from "../src/graph/layout-settle.ts";
+import type { GraphChain, GraphNode, Position } from "../src/graph/model/types.ts";
 
 const node = (id: string): GraphNode => ({
 	id,

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { untrack } from "svelte";
-	import { type AuthKeyStatus } from "@/src/core";
+	import { type AuthKeyStatus } from "@/src/settings/model";
 	import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "./keys";
 	import { notifySettingsSaved } from "$lib/state/settings-signal";
 	import MenuShell from "$lib/ui/MenuShell.svelte";

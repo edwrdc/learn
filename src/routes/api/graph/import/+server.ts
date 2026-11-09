@@ -13,13 +13,10 @@
  * healthy. The dock's chips + graph refetch track progress live through
  * /api/graph/status, as with session runs.
  */
-import { extraction, NotesImportError } from "@/src/server";
-import {
-	ModelsNotConfiguredError,
-	PROVIDER_KEY_MISSING_CODE,
-	ProviderKeyMissingError,
-	type EmissionStats,
-} from "@/src/core";
+import { services } from "@/src/boot";
+import { NotesImportError } from "@/src/graph";
+import { ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError } from "@/src/settings/model";
+import { type EmissionStats } from "@/src/graph/model";
 import type { RequestEvent } from "./$types";
 
 interface ImportResult {
@@ -55,7 +52,7 @@ export async function POST({ request }: RequestEvent) {
 			const { file, requestIndex } = next;
 			try {
 				const text = await file.text();
-				const stats = await extraction.importNotes({ filePath: file.name, text });
+				const stats = await services().extraction.importNotes({ filePath: file.name, text });
 				results.push({ filePath: file.name, requestIndex, outcome: "completed", ok: true, stats });
 			} catch (err) {
 				if (err instanceof ModelsNotConfiguredError) {

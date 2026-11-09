@@ -28,26 +28,27 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-roles-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
 const {
 	BackgroundRunDoc,
 	BackgroundRunsDoc,
 	configureBackgroundRuns,
-} = await import("../src/server/durable-background.ts");
-type RunDescriptor = import("../src/agent/subagents/durable-run.ts").RunDescriptor;
-type BackgroundRunState = import("../src/agent/subagents/durable-run.ts").RunState;
-const { runDemoBuilder } = await import("../src/agent/subagents/demo-builder.ts");
-const { runVisualMaker } = await import("../src/agent/subagents/visual-maker.ts");
-const { runPdfReaderAgent } = await import("../src/agent/subagents/pdf-reader.ts");
-const { runSubmitAgent } = await import("../src/agent/subagents/submit-agent.ts");
-const { subagentSummarizer } = await import("../src/server/compaction.ts");
-const { headlessOverride } = await import("../src/agent/subagents/headless.ts");
+} = await import("../src/jobs/runtime.ts");
+type RunDescriptor = import("../src/jobs/durable-run.ts").RunDescriptor;
+type BackgroundRunState = import("../src/jobs/durable-run.ts").RunState;
+const { runDemoBuilder } = await import("../src/jobs/roles/demo.ts");
+const { runVisualMaker } = await import("../src/jobs/roles/visual.ts");
+const { runPdfReaderAgent } = await import("../src/jobs/roles/pdf.ts");
+const { runSubmitAgent } = await import("../src/graph/extraction/submit-agent.ts");
+const { subagentSummarizer } = await import("../src/session/compaction.ts");
+const { headlessOverride } = await import("../src/jobs/headless.ts");
 // The composition root wires the durable run/retire seams at module init.
-await import("../src/server/chat-handler.ts");
-type PiEngine = import("../src/agent/models.ts").PiEngine;
-type HeadlessApi = import("../src/agent/subagents/headless.ts").HeadlessApi;
-type DemoRunResult = import("../src/agent/subagents/headless.ts").DemoRunResult;
+await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+type PiEngine = import("../src/platform/engines.ts").PiEngine;
+type HeadlessApi = import("../src/jobs/headless.ts").HeadlessApi;
+type DemoRunResult = import("../src/jobs/headless.ts").DemoRunResult;
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
 const CLEAN: DemoRunResult = { consoleErrors: [], pageErrors: [], failedRequests: [], ok: true };
@@ -315,7 +316,7 @@ describe("durable role restart (real close, fresh open)", () => {
 			fauxAssistantMessage([fauxToolCall("submit_findings", FINDINGS, { id: "s1" })], { stopReason: "toolUse" }),
 		]);
 		configureBackgroundRuns({ resolveEngine: () => engine, searchProvider: () => null, headless: () => headless });
-		const { runBackgroundConversation } = await import("../src/server/durable-background.ts");
+		const { runBackgroundConversation } = await import("../src/jobs/runtime.ts");
 		const outcome = await runBackgroundConversation({
 			jobId: "extract-capture",
 			chatId: chat.id,
@@ -375,7 +376,7 @@ describe("durable role caps and concurrency", () => {
 		const chat = await chatStore.createChat("Durable: concurrent roles");
 		const headless = fakeHeadless();
 		headlessOverride.current = headless;
-		const { runBackgroundConversation } = await import("../src/server/durable-background.ts");
+		const { runBackgroundConversation } = await import("../src/jobs/runtime.ts");
 		const research = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_search", { query: "router isolation" }, { id: "ws1" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Research brief")]),
@@ -446,7 +447,7 @@ describe("durable role caps and concurrency", () => {
 
 describe("durable role state shape", () => {
 	it("every kind seeds the discriminated state union", async () => {
-		const { initialState } = await import("../src/agent/subagents/durable-run.ts");
+		const { initialState } = await import("../src/jobs/durable-run.ts");
 		const kinds: BackgroundRunState["kind"][] = ["research", "demo", "visual", "pdf", "extract", "audit", "compact"];
 		for (const kind of kinds) assert.equal(initialState(kind).kind, kind);
 	});

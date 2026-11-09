@@ -1,28 +1,7 @@
 <script lang="ts">
 	import { ArrowDown, ChevronRight, Play } from "@lucide/svelte";
-	import {
-		buildAnswer,
-		CONFIDENCE_STOPS,
-		DEFAULT_CONFIDENCE_INDEX,
-		emptyDockSelection,
-		normalizeOptions,
-		normalizeQuizType,
-		parseAskInput,
-		parseExplainInput,
-		parseQuizInput,
-		repairMathForDisplay,
-		resolveCorrect,
-		seededRandom,
-		shuffleOptions,
-		toggleOption,
-		toggleOther,
-		toolQuestionKind,
-		type AnswerRequest,
-		type DockSelection,
-		type Phase3,
-		type QuestionAnswerData,
-		type QuestionData,
-	} from "@/src/core";
+	import { buildAnswer, CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, emptyDockSelection, normalizeOptions, normalizeQuizType, parseAskInput, parseExplainInput, parseQuizInput, resolveCorrect, seededRandom, shuffleOptions, toggleOption, toggleOther, toolQuestionKind, type AnswerRequest, type DockSelection, type Phase3, type QuestionAnswerData, type QuestionData } from "@/src/session/model";
+import { repairMathForDisplay } from "@/src/tools/model";
 	import { CONFIDENCE_COLORS, confidenceRailStyle } from "./confidence";
 	import { enterSubmits } from "./enter-submits";
 	import CodeInput from "./CodeInput.svelte";

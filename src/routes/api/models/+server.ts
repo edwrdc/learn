@@ -1,4 +1,4 @@
-import { modelCatalog } from "@/src/server";
+import { modelCatalog } from "@/src/settings";
 
 /**
  * The model picker's data (model-control wave): pi-ai's configured-provider

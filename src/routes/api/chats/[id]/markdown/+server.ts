@@ -10,8 +10,8 @@
  * the same engine (problem/conclude results render as tool blocks,
  * markers are invisible by the engine's law).
  */
-import { sessionMarkdown } from "@/src/core";
-import { getChat } from "@/src/server";
+import { sessionMarkdown } from "@/src/session/model";
+import { getChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 /** Filename-safe title (own module scope on purpose: tiny + pure). */

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from "svelte";
-	import type { ChatDeleteMode, ChatListItem } from "@/src/core";
+	import type { ChatDeleteMode } from "@/src/graph/model";
+import type { ChatListItem } from "@/src/session/model";
 	import { backdropDismiss } from "$lib/backdrop";
 
 	let {

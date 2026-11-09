@@ -10,7 +10,7 @@
  * Scope (user-decided): the graph pipeline ONLY — teaching turns and
  * sub-agent jobs have their own cost channels elsewhere.
  */
-import { graphCosts } from "@/src/server";
+import { graphCosts } from "@/src/graph";
 
 export async function GET() {
 	return Response.json(await graphCosts());

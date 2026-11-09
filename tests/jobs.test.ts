@@ -29,26 +29,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
-import {
-	accumulateJobUsage,
-	buildAbortSteer,
-	buildSubagentSteer,
-	isSubagentFailure,
-	steerDelivered,
-	type DemoResult,
-	type JobUsage,
-	type PdfResult,
-	type ResearchResult,
-	type SubagentArtifactData,
-	type SteerMessage,
-	type VisualResult,
-	buildProbeHandoffSteer,
-} from "../src/core/contracts.ts";
-import { composeInstructions } from "../src/agent/teacher-agent.ts";
-import { createTeacherTools } from "../src/agent/tools.ts";
-import { webTools } from "../src/agent/tools/web.ts";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { runningTurn } from "../src/server/turn-runs.ts";
+import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isSubagentFailure, steerDelivered, type DemoResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult, buildProbeHandoffSteer } from "../src/jobs/model/types.ts";
+import { composeInstructions } from "../src/session/agents.ts";
+import { createTeacherTools } from "../src/session/tools/registry.ts";
+import { webTools } from "../src/tools/web/web.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { runningTurn } from "../src/session/turn-runs.ts";
 import {
 	abortJob,
 	deliverJobResult,
@@ -58,21 +45,21 @@ import {
 	setTurnRunner,
 	settleSteers,
 	steerLiveChat,
-} from "../src/server/jobs.ts";
-import { registerJobAbort, unregisterJobAbort } from "../src/agent/subagents/aborts.ts";
-import { beginTurn, endTurn } from "../src/server/turn-liveness.ts";
-import { answerWrite, applyAnswer } from "../src/server/turn-service.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src/agent/subagents/runner.ts";
-import { providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { SearchProvider } from "../src/core/search.ts";
-import { PATHS } from "../config.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import { subscribe } from "../src/core/events.ts";
-import { danglingQuestionOf, type LhMessage } from "../src/core/native-messages.ts";
-import type { SteerInput, TurnInput } from "../src/core/input-events.ts";
+} from "../src/jobs/wake.ts";
+import { registerJobAbort, unregisterJobAbort } from "../src/jobs/aborts.ts";
+import { beginTurn, endTurn } from "../src/session/turn-liveness.ts";
+import { answerWrite, applyAnswer } from "../src/session/turn-service.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { createJobRunner, pdfModelOverride, researchModelOverride } from "../src/jobs/runner.ts";
+import { providerKeyMissing, type ModelSlotName } from "../src/settings/model/settings.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { SearchProvider } from "../src/tools/model/search.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import { subscribe } from "../src/platform/model/events.ts";
+import { danglingQuestionOf, type LhMessage } from "../src/session/model/transcript.ts";
+import type { SteerInput, TurnInput } from "../src/session/model/input-events.ts";
 
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 
@@ -840,7 +827,7 @@ describe("researcher agent", () => {
 	});
 
 	it("the pdf-reader declares exactly the four skill tools (sources v0)", async () => {
-		const { pdfRoleTools } = await import("../src/agent/subagents/pdf-reader.ts");
+		const { pdfRoleTools } = await import("../src/jobs/roles/pdf.ts");
 		const state = { kind: "pdf", consulted: [], read: [], pendingRender: null } as const;
 		const tools = pdfRoleTools(
 			{ read: async () => ({ ...state, consulted: [], read: [] }), update: async () => undefined },
@@ -1145,10 +1132,10 @@ describe("prompt composition", () => {
 		assert.ok(!instructions.includes("Prompt fragments"), "README content must not leak");
 		assert.ok(!instructions.includes("Rules for adding a fragment"), "README content must not leak (rules)");
 		// every numeric fragment DOES compose, verbatim, after the base prompt
-		const base = fs.readFileSync("src/agent/system-prompt.md", "utf-8").trim();
+		const base = fs.readFileSync("src/session/system-prompt.md", "utf-8").trim();
 		assert.ok(instructions.startsWith(base), "base prompt first");
-		for (const f of fs.readdirSync("src/agent/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f)).sort()) {
-			const body = fs.readFileSync(`src/agent/prompts/${f}`, "utf-8").trim();
+		for (const f of fs.readdirSync("src/session/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f)).sort()) {
+			const body = fs.readFileSync(`src/session/prompts/${f}`, "utf-8").trim();
 			assert.ok(instructions.includes(body), `fragment ${f} must compose verbatim`);
 		}
 	});
@@ -1230,8 +1217,8 @@ describe("prompt composition", () => {
 		// catches the sibling failure mode — an accidental dump pasted into a
 		// fragment. Thresholds: largest real fragment is 40-demos.md at ~3.2k
 		// chars; 8k is generous headroom. Composed total ≤ 60k chars.
-		for (const f of fs.readdirSync("src/agent/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
-			const body = fs.readFileSync(`src/agent/prompts/${f}`, "utf-8").trim();
+		for (const f of fs.readdirSync("src/session/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
+			const body = fs.readFileSync(`src/session/prompts/${f}`, "utf-8").trim();
 			assert.ok(body.length <= 8_000, `fragment ${f} is ${body.length} chars — over the 8k guard`);
 		}
 		assert.ok(composeInstructions("teacher").length <= 60_000, "composed system prompt over the 60k guard");

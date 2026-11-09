@@ -1,4 +1,4 @@
-import type { ModelSlotName } from "@/src/core";
+import type { ModelSlotName } from "@/src/settings/model";
 
 export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
 

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	firstSourceTextParts, messageAnchorId, messageIdFromHash, propositionSessionHref, textPartMessageId,
-} from "../src/core/session-navigation.ts";
-import { projectView } from "../src/core/view.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+} from "../src/session/model/navigation.ts";
+import { projectView } from "../src/session/model/view.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 function teacher(id: string, content: unknown[]): LhMessage {
 	return { id, role: "assistant", content, stopReason: "stop", timestamp: 0, provider: "openrouter", model: "test" } as LhMessage;

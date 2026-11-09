@@ -23,20 +23,20 @@ import { setImmediate } from "node:timers/promises";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, TMP_DATA, "compaction tests use the isolated data directory");
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const {
 	ensureCompacted,
 	kickCompaction,
 	awaitCompaction,
 	effectiveThresholdTokens,
 	projectedContextTokens,
-} = await import("../src/server/compaction.ts");
-import type { CompactionDeps } from "../src/server/compaction.ts";
-const { subscribe } = await import("../src/core/events.ts");
-const { activeCompactionOf, newUserMessage, COMPACTED_HISTORY_HEADER } = await import("../src/core/index.ts");
-import type { LhMessage } from "../src/core/index.ts";
+} = await import("../src/session/compaction.ts");
+import type { CompactionDeps } from "../src/session/compaction.ts";
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { activeCompactionOf, newUserMessage, COMPACTED_HISTORY_HEADER } = await Promise.all([import("../src/session/model/compaction.ts"), import("../src/session/model/transcript.ts"), import("../src/session/model/types.ts")]).then((ms) => Object.assign({}, ...ms));
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

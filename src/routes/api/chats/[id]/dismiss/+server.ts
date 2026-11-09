@@ -19,8 +19,9 @@
  * ESC-discard now doubles as the turn abort's bookkeeper (the client
  * fires both).
  */
-import { ChatInputError, parseDismissInput } from "@/src/core";
-import { getChat, isTurnRunning, parkDismissal, stores, writeDismissal } from "@/src/server";
+import { ChatInputError, parseDismissInput } from "@/src/session/model";
+import { getChat, isTurnRunning, parkDismissal, writeDismissal } from "@/src/session";
+import { stores } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req, params }: RequestEvent): Promise<Response> {

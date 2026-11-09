@@ -12,16 +12,16 @@ import {
 	toModelDto,
 	validateChatSettings,
 	validateModelsSettings,
-} from "../src/server/model-catalog.ts";
-import type { EffectiveSlot } from "../src/core/settings-resolution.ts";
-import type { SettingsValidation } from "../src/server/model-catalog.ts";
+} from "../src/settings/model-catalog.ts";
+import type { EffectiveSlot } from "../src/settings/model/resolution.ts";
+import type { SettingsValidation } from "../src/settings/model-catalog.ts";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { DEFAULT_THINKING_ORDER } from "../src/core/settings.ts";
-import { piEngineForSpec, piModels } from "../src/agent/models.ts";
-import { BACKGROUND_MODEL_ROLES } from "../src/core/settings.ts";
-import { resolveSettings } from "../src/core/settings-resolution.ts";
-import { readSettings } from "../src/store/settings.ts";
-import { effectiveSettings } from "../src/server/stores.ts";
+import { DEFAULT_THINKING_ORDER } from "../src/settings/model/settings.ts";
+import { piEngineForSpec, piModels } from "../src/platform/engines.ts";
+import { BACKGROUND_MODEL_ROLES } from "../src/settings/model/settings.ts";
+import { resolveSettings } from "../src/settings/model/resolution.ts";
+import { readSettings } from "../src/settings/store.ts";
+import { effectiveSettings } from "../src/stores.ts";
 
 // The model-control wave (2026-09-12): pi-ai owns the registry — these pins
 // hold our projection + validation honest against the shipped catalog, and
@@ -324,7 +324,7 @@ describe("pi thinking truth (pinned against pi-ai upgrades)", () => {
 	});
 
 	it("the legacy piEngineFor role entry point throws honestly (BYOK: no pins)", async () => {
-		const { piEngineFor } = await import("../src/agent/models.ts");
+		const { piEngineFor } = await import("../src/platform/engines.ts");
 		assert.throws(() => piEngineFor("prober"), /no configured model for role "prober"/);
 	});
 });

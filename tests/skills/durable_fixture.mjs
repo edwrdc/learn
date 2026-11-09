@@ -25,8 +25,8 @@ if (!dataDir || !chatId || !["build", "wal"].includes(mode)) {
 process.env.LH_DATA_DIR = path.resolve(dataDir);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const store = await import(path.join(here, "../../src/store/durable.ts"));
-const native = await import(path.join(here, "../../src/core/native-messages.ts"));
+const store = await import(path.join(here, "../../src/session/durable.ts"));
+const native = await import(path.join(here, "../../src/session/model/transcript.ts"));
 const { appendEntries, closeChatRuntime, draftForMessage, editDraftFor, openChatRuntime, projectEntries, readEntries } = store;
 const { newAnswerResult } = native;
 

@@ -29,20 +29,11 @@
  * lands here.
  */
 
-import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
-import {
-	SETTINGS_SECTIONS,
-	allSegmentPaths,
-	clampChatLevel,
-	clampModelsLevels,
-	effectiveSettings,
-	promptOverrides,
-	readSettingsRecord,
-	validateChatSettings,
-	validateModelsSettings,
-	writeSettingsRecord,
-	type SettingsBodyResult,
-} from "@/src/server";
+import type { AgentSettings, ModelsSettings } from "@/src/settings/model";
+import type { ChatSettings } from "@/src/session/model";
+import { SETTINGS_SECTIONS, clampChatLevel, clampModelsLevels, promptOverrides, readSettings, validateChatSettings, validateModelsSettings, writeSettings, type SettingsBodyResult } from "@/src/settings";
+import { allSegmentPaths } from "@/src/session";
+import { effectiveSettings } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 /** One parser, result type erased to the common envelope. */
@@ -123,8 +114,8 @@ export async function PUT({ request, params }: RequestEvent) {
 
 	// Read-modify-write ONE section of the record; everything else rides
 	// along untouched (other sections, unknown keys — sanitize preserves).
-	const record = readSettingsRecord() ?? { version: 1 };
+	const record = readSettings() ?? { version: 1 };
 	const next = { ...record, [section]: sectionOut };
-	writeSettingsRecord(next);
+	writeSettings(next);
 	return Response.json({ settings: next });
 }

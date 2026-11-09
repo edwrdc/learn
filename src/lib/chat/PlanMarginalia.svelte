@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { derivedNodeStatus, derivePlanStatuses, type PlanNodeStatus } from "@/src/core";
+	import { derivedNodeStatus, derivePlanStatuses, type PlanNodeStatus } from "@/src/session/model";
 	import PlanDiagram from "./PlanDiagram.svelte";
 	import { GRAPH_PAD, latestTree, TEXT_CAP_SCALE, type PopupMessage } from "./plan-layout";
 

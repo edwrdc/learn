@@ -1,5 +1,5 @@
 /** The sidebar row's meta line: one fact, the most useful one. */
-import type { ChatListItem } from "@/src/core";
+import type { ChatListItem } from "@/src/session/model";
 import { timeAgo } from "$lib/format";
 
 export function sessionMeta(chat: ChatListItem, now?: Date): string {

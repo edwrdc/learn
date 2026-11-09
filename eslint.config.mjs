@@ -4,55 +4,60 @@ import importPlugin from "eslint-plugin-import";
 import svelteParser from "svelte-eslint-parser";
 
 /**
- * ESLint with one job here: ENFORCE THE IMPORT LAW (the shell/core
- * architecture, docs/architecture.md). Everything else stays out of the
- * way — this is not a style linter.
+ * ESLint with one job here: enforce the import rules between feature
+ * folders. Everything else stays out of the way.
  *
- *   src/core/**    →  never imports src/agent, src/server, src/store (pure
- *                    core: adapters implement core/ports.ts, never the reverse)
- *   src/agent/**   →  never imports src/server, src/store (dependencies —
- *                    the storage ports, the composition — arrive via
- *                    factories/closures from the chat-handler)
+ *   src/<feature>/model/**  pure, browser-safe code: imports only other
+ *                           features' model/ folders (and npm packages)
+ *   src/<feature>/**        imports another feature only through its
+ *                           index.ts or model/index.ts
+ *   src/lib/**              imports only its own subtree and model/index.ts
+ *   src/routes/**           imports lib, model/index.ts and feature index.ts
  *
- * tests/ and scripts/ are internal — unrestricted.
+ * tests/, scripts/ and electron/ are unrestricted.
  */
 
+const FEATURES = ["platform", "tools", "settings", "graph", "jobs", "session"];
+const modelIndexes = FEATURES.map((f) => `./${f}/model/index.ts`);
+const featureIndexes = FEATURES.map((f) => `./${f}/index.ts`);
+
 const zones = [
+	...FEATURES.map((f) => ({
+		target: `./src/${f}/model`,
+		from: "./src",
+		except: FEATURES.map((g) => `./${g}/model`),
+		message: "model/ folders are pure: they import only other model/ folders.",
+	})),
+	...FEATURES.flatMap((f) =>
+		FEATURES.filter((g) => g !== f).map((g) => ({
+			target: `./src/${f}`,
+			from: `./src/${g}`,
+			except: ["./index.ts", "./model/index.ts"],
+			message: `src/${f} imports src/${g} only through its index.ts or model/index.ts.`,
+		})),
+	),
+	...FEATURES.map((f) => ({
+		target: `./src/${f}`,
+		from: ["./src/lib", "./src/routes"],
+		message: "Feature code never imports the UI or the routes.",
+	})),
 	{
 		target: "./src/lib",
 		from: "./src",
-		// NOTE: exceptions resolve relative to `from` — its own subtree and the
-		// one public core module; every other src file is forbidden.
-		except: ["./lib", "./core/index.ts"],
-		message:
-			"Browser shell imports ONLY its own subtree and the pure core barrel: `from \"@/src/core\"` (architecture: docs/architecture.md).",
+		except: ["./lib", ...modelIndexes],
+		message: "The UI imports only its own subtree and the features' model/index.ts.",
+	},
+	{
+		target: "./src/routes/**/*.svelte",
+		from: "./src",
+		except: ["./routes", "./lib", ...modelIndexes],
+		message: "Client route components import only lib and the features' model/index.ts.",
 	},
 	{
 		target: "./src/routes",
 		from: "./src",
-		except: ["./routes", "./lib", "./core/index.ts", "./server/index.ts"],
-		message:
-			"src/routes (transport + server loads) imports ONLY its own subtree, `$lib`, and the barrels: `@/src/core` and `@/src/server` (architecture: docs/architecture.md).",
-	},
-	{
-		// Client route components may never reach the server layer, even
-		// through the barrel: only +page.server.ts / +server.ts own transport.
-		target: "./src/routes/**/*.svelte",
-		from: "./src/server",
-		message:
-			"Client route components never import the server layer; server data arrives through +page.server.ts (architecture: docs/architecture.md).",
-	},
-	{
-		target: "./src/core",
-		from: ["./src/agent", "./src/server", "./src/store"],
-		message:
-			"Pure core never imports IO layers (agent/server/store): adapters implement core/ports.ts, and the composition root (src/server/stores.ts) passes them in (architecture: docs/architecture.md).",
-	},
-	{
-		target: "./src/agent",
-		from: ["./src/server", "./src/store"],
-		message:
-			"The agent layer receives its dependencies (storage ports via factories/closures) — it never imports the server layer or store adapters (architecture: docs/architecture.md).",
+		except: ["./routes", "./lib", "./stores.ts", "./boot.ts", ...modelIndexes, ...featureIndexes],
+		message: "Routes import lib, model/index.ts and the features' index.ts.",
 	},
 ];
 

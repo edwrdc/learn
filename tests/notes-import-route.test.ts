@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import { after, it } from "node:test";
 import { POST } from "../src/routes/api/graph/import/+server.ts";
 import { routeEvent } from "./support-route-event.ts";
-import { extraction } from "../src/server/index.ts";
-import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../src/core/settings.ts";
-import { createExtractionPipeline, NotesImportError } from "../src/agent/subagents/extraction.ts";
+import { boot } from "../src/boot.ts";
+
+const { extraction } = boot();
+import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../src/settings/model/settings.ts";
+import { createExtractionPipeline, NotesImportError } from "../src/graph/extraction/pipeline.ts";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { stores } from "../src/server/stores.ts";
-import type { GraphStore } from "../src/core/ports.ts";
-import type { GraphNode, GraphChain, NotesSource, SessionCheckpoint } from "../src/core/contracts.ts";
+import { stores } from "../src/stores.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
+import type { GraphNode, GraphChain, NotesSource, SessionCheckpoint } from "../src/graph/model/types.ts";
 
 const original = extraction.importNotes;
 after(() => { extraction.importNotes = original; });

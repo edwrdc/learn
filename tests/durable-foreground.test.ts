@@ -23,14 +23,14 @@ import {
 import { Type } from "typebox";
 import { defineExtension, defineTool, type LiveState } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { runningTurn, settledTurnResponse, abortTurn } from "../src/server/turn-runs.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { appendRunUsage } from "../src/server/turn-service.ts";
-import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/server/jobs.ts";
-import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from "../src/core/contracts.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import { runningTurn, settledTurnResponse, abortTurn } from "../src/session/turn-runs.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { appendRunUsage } from "../src/session/turn-service.ts";
+import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/jobs/wake.ts";
+import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from "../src/jobs/model/types.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
 import {
 	CONTINUATION_KIND,
 	appendEntries,
@@ -39,22 +39,22 @@ import {
 	durableDir,
 	openChatRuntime,
 	readEntries,
-} from "../src/store/durable.ts";
+} from "../src/session/durable.ts";
 import {
 	continuationSignature,
 	danglingQuestionOf,
 	needsContinuation,
-} from "../src/core/native-messages.ts";
-import { prepareConversation } from "../src/server/durable-registry.ts";
-import { effectiveSettings, stores } from "../src/server/stores.ts";
+} from "../src/session/model/transcript.ts";
+import { prepareConversation } from "../src/session/durable-registry.ts";
+import { effectiveSettings, stores } from "../src/stores.ts";
 import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+server.ts";
-import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
-import { projectView } from "../src/core/view.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { providerEventsDir } from "../src/agent/provider-events.ts";
-import { PATHS } from "../config.ts";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { AppTool } from "../src/agent/tool-adapter.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { projectView } from "../src/session/model/view.ts";
+import { bareQuestionTools } from "../src/session/agents.ts";
+import { providerEventsDir } from "../src/platform/provider-events.ts";
+import { PATHS } from "../src/platform/config.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -322,7 +322,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		const sibling = results.find((m) => (m as { toolCallId?: string }).toolCallId === "call-x") as { isError?: boolean };
 		assert.equal(quiz.isError, false, "the clean question stands");
 		assert.equal(sibling.isError, true, "the unoffered sibling keeps its error");
-		const entries = await readEntries(await import("../src/store/durable.ts").then((m) => m.openChatRuntime(chat.id)));
+		const entries = await readEntries(await import("../src/session/durable.ts").then((m) => m.openChatRuntime(chat.id)));
 		const assistantEntries = entries.filter((e) => (e.model?.[0] as { role?: string } | undefined)?.role === "assistant");
 		assert.equal(assistantEntries.length, 1, "the run ended at the question — no retry request");
 	});

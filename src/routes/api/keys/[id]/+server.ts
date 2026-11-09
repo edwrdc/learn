@@ -15,8 +15,8 @@
  * MODEL-PROVIDER env vars (provider-keys interlude); anything else is 404
  * — unknown file vars are preserved, not editable.
  */
-import { isWritableAuthKey } from "@/src/server";
-import { deleteKey, saveKey } from "@/src/server";
+import { isWritableAuthKey } from "@/src/settings";
+import { deleteKey, saveKey } from "@/src/settings";
 import type { RequestEvent } from "./$types";
 
 export async function PUT({ request: req, params }: RequestEvent) {

@@ -26,28 +26,28 @@ import {
 	fauxToolCall,
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
-import { createTeacherTools } from "../src/agent/tools.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { handleChatInput, handleChatRequest } from "../src/server/chat-handler.ts";
-import { effectiveSettings, stores } from "../src/server/stores.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { deliverJobResult, setTurnRunner } from "../src/server/jobs.ts";
-import { buildSubagentSteer } from "../src/core/contracts.ts";
-import { abortTurn, runningTurn, settledTurnResponse } from "../src/server/turn-runs.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { buildAnswer, dismissedAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
-import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult } from "../src/core/native-messages.ts";
-import { projectView } from "../src/core/view.ts";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import { createTeacherTools } from "../src/session/tools/registry.ts";
+import { bareQuestionTools } from "../src/session/agents.ts";
+import { handleChatInput, handleChatRequest } from "../src/session/turn.ts";
+import { effectiveSettings, stores } from "../src/stores.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { deliverJobResult, setTurnRunner } from "../src/jobs/wake.ts";
+import { buildSubagentSteer } from "../src/jobs/model/types.ts";
+import { abortTurn, runningTurn, settledTurnResponse } from "../src/session/turn-runs.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { buildAnswer, dismissedAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult } from "../src/session/model/transcript.ts";
+import { projectView } from "../src/session/model/view.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
 // store imports already resolved under).
 const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 const steerRoute = await import("../src/routes/api/chats/[id]/steer/+server.ts");
-import { PATHS } from "../config.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
 // turns pin openrouter per chat — the gate reads env-first truth, so the

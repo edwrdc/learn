@@ -6,7 +6,7 @@ import { untrack } from "svelte";
 	import { strongKeyless } from "$lib/state/keys";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { CornerDownLeft, Dumbbell } from "@lucide/svelte";
-	import type { TurnUsage } from "@/src/core";
+	import type { TurnUsage } from "@/src/session/model";
 	import { DictationController, joinDictation } from "$lib/chat/dictation.svelte";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
 	import StatsBar from "$lib/chat/StatsBar.svelte";

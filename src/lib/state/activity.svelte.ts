@@ -1,6 +1,6 @@
 /** The background-agents feed: one GET /api/activity, refetched on
  *  activity/jobs announcements (trailing 250ms), reconnect, and visibility. */
-import type { JobKind } from "@/src/core";
+import type { JobKind } from "@/src/jobs/model";
 import { formatElapsed, toBlobs, type ActivityBlob, type ActivityFeed, type FeedExtraction, type FeedJob } from "./activity";
 export { formatElapsed, toBlobs } from "./activity";
 import { serverEvents } from "./server-events";
