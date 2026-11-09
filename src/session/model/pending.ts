@@ -33,7 +33,7 @@ function isToolUIPart(part: UIMessage["parts"][number]): boolean {
  * contracts/jobs.ts "THE ASYNC PROTOCOL"), so job tools are NOT returned
  * here. This file carries only the question gate and the shared scan helper.
  */
-export interface PendingToolCall {
+interface PendingToolCall {
 	toolCallId: string;
 	tool: string;
 	/** Tool input (quiz/ask args) — lets the composer pick note vs answer mode. */
@@ -59,16 +59,4 @@ function findPending(messages: UIMessage[], names: readonly string[]): PendingTo
 export function findPendingToolCall(messages: UIMessage[]): PendingToolCall | null {
 	return findPending(messages, QUESTION_TOOLS);
 }
-
-export function streamingToolActivity(messages: UIMessage[]): string | null {
-	const last = messages.at(-1);
-	if (!last || last.role !== "assistant") return null;
-	for (const part of last.parts) {
-		if (isToolUIPart(part) && part.state === "input-streaming") {
-			return toolActivityLabel(part.type.slice("tool-".length));
-		}
-	}
-	return null;
-}
-
 

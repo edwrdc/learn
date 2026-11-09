@@ -56,7 +56,7 @@ export type TurnWireEvent =
 	| { type: "error"; errorText: string };
 
 /** One view onto a running turn. */
-export interface PiTurnSubscriber {
+interface PiTurnSubscriber {
 	push(event: TurnWireEvent): void;
 	done(): void;
 }
@@ -67,7 +67,7 @@ export interface PiTurnHandle {
 	abort(): void;
 }
 
-export interface DurableTurnSpec {
+interface DurableTurnSpec {
 	runtime: ChatRuntime;
 	chatId: string;
 	/** The admitted submission this view follows. Its settlement is the

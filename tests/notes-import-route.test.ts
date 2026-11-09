@@ -96,7 +96,7 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 	assert.equal(calls, 8, "repeat identical imports execute real faux extractor calls");
 	assert.equal(nodes.length, 8);
 	assert.equal(sources.size, 4);
-	assert.ok([...sources.values()].every((source) => source.extractions?.length === 2 && source.contentFp === undefined));
+	assert.ok([...sources.values()].every((source) => source.extractions?.length === 2));
 });
 
 it("route returns 400 without files", async () => {

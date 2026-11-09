@@ -274,7 +274,7 @@ describe("notes import transport", () => {
 	const completed = (requestIndex = 0): NotesImportResult => ({ requestIndex, filePath: "same.md", ok: true, outcome: "completed", stats: { nodes: 0, chains: 0 } });
 
 	it("maps out-of-order responses by index, not basename", () => {
-		const results = [completed(1), { ...completed(0), stats: { nodes: 7 } }];
+		const results = [completed(1), { ...completed(0), stats: { nodes: 7, chains: 0 } }];
 		assert.deepEqual(parseNotesImportResults({ results }, files), results);
 	});
 

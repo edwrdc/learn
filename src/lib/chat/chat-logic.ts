@@ -1,6 +1,6 @@
 import type { ModelSlotName } from "@/src/settings/model";
 
-export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
+type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
 
 export function escAbortTarget(state: {
 	abortAsk: boolean;
@@ -67,16 +67,4 @@ export function parseModelUnavailableRefusal(message: string | undefined): { cod
 	} catch {
 		return null;
 	}
-}
-
-export function revealArrival(wasQuestion: boolean): { expanded: boolean; revealed: boolean } {
-	return wasQuestion ? { expanded: true, revealed: true } : { expanded: false, revealed: false };
-}
-
-export function probeArrivalExpanded(isAtBottom: boolean): boolean {
-	return isAtBottom;
-}
-
-export function shouldStampGeometryMute(nextH: number, prevH: number, pending: boolean): boolean {
-	return pending && nextH > prevH + 1;
 }

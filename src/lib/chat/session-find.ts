@@ -2,7 +2,7 @@
  *  and the foreground-layer gate. */
 export const SESSION_FIND_HIGHLIGHT = "lh-session-find";
 export const SESSION_FIND_ACTIVE_HIGHLIGHT = "lh-session-find-active";
-export const FIND_STYLE_ID = "lh-session-find-style";
+const FIND_STYLE_ID = "lh-session-find-style";
 
 export function injectFindStyles(): void {
 	if (document.getElementById(FIND_STYLE_ID)) return;

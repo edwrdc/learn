@@ -14,7 +14,7 @@
  * coverage fingerprints, graph provenance, and compaction cuts intact.
  *
  * Metadata (title, timestamps, plan tree, usage logs, settings) stays in
- * data/chats/<id>.json — see chats.ts, which owns the legacy import.
+ * data/chats/<id>.json (session/store.ts).
  */
 
 import { isSafeId } from "../platform/model/index.ts";
@@ -50,7 +50,7 @@ export const CONTINUATION_KIND = "lh.continuation";
 export const CONTINUATION_TEXT = "[continue]";
 
 /** The `data` payload of an app-written entry. */
-export interface LhEntryData {
+interface LhEntryData {
 	/** The record message id (client identity, coverage, provenance). */
 	id?: string;
 	/** The full record message, for custom-role markers (pi-ai's Message
@@ -115,7 +115,7 @@ function slots(): Map<string, RuntimeSlot> {
  *  the composition root reinstalls the extension, prompt and Models binding
  *  of every interrupted run from durable state (the app layer owns the code
  *  the runtime cannot import). */
-export type RuntimeBootstrap = (runtime: ChatRuntime) => Promise<void>;
+type RuntimeBootstrap = (runtime: ChatRuntime) => Promise<void>;
 
 let runtimeBootstrap: RuntimeBootstrap | undefined;
 
@@ -453,9 +453,3 @@ export async function findToolResultEntry(
 	return undefined;
 }
 
-/** Whether the chat's root conversation holds no entries yet (the legacy
- *  import's idempotency key). */
-export async function isEmptyTranscript(runtime: ChatRuntime): Promise<boolean> {
-	const page = await runtime.root.entries({}, 1, undefined, BACKGROUND_CONTEXT);
-	return page.items.length === 0;
-}

@@ -6,7 +6,7 @@ import type { KeyAction } from "@/src/settings/model";
  *  custom endpoint's key). */
 export type SavedSection = "keys" | "agent" | "models" | "appearance" | "graph" | "compaction";
 
-export interface AppEvents {
+interface AppEvents {
 	"chat-renamed": { id: string; title: string };
 	/** A chat view's local turn started or settled. */
 	"turn-state": { id: string; running: boolean };
@@ -27,7 +27,7 @@ export function onAppEvent<K extends keyof AppEvents>(type: K, handler: (detail:
 }
 
 /** A registry shortcut, or Escape's fallback when no layer claimed it. */
-export type KeyEvent = KeyAction | "abort-turn";
+type KeyEvent = KeyAction | "abort-turn";
 
 /** The one spelling of a key event's name, shared by the dispatcher and
  *  every listener (a mismatched name once left ⌘B doing nothing). */

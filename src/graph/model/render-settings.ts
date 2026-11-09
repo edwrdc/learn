@@ -41,12 +41,7 @@ import {
 } from "./layout.ts";
 
 export interface GraphRenderSettings {
-	/** Semantic stamp for the size-unit pivot (2026-09-15): "world" =
-	 *  nodeSize/labelSize/arrowLength/regions.dilation are WORLD units;
-	 *  absent = the old "screen px at fit zoom" semantics — the
-	 *  sanitizer resets those four fields (their meaning changed, not
-	 *  their magnitude) and keeps everything else. */
-	sizeUnits: "world";
+	/** Node, label, arrow and region-dilation sizes are WORLD units. */
 	nodeSize: number;
 	edgeWidth: number;
 	arrowLength: number;
@@ -82,19 +77,12 @@ export function sanitizeRenderSettings(raw: unknown): GraphRenderSettings {
 	// break low); non-numbers fall back to the default (dead-center anyway).
 	const ladd = (v: unknown, ladder: readonly number[], dflt: number) =>
 		typeof v === "number" && Number.isFinite(v) ? snapToLadder(v, ladder) : dflt;
-	// The size-unit pivot (2026-09-15): pre-"world" files stored sizes in
-	// "screen px at fit zoom" — a unit whose meaning depended on the
-	// graph's own extent (THE small-graph bug). Those values cannot be
-	// carried into world units honestly, so they reset to defaults; the
-	// reference default IS the old tuned look expressed in world units.
-	const legacySizes = r.sizeUnits !== "world";
 	return {
-		sizeUnits: "world",
-		nodeSize: legacySizes ? DEFAULT_RENDER_SETTINGS.nodeSize : ladd(r.nodeSize, NODE_SIZE_LADDER, DEFAULT_RENDER_SETTINGS.nodeSize),
+		nodeSize: ladd(r.nodeSize, NODE_SIZE_LADDER, DEFAULT_RENDER_SETTINGS.nodeSize),
 		edgeWidth: ladd(r.edgeWidth, EDGE_WIDTH_LADDER, DEFAULT_RENDER_SETTINGS.edgeWidth),
-		arrowLength: legacySizes ? DEFAULT_RENDER_SETTINGS.arrowLength : ladd(r.arrowLength, ARROW_LENGTH_LADDER, DEFAULT_RENDER_SETTINGS.arrowLength),
+		arrowLength: ladd(r.arrowLength, ARROW_LENGTH_LADDER, DEFAULT_RENDER_SETTINGS.arrowLength),
 		labelZoom: ladd(r.labelZoom, LABEL_ZOOM_LADDER, DEFAULT_RENDER_SETTINGS.labelZoom),
-		labelSize: legacySizes ? DEFAULT_RENDER_SETTINGS.labelSize : ladd(r.labelSize, LABEL_SIZE_LADDER, DEFAULT_RENDER_SETTINGS.labelSize),
+		labelSize: ladd(r.labelSize, LABEL_SIZE_LADDER, DEFAULT_RENDER_SETTINGS.labelSize),
 		clusterLabels:
 			typeof r.clusterLabels === "boolean" ? r.clusterLabels : DEFAULT_RENDER_SETTINGS.clusterLabels,
 		clusterLabelSize: ladd(
@@ -102,12 +90,7 @@ export function sanitizeRenderSettings(raw: unknown): GraphRenderSettings {
 			CLUSTER_LABEL_SIZE_LADDER,
 			DEFAULT_RENDER_SETTINGS.clusterLabelSize,
 		),
-		// Nested sections (2026-09-13): old files lack them → defaults.
-		// Legacy files also reset regions.dilation (its units changed with
-		// the pivot); the rest of the section's semantics are untouched.
-		regions: legacySizes
-			? { ...sanitizeRegionTuning(r.regions), dilation: DEFAULT_REGION_TUNING.dilation }
-			: sanitizeRegionTuning(r.regions),
+		regions: sanitizeRegionTuning(r.regions),
 		physics: sanitizePhysicsTuning(r.physics),
 	};
 }
@@ -252,7 +235,6 @@ export function sanitizePhysicsTuning(input: Partial<PhysicsTuning> | null | und
 // The 2026-09-17 bake: the user's live-tuned values (tuned against the
 // real graph after the world-unit pivot), each dead-center on its ladder.
 export const DEFAULT_RENDER_SETTINGS: GraphRenderSettings = {
-	sizeUnits: "world",
 	nodeSize: 2,
 	edgeWidth: 1,
 	arrowLength: 2,
@@ -329,7 +311,7 @@ export function snapToLadder(value: number, ladder: readonly number[]): number {
 
 /** Ladder index of a value (nearest; ties break low) — the slider position
  *  is index × 10 (step-10 track, 11 stops, default at 50). */
-export function ladderIndex(value: number, ladder: readonly number[]): number {
+function ladderIndex(value: number, ladder: readonly number[]): number {
 	let best = 0;
 	for (let i = 1; i < ladder.length; i++)
 		if (Math.abs(ladder[i] as number - value) < Math.abs(ladder[best] as number - value)) best = i;

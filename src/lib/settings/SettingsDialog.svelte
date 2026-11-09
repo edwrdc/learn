@@ -34,7 +34,6 @@
 	);
 	let error = $state<string | null>(null);
 	let active = $state<SettingsSectionId>("keys");
-	let content = $state<HTMLDivElement | null>(null);
 
 	$effect(() => {
 		if (!settingsDialog.show) return;
@@ -100,7 +99,7 @@
 					{/each}
 				</nav>
 
-				<div bind:this={content} class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
+				<div class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
 					{#if error}
 						<p role="alert" class="m-4 rounded-sm border border-red-500/40 px-3 py-2 text-xs text-red-500" data-testid="settings-error">{error}</p>
 					{/if}

@@ -45,7 +45,7 @@ import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
  *  never drifted. */
-export const INTERRUPTED_TEXT =
+const INTERRUPTED_TEXT =
 	"The question was interrupted — the learner never answered; continue without holding a result for it.";
 
 // ─── The record's message type ───────────────────────────────────────────────
@@ -615,12 +615,6 @@ export function hasProbeDone(messages: readonly LhMessage[]): boolean {
 		if (assistant.content.some((b) => b.type === "toolCall" && b.name === "probe_done")) return true;
 	}
 	return false;
-}
-
-/** Every toolResult id in the record — answer-event validation (the call
- *  must be a DANGLING question call, not an already-answered one). */
-export function answeredCallIds(messages: readonly LhMessage[]): Set<string> {
-	return resultIdsFrom(messages);
 }
 
 // ─── the continuation fold (Wave D: the SDK's

@@ -5,7 +5,6 @@
  * never does (identity linking through graph tools), the merger is
  * deterministic.
  *
- *   transcriptView  — the markdown rendering the extractor sees (pure):
  *                     id-anchored Teacher/Learner blocks + check blocks
  *   pipeline        — scripted faux engines drive both agents: findings out,
  *                     audit verdict (with linkTo identity) in, deterministic
@@ -42,7 +41,6 @@ import {
 	createExtractionPipeline as createPipeline,
 	NotesImportError,
 	extractionStatuses,
-	transcriptView,
 	sourceDigest,
 	EXTRACTION_CORE,
 	SESSION_PREAMBLE,
@@ -335,64 +333,7 @@ function silentModel(): PiEngine {
 	return fauxEngine([fauxAssistantMessage("I refuse to use tools"), fauxAssistantMessage("…")]);
 }
 
-// ─── transcriptView (pure) ───────────────────────────────────────────────────
 
-describe("transcriptView (pure — teacher prose only, owner 2026-09-28)", () => {
-	it("renders ONLY the teacher's prose — no learner, no checks, no tool notes", async () => {
-		const { record } = await fixtureChat();
-		const view = transcriptView(record);
-
-		// The document header is the session title; the body is the
-		// teacher's text blocks as labeled passages.
-		assert.match(view, /^# Extraction fixture$/m);
-		assert.match(view, /^TEACHER \[a1\] The chain rule composes rates of change along a path\.$/m);
-		assert.match(view, /^TEACHER \[a2\] The derivative measures how fast a function changes\.$/m);
-
-		// MESSAGE-ID LABELS (owner, 2026-10-13): the passages carry their
-		// ACTUAL message ids, in exactly messageViewLines' shape — the same
-		// seam the coverage fingerprints hash. No label without prose: a3
-		// (quiz only) and the learner messages are not passages.
-		assert.doesNotMatch(view, /TEACHER \[a3\]/);
-		assert.doesNotMatch(view, /TEACHER \[u1\]/);
-		assert.equal(
-			view.slice(view.indexOf("TEACHER")),
-			record.messages.flatMap((m) => messageViewLines(m, m.id)).join("\n\n"),
-			"the view body IS the messageViewLines of the transcript — one shared seam",
-		);
-
-		// EVERYTHING else is gone: learner text, quiz blocks, tool notes,
-		// speaker headers — the ruling strips it all.
-		assert.doesNotMatch(view, /teach me the chain rule/);
-		assert.doesNotMatch(view, /go on/);
-		assert.doesNotMatch(view, /check me/);
-		assert.doesNotMatch(view, /### /);
-		assert.doesNotMatch(view, /Quiz/);
-		assert.doesNotMatch(view, /plan_init/);
-	});
-
-	it("job tool results and empty text vanish — only prose paragraphs remain", async () => {
-		const chat = await chatStore.createChat("View noise fixture");
-		createdChats.push(chat.id);
-		await chatStore.saveMessages(chat.id, [
-			user("u1", "go"),
-			...assistant("a1", [
-				{
-					name: "research",
-					toolCallId: "r1",
-					input: { question: "q" },
-					output: { brief: "long brief", sources: [] },
-				},
-				{ type: "text", text: "   " },
-				{ type: "text", text: "Prose survives." },
-			]),
-		].flat());
-		const view = transcriptView((await chatStore.getChat(chat.id))!);
-		assert.match(view, /^TEACHER \[a1\] Prose survives\.$/m, "the surviving passage is labeled with its real id");
-		assert.doesNotMatch(view, /research/);
-		assert.doesNotMatch(view, /long brief/);
-		assert.doesNotMatch(view, /### /);
-	});
-});
 
 // ─── the pipeline ───────────────────────────────────────────────────────────
 
@@ -1622,11 +1563,8 @@ describe("the notes front door (importNotes — format-agnostic)", () => {
 		const first = await mk().importNotes({ filePath: "/vault/learn vim.md", text: NOTES_TEXT });
 		assert.deepEqual(first, { nodes: 1, chains: 0 });
 
-		// A legacy stamp must never suppress an explicit import.
-		ledgers.upsertSource({ ...ledgers.readSources()[0]!, contentFp: createHash("sha256").update(NOTES_TEXT).digest("hex").slice(0, 16) });
 		const second = await mk().importNotes({ filePath: "/vault/learn vim.md", text: NOTES_TEXT });
 		assert.deepEqual(second, { nodes: 1, chains: 0 }, "identical content re-extracts");
-		assert.equal(ledgers.readSources()[0]!.contentFp, undefined, "new imports write no fingerprint");
 
 		assert.equal(ledgers.readSources().length, 1, "one source identity — the path hashes to the same id");
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 2, "both runs bill usage");

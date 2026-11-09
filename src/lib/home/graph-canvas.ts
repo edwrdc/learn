@@ -62,7 +62,7 @@ export type { GraphRenderSettings };
 // ─── Public data contract ──────────────────────────────────────────────────
 
 /** One node to draw: world-space position + the short glanceable label. */
-export interface CanvasNode {
+interface CanvasNode {
 	id: string;
 	x: number;
 	y: number;
@@ -76,7 +76,7 @@ export interface CanvasNode {
  *  as its geometry: co-premise lines converge HEADLESS onto the
  *  implication point, one arrowed line leaves it; a single-premise
  *  argument is one ordinary arrow (see deriveView). */
-export interface CanvasEdge {
+interface CanvasEdge {
 	from: string;
 	to: string;
 }
@@ -86,7 +86,7 @@ export interface CanvasEdge {
 // excluded from every hit-test path.
 
 /** One cluster region: member node ids + the LLM-coined label (or null). */
-export interface CanvasCluster {
+interface CanvasCluster {
 	id: string;
 	label: string | null;
 	members: string[];
@@ -94,14 +94,14 @@ export interface CanvasCluster {
 
 /** Theme colors, resolved to #rrggbb by the caller (canvas wants hex,
  *  and the renderer must not read CSS itself). */
-export interface CanvasColors {
+interface CanvasColors {
 	node: string;
 	edge: string;
 	label: string;
 	hoverText: string;
 }
 
-export interface CanvasData {
+interface CanvasData {
 	nodes: CanvasNode[];
 	edges: CanvasEdge[];
 	/** The LOGICAL arrows (proposition→conclusion, imp contracted) the
@@ -118,7 +118,7 @@ export interface CanvasData {
 	fontFamily: string;
 }
 
-export interface RendererCallbacks {
+interface RendererCallbacks {
 	/** A node was clicked (screen position included for card anchoring). */
 	onSelect: (nodeId: string, screenPos: Pt) => void;
 	/** Right-click: the picked node (canvas-relative screen position) or
@@ -292,7 +292,7 @@ export function fitTransform(
  *  (clear of both node discs) and the head triangle (tip on the target
  *  disc edge, wideness = 0.8 × head length — the sigma arrow shape). */
 /** One complete arrow glyph: shaft + head triangle. */
-export interface ArrowGeom {
+interface ArrowGeom {
 	shaftFrom: Pt;
 	shaftTo: Pt;
 	tip: Pt;

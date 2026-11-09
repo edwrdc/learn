@@ -33,7 +33,7 @@ import {
 } from "../src/session/model/questions.ts";
 import { parseQuizInput } from "../src/session/model/tool-parts.ts";
 import { resolveTargetId } from "../src/graph/model/chains.ts";
-import { bareQuestionTools } from "../src/session/agents.ts";
+import { bareQuestionTools } from "./support-tools.ts";
 import { probeQuizTool } from "../src/session/tools/registry.ts";
 import { toRegistrations } from "../src/tools/index.ts";
 

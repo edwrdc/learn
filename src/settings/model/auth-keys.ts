@@ -133,7 +133,7 @@ export function isProviderEnvVar(envVar: string): boolean {
 }
 
 /** Shape-check result: ok, or a 400-ready message naming the expectation. */
-export type KeyShapeResult = { ok: true } | { ok: false; error: string };
+type KeyShapeResult = { ok: true } | { ok: false; error: string };
 
 /**
  * The write-side shape gate (owner decision: reject bad pastes with 400 —

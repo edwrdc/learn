@@ -25,18 +25,20 @@ process.env.LH_DATA_DIR = TMP_DATA;
 
 const { chatStore } = await import("../src/session/store.ts");
 const { openChatRuntime } = await import("../src/session/durable.ts");
-const { applyParkedDismissal, parkDismissal, takeParkedDismissal } = await import(
+const { applyParkedDismissal, parkDismissal } = await import(
 	"../src/session/dismissal-park.ts"
 );
 const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { subscribe } = await import("../src/platform/model/events.ts");
 const {
 	activeProblemOf,
-	answeredCallIds,
 	danglingQuestionOf,
 	dismissedAnswer,
 } = await Promise.all([import("../src/session/model/transcript.ts"), import("../src/session/model/questions.ts")]).then((ms) => Object.assign({}, ...ms));
 const newMessageId = (await import("../src/session/model/transcript.ts")).newMessageId;
+const { posedPlaceholder } = await import("./support-tools.ts");
+const answeredCallIds = (messages: Array<{ role: string; toolCallId?: string }>) =>
+	new Set(messages.filter((m) => m.role === "toolResult").map((m) => m.toolCallId));
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -58,7 +60,7 @@ async function chatWithDanglingQuiz(id: string): Promise<string> {
 				arguments: { question: "What is a cyclic group?" },
 			},
 		],
-	} as never]);
+	} as never, posedPlaceholder(`${id}-q1`)]);
 	return chat.id;
 }
 
@@ -83,11 +85,6 @@ async function chatWithActiveProblem(): Promise<string> {
 }
 
 describe("the park registry", () => {
-	it("parks and takes (take drains — the second read is null)", async () => {
-		parkDismissal("chat_x", { type: "dismiss-problem", problemCallId: "p" });
-		assert.deepEqual(takeParkedDismissal("chat_x"), { type: "dismiss-problem", problemCallId: "p" });
-		assert.equal(takeParkedDismissal("chat_x"), null);
-	});
 
 	it("apply with nothing parked is a no-op (no write, no emit)", async () => {
 		const chat = await chatWithDanglingQuiz("noop");
@@ -123,7 +120,7 @@ describe("applyParkedDismissal — against real records", () => {
 		// The call is answered now — nothing dangles.
 		assert.equal(danglingQuestionOf((await chatStore.getChat(chat))!.messages), null);
 		assert.ok(answeredCallIds((await chatStore.getChat(chat))!.messages).has(pending!.toolCallId));
-		assert.equal(takeParkedDismissal(chat), null);
+		assert.equal(await applyParkedDismissal(chat), false, "nothing stays parked");
 	});
 
 	it("applies a parked problem dismissal to the active problem", async () => {
@@ -161,7 +158,7 @@ describe("applyParkedDismissal — against real records", () => {
 		assert.equal(await applyParkedDismissal(chat), true, "the retained park applies on retry");
 		assert.equal(danglingQuestionOf((await chatStore.getChat(chat))!.messages), null);
 		assert.ok(answeredCallIds((await chatStore.getChat(chat))!.messages).has(pending!.toolCallId));
-		assert.equal(takeParkedDismissal(chat), null);
+		assert.equal(await applyParkedDismissal(chat), false, "nothing stays parked");
 	});
 
 	it("drops a park that targets nothing (never materialized — silence)", async () => {
@@ -176,7 +173,7 @@ describe("applyParkedDismissal — against real records", () => {
 		off();
 		assert.equal(emitted, 0);
 		assert.equal((await chatStore.getChat(chat))!.messages.length, before);
-		assert.equal(takeParkedDismissal(chat), null);
+		assert.equal(await applyParkedDismissal(chat), false, "nothing stays parked");
 	});
 });
 
@@ -215,7 +212,7 @@ describe("the dismiss route — the park contract (202)", () => {
 		await applyParkedDismissal(chat);
 		endTurn(chat);
 		assert.equal(danglingQuestionOf((await chatStore.getChat(chat))!.messages), null);
-		assert.equal(takeParkedDismissal(chat), null);
+		assert.equal(await applyParkedDismissal(chat), false, "nothing stays parked");
 	});
 
 	it("still refuses honestly (400) with no turn and nothing dangling", async () => {

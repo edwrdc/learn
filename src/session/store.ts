@@ -9,14 +9,6 @@
  * projection over the chat's durable entries, so `getChat` is async: the
  * durable read is the truth, never a second cache.
  *
- * LEGACY IMPORT: a record written before the migration
- * still carries `messages`. On first access the store copies the original
- * file byte-for-byte into the chat's runtime directory
- * (data/durable/<id>/legacy-chat.json), appends every message as a durable
- * entry, and only then rewrites the JSON without `messages`. The import is
- * idempotent — the empty-transcript check is the key — and the backup is
- * never deleted automatically (session deletion removes it with the rest).
- *
  * Wired in the composition root (src/server/stores.ts); nothing else
  * constructs it.
  */
@@ -36,11 +28,8 @@ import type { LhMessage } from "./model/transcript.ts";
 import { activeProblemOf, danglingQuestionOf } from "./model/transcript.ts";
 import { phaseAt3Lh } from "./model/phases.ts";
 import {
-	appendEntries,
 	appendMessages,
 	closeChatRuntime,
-	draftForMessage,
-	isEmptyTranscript,
 	openChatRuntime,
 	projectEntries,
 	readEntries,
@@ -52,8 +41,6 @@ type ChatMeta = Omit<ChatRecord, "messages">;
 
 interface ParsedRecord {
 	meta: ChatMeta;
-	/** Present only on a record written before the durable migration. */
-	legacyMessages?: LhMessage[];
 }
 
 const UNTITLED = "Untitled session";
@@ -63,10 +50,8 @@ function chatFile(id: string): string {
 	return path.join(PATHS.chats, `${id}.json`);
 }
 
-/** Per-chat record queue: the old store was synchronous, so its
- *  read-modify-write could not interleave. Async callers keep that
- *  ordering by chaining here. It also owns the legacy import: every
- *  read and mutation runs inside it, after the import is complete. */
+/** Per-chat record queue: every read-modify-write of a chat's metadata
+ *  runs here, one at a time. */
 const withMetaLock = keyedLock("chatMeta");
 
 /** Parse the metadata file. Null for unknown, corrupt, or future-version
@@ -86,8 +71,8 @@ function readRecord(id: string): ParsedRecord | null {
 		);
 		return null;
 	}
-	const { messages, ...meta } = parsed as ChatRecord;
-	return { meta, legacyMessages: Array.isArray(messages) ? messages : undefined };
+	const { messages: _transcript, ...meta } = parsed as ChatRecord;
+	return { meta };
 }
 
 /** THE WRITE CHOKE POINT: every metadata persist goes through here and
@@ -97,27 +82,9 @@ function writeMeta(meta: ChatMeta): void {
 	writeJsonAtomic(chatFile(meta.id), { ...meta, version: CURRENT_CHAT_VERSION });
 }
 
-/** Import a pre-migration record: back up the original verbatim inside the
- *  chat's runtime directory, append its messages as durable entries, then
- *  drop `messages` from the metadata file. Called with the chat's queue
- *  held. Idempotent: the transcript's emptiness is the key, so a crash
- *  between the entry commit and the JSON rewrite simply re-reads the same
- *  durable transcript on the next access. */
-async function importLegacy(id: string, meta: ChatMeta, messages: LhMessage[]): Promise<void> {
-	const runtime = await openChatRuntime(id);
-	if (await isEmptyTranscript(runtime)) {
-		const backup = path.join(runtime.dir, "legacy-chat.json");
-		if (!fs.existsSync(backup)) fs.copyFileSync(chatFile(id), backup);
-		await appendEntries(id, messages.map(draftForMessage));
-	}
-	writeMeta(meta);
-}
-
 /** THE RECORD BOUNDARY: every metadata read and write runs in the chat's
- *  queue and after the legacy import, so a mutation that arrives before the
- *  first read cannot strip a transcript it never moved, and concurrent first
- *  accesses import it once. Null means unknown, corrupt, or newer-schema —
- *  refused before any runtime is opened. */
+ *  queue. Null means unknown, corrupt, or newer-schema — refused before any
+ *  runtime is opened. */
 async function withRecord<T>(
 	id: string,
 	run: (parsed: ParsedRecord) => T | Promise<T>,
@@ -125,7 +92,6 @@ async function withRecord<T>(
 	return withMetaLock(id, async () => {
 		const parsed = readRecord(id);
 		if (!parsed) return null;
-		if (parsed.legacyMessages !== undefined) await importLegacy(id, parsed.meta, parsed.legacyMessages);
 		return run(parsed);
 	});
 }

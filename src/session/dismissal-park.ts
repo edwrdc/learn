@@ -29,15 +29,6 @@ export function parkDismissal(chatId: string, input: DismissInput): void {
 	registry().set(chatId, input);
 }
 
-/** Take the chat's parked dismissal (removes it). Returns null when
- *  nothing is parked. */
-export function takeParkedDismissal(chatId: string): DismissInput | null {
-	const parked = registry().get(chatId);
-	if (parked === undefined) return null;
-	registry().delete(chatId);
-	return parked;
-}
-
 /** Apply the chat's parked dismissal, if any, against the current record.
  *  Runs in the turn's onFinish, AFTER the run's entries committed and
  *  BEFORE the settle events — a client reacting to "turn-settled" reads the

@@ -6,8 +6,7 @@
  *
  *   answerWrite / applyAnswer — the learner's graded answer as the posed
  *                        question's EFFECTIVE result: a ContextEdit over the
- *                        committed pose placeholder (or a plain append for a
- *                        legacy record that never committed one).
+ *                        committed pose placeholder.
  *   writeDismissal     — the dismissal path: the same write, no run.
  *   TurnDoc / readTurn / writeTurn / claimTurnSettle / markTurnSettled —
  *                        the durable turn admission + settle descriptor a
@@ -81,7 +80,7 @@ export interface ForegroundTurn {
 }
 
 /** The root conversation's descriptor of its current foreground turn. */
-export const TurnDoc = defineDoc<JsonObject>({
+const TurnDoc = defineDoc<JsonObject>({
 	kind: "lh.turn",
 	version: 1,
 	scope: "conversation",
@@ -138,17 +137,16 @@ export async function markTurnSettled(runtime: ChatRuntime, turnId: string): Pro
 
 /** One answer ready to write: the record message, plus the pose entry it
  *  replaces when the record committed one (the durable shape). */
-export interface AnswerWrite {
+interface AnswerWrite {
 	message: LhMessage;
-	replace?: EntryId;
+	replace: EntryId;
 }
 
 /**
  * Validate an answer against the record (the orphan-400 discipline: the call
  * must be a pending question) and resolve how it lands. A durable record
  * committed the pose as the call's result — a placeholder (details: null) —
- * so the answer REPLACES that entry; a legacy record without one appends the
- * result.
+ * so the answer REPLACES that entry.
  */
 export async function answerWrite(
 	chatId: string,
@@ -160,16 +158,13 @@ export async function answerWrite(
 	const message = appended[0]!;
 	const runtime = await openChatRuntime(chatId);
 	const placeholder = await findToolResultEntry(runtime, toolCallId);
-	return placeholder ? { message, replace: placeholder.id } : { message };
+	if (!placeholder) throw new Error(`[chat ${chatId}] question ${toolCallId} has no committed placeholder`);
+	return { message, replace: placeholder.id };
 }
 
 /** Land an answer write (see answerWrite). */
 export async function applyAnswer(chatId: string, write: AnswerWrite): Promise<void> {
-	if (write.replace !== undefined) {
-		await appendEntries(chatId, [editDraftFor(write.replace, write.message)]);
-		return;
-	}
-	await appendMessages(chatId, [write.message]);
+	await appendEntries(chatId, [editDraftFor(write.replace, write.message)]);
 }
 
 /** Write a dismissal — the question's tool result, or the practice

@@ -2,7 +2,7 @@ import { dismissLayer } from "$lib/ui/layer";
 import { onKeyAction } from "$lib/events";
 import { mintDictationToken } from "$lib/api/settings";
 import { ApiError } from "$lib/api/http";
-export const DG_URL =
+const DG_URL =
 	"wss://api.deepgram.com/v1/listen" +
 	"?model=nova-3" +
 	"&encoding=linear16" +
@@ -16,9 +16,9 @@ export const METER_TICK_MS = 60;
 export const METER_CELLS = 48;
 export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
-export const WARM_TOKEN_TTL_MS = 3 * 60_000;
+const WARM_TOKEN_TTL_MS = 3 * 60_000;
 
-export type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
+type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
 
 export function joinDictation(current: string, final: string): string {
 	return current ? current.replace(/\s+$/, "") + " " + final : final;
@@ -131,10 +131,6 @@ export class DictationController {
 			offToggle();
 			if (live === this) live = null;
 		};
-	}
-
-	setAppend(append: (text: string) => void): void {
-		this.append = append;
 	}
 
 	private flush(): void {

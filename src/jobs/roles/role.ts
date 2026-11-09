@@ -79,7 +79,7 @@ export interface JobRole<I, R extends JobResult, S extends RunState> extends Dur
 	crashed?: string;
 }
 
-export interface RoleRunOptions {
+interface RoleRunOptions {
 	engine: PiEngine;
 	run: RoleRunIdentity;
 	headless?: HeadlessApi;

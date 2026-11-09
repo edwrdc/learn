@@ -29,7 +29,7 @@ export type BackgroundKind = JobKind | "extract" | "audit" | "compact";
 
 /** A run's role: the settings-resolved job roles, plus the compaction
  *  summarizer, which runs the chat's own engine and resolves no role. */
-export type RunRole = ModelRole | "compact";
+type RunRole = ModelRole | "compact";
 
 /** A demo verification result without the unconstrained probe value: the
  *  persisted state must stay JSON. */
@@ -84,7 +84,7 @@ export interface SubmitRunState {
 	submitted: JsonObject | null;
 }
 
-export interface CompactRunState {
+interface CompactRunState {
 	kind: "compact";
 }
 
@@ -184,7 +184,7 @@ export interface RoleStateIo<T extends RunState> {
 
 /** Host services the background runtime cannot import from the composition
  *  root (boot configures them). */
-export interface BackgroundServices {
+interface BackgroundServices {
 	/** Resolve the engine for a stored descriptor (settings + credential
 	 *  snapshot read fresh; never persisted). */
 	resolveEngine(descriptor: RunDescriptor): PiEngine | undefined;
@@ -205,8 +205,8 @@ export function configureBackgroundRuns(next: Partial<BackgroundServices>): void
 	Object.assign(backgroundServices(), next);
 }
 
-export type DurableBackgroundRun = (request: BackgroundRunRequest) => Promise<BackgroundRunResult>;
-export type DurableBackgroundRetire = (chatId: string, jobId: string) => Promise<void>;
+type DurableBackgroundRun = (request: BackgroundRunRequest) => Promise<BackgroundRunResult>;
+type DurableBackgroundRetire = (chatId: string, jobId: string) => Promise<void>;
 
 let backgroundRunSeam: DurableBackgroundRun | undefined;
 let backgroundRetireSeam: DurableBackgroundRetire | undefined;

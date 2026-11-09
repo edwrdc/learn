@@ -59,7 +59,7 @@ export type { ChatDeleteMode, ChatDeletionStats } from "../graph/model/index.ts"
 const WIND_DOWN_TIMEOUT_MS = 10_000;
 
 /** What deleteChatSession did — the route maps it straight to HTTP. */
-export type ChatDeleteOutcome =
+type ChatDeleteOutcome =
 	| { ok: false; status: 404; code: "not_found"; error: string }
 	| { ok: false; status: 409; code: "turn_in_flight" | "jobs_running"; error: string; jobIds: string[] }
 	| { ok: false; status: 500; code: "delete_failed"; error: string }

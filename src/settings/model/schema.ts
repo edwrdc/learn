@@ -159,7 +159,7 @@ function section<T extends object>(fields: Fields<T>): Field<T> {
 
 /** A model pick: `{ model?: {provider, id}, thinkingLevel? }` — the shape of
  *  a chat's settings, a slot and a background role override. */
-export const modelChoice: Field<ModelChoice> = {
+const modelChoice: Field<ModelChoice> = {
 	read: (raw) => {
 		const record = asRecord(raw);
 		if (!record) return undefined;

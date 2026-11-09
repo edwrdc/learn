@@ -13,9 +13,9 @@ import {
 } from "../../settings/model/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
 import { withBgLlmSlot } from "../../jobs/index.ts";
-import type { AuditVerdicts, CoverageEntry, ExtractionPhase } from "../model/types.ts";
+import type { AuditVerdicts, CoverageEntry, ExtractionPhase, EmissionStats } from "../model/types.ts";
 import { usageFromPi, type CallUsage, type ChatRecord, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
-import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../snapshot.ts";
+import { getGraph, mergeFindings, type DerivedGraph, type GraphDeps } from "../snapshot.ts";
 import type { GraphStore } from "../model/ports.ts";
 import { emit, processState } from "../../platform/model/index.ts";
 import { settleGraphLayout } from "../layout-settle.ts";
@@ -106,14 +106,6 @@ import { runSubmitAgent } from "./submit-agent.ts";
  * format for the future user-facing export; the extractor no longer uses
  * it.
  */
-
-/** The whole-record view (used by callers that render a full session;
- *  the pipeline itself batches). TEACHER PROSE ONLY (owner, 2026-09-28),
- *  passages labeled with their message ids (2026-10-13).
- */
-export function transcriptView(record: ChatRecord): string {
-	return proseView(record.messages, record.title);
-}
 
 /** The extraction view under the teacher-prose ruling (owner, 2026-09-28):
  *  ONLY the teacher agent's text blocks — no learner messages, no
@@ -264,7 +256,6 @@ function runExtractor(
 
 // ─── the auditor ───────────────────────────────────────────────────────────
 
-
 const AUDITOR_INSTRUCTIONS = `You are the linking stage of a learning application's extraction pipeline. An extractor
 has read a source (a teaching session, or the author's personal notes) and reported findings: propositions and
 their reasoning chains. You NEVER see the source itself — the extractor is fully trusted, and you do not re-check
@@ -350,7 +341,6 @@ function submitRunKey(stage: "extract" | "audit", sourceId: string, prompt: stri
  *  audit+merge critical section is queued behind another job's; the
  *  extractor is done but the auditor may not start until the graph is
  *  stable. */
-
 
 /** One in-flight pipeline run. Module-level: one process, one registry.
  *  Exported for the status payload's consumer typing (the dock). */
@@ -474,7 +464,7 @@ interface ExtractionSource {
 
 const isAbort = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
 
-export interface ExtractionModels {
+interface ExtractionModels {
 	/** Settings-resolved engine per role — the same slot treatment the
 	 *  job runner got, read FRESH per stage call (a settings PUT between
 	 *  stages lands). BYOK (owner, 2026-09-22): the chain (role override →
@@ -501,7 +491,7 @@ export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
 	getChunkTokens?: () => number;
 }
 
-export interface NotesImportInput {
+interface NotesImportInput {
 	/** The source's file path — its identity (deterministic src id) AND its
 	 *  provenance label in the detail card. */
 	filePath: string;
@@ -726,7 +716,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return auditResult;
 	}
 
-
 	/** THE EXTRACT SLOT (unified 2026-09-29): extraction chunk jobs run
 	 *  under the SHARED background-LLM semaphore — one process-wide pool
 	 *  of 3 permits (see bg-llm-semaphore.ts). The
@@ -800,7 +789,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		for (const result of settled) {
 			if (result.status === "fulfilled") {
 				stats.nodes += result.value.nodes;
-				stats.chains! += result.value.chains ?? 0;
+				stats.chains += result.value.chains;
 				// Simplification maintenance, summed like appends — but ABSENT
 				// when nothing dropped (deep-equal pins read cleaner).
 				if (result.value.droppedChains)
@@ -870,12 +859,12 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							...(unit.coverage ? { coverage: unit.coverage(foldedAt) } : {}),
 						});
 						merged.nodes += stats.nodes;
-						merged.chains! += stats.chains ?? 0;
+						merged.chains += stats.chains;
 						if (stats.droppedChains) merged.droppedChains = (merged.droppedChains ?? 0) + stats.droppedChains;
 						// The layout ledger evolves with each merge (sync — the
 						// next snapshot fetch must already reflect the new nodes).
 						settleGraphLayout(graphStore);
-						console.info(`[extraction ${job.key}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains`);
+						console.info(`[extraction ${job.key}] merged: ${stats.nodes} nodes, ${stats.chains} chains`);
 						return stats;
 					});
 				});
@@ -965,7 +954,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			});
 			const stats = aggregateJobs(chatId, settled);
 			console.info(
-				`[extraction ${chatId}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains ` +
+				`[extraction ${chatId}] merged: ${stats.nodes} nodes, ${stats.chains} chains ` +
 					`(${Math.round(performance.now() - t0)}ms total, ${batches.length} batch job(s))`,
 			);
 			return stats;
@@ -1053,7 +1042,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				throw new NotesImportError(outcome, mergedStats, details || "Notes import did not complete");
 			}
 			console.info(
-				`[extraction ${id}] merged: ${stats.nodes} nodes, ${stats.chains ?? 0} chains ` +
+				`[extraction ${id}] merged: ${stats.nodes} nodes, ${stats.chains} chains ` +
 					`(${Math.round(performance.now() - t0)}ms total, ${chunks.length} chunk job(s))`,
 			);
 			return stats;

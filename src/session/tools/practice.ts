@@ -28,9 +28,8 @@ import type { LhMessage } from "../model/transcript.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../../tools/index.ts";
 import { healEncodedArguments } from "../../tools/index.ts";
 
-
 /** The record-reading context the gates need (the plan-tools idiom). */
-export interface PracticeToolContext {
+interface PracticeToolContext {
 	chatId: string;
 	chatStore: { getChat(id: string): Promise<{ messages: LhMessage[]; kind?: string } | null> };
 	/** The WHOLE-graph node list, read fresh per pose (owner round 9 — the
@@ -58,13 +57,6 @@ export interface PracticeToolContext {
  *  this closure — the intra-turn truth the record cannot hold yet. */
 export interface PracticeGate {
 	problemActive: boolean;
-}
-
-/** Seed the turn's gate from the record (result-aware activeProblemOf —
- *  only a cleanly-posed problem counts). */
-export async function createPracticeGate(ctx: PracticeToolContext): Promise<PracticeGate> {
-	const record = await ctx.chatStore.getChat(ctx.chatId);
-	return { problemActive: record ? activeProblemOf(record.messages) !== null : false };
 }
 
 /** The registry's lazy seed: the record read happens at the first tool call,

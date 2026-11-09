@@ -268,23 +268,5 @@ function writeSourceMap(map: Record<string, NotesSource>): void {
 	writeJsonAtomic(SOURCES_FILE, map);
 }
 
-// ─── one-way purges at adapter load: dead ledgers are exactly the confusion
-// the cleanup removes (owner doctrine — nothing reads them, nothing writes
-// them, a stale file lying around is a lie). ────────────────────────────────
-{
-	const graphDir = path.dirname(LEDGER_FILES.nodes);
-	for (const legacy of ["edges.jsonl", "events.jsonl"]) {
-		const file = path.join(graphDir, legacy);
-		try {
-			if (fs.existsSync(file)) {
-				fs.rmSync(file);
-				console.info(`[graph-store] purged legacy ledger: ${file}`);
-			}
-		} catch (err) {
-			console.warn(`[graph-store] could not purge legacy ledger ${file}:`, err);
-		}
-	}
-}
-
 const isNotesSource = (v: unknown): v is NotesSource =>
 	isRecord(v) && isString(v.id) && isString(v.filePath) && isString(v.importedAt);

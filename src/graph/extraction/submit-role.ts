@@ -49,7 +49,7 @@ export function healStringifiedArrays(raw: unknown): unknown {
  *  + chains. fillFindings normalizes it; validateFindingsChains checks
  *  the chain laws — chains are stored AS-IS (chains-primary, owner
  *  2026-09-30: no edge translation at any seam). */
-export type FindingsSubmit = Static<typeof findingsSchema>;
+type FindingsSubmit = Static<typeof findingsSchema>;
 
 /** The SESSION wire — the notes shape plus the REQUIRED messageId anchor
  *  on every proposition (owner, 2026-10-13). */
@@ -106,7 +106,7 @@ function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
  *  source and references digest ids verbatim). Identical (premise-set,
  *  conclusion) chains are NOT errors — they dedupe silently at the
  *  merge (chainKey): restating an argument is a no-op. */
-export function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<string>): string | null {
+function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<string>): string | null {
 	const ids = new Set(value.propositions.map((p) => p.id));
 	for (const chain of value.chains) {
 		if (chain.premises.length === 0) {
@@ -131,7 +131,7 @@ export function validateFindingsChains(value: FindingsSubmit, existingIds: Reado
  *  submit lands. The boundary is strict on purpose — an id from a LATER
  *  or already-covered batch, another chat, or a learner/tool message is
  *  refused even when it is a real message id of this chat. */
-export function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: ReadonlySet<string>): string | null {
+function validateSessionAnchors(value: SessionFindingsSubmit, batchIds: ReadonlySet<string>): string | null {
 	for (const p of value.propositions) {
 		if (p.messageId.trim().length === 0) {
 			return `propositions: "${p.id}" is missing its messageId — copy the message id from the brackets of the passage (TEACHER [id]) that most directly states or explains it.`;

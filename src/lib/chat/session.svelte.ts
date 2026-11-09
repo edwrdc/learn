@@ -35,8 +35,8 @@ export class SessionView {
 
 	readonly send = (input: ChatInput): void => void this.model.send(input);
 	readonly steer = (text: string): void => void this.model.steer(text);
-	readonly submitAnswer = (tool: string, toolCallId: string, output: QuestionAnswerData): void =>
-		void this.model.submitAnswer(tool, toolCallId, output);
+	readonly submitAnswer = (toolCallId: string, output: QuestionAnswerData): void =>
+		void this.model.submitAnswer(toolCallId, output);
 	readonly dismissQuestion = (toolCallId: string, answer: QuestionAnswerData): void =>
 		void this.model.dismissQuestion(toolCallId, answer);
 	readonly dismissProblem = (problemCallId: string): void => void this.model.dismissProblem(problemCallId);
@@ -46,5 +46,4 @@ export class SessionView {
 	readonly clearError = (): void => this.model.clearError();
 	readonly resumeStream = (refetch = true): void => void this.model.resumeStream(refetch);
 	readonly setReattachSettled = (fn: () => void): void => this.model.setReattachSettled(fn);
-	readonly isReady = (): boolean => this.model.status === "ready";
 }

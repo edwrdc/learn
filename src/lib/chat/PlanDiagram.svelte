@@ -11,7 +11,6 @@
 		statusOf,
 		glowId,
 		markerId,
-		viewBoxOverride,
 		pad: padUnits,
 		textCapScale,
 		naturalSize,
@@ -23,7 +22,6 @@
 		statusOf: (id: string) => PlanNodeStatus;
 		glowId?: string | null;
 		markerId: string;
-		viewBoxOverride?: string;
 		pad?: number;
 		textCapScale?: number;
 		naturalSize?: boolean;
@@ -43,18 +41,18 @@
 	};
 
 	const layout = $derived(blockLayout(nodes, edges));
-	const pad = $derived(viewBoxOverride ? 0 : (padUnits ?? 0));
+	const pad = $derived(padUnits ?? 0);
 	const w = $derived(Math.max(layout.width, 1));
 	const h = $derived(Math.max(layout.height, 1));
-	const ox = $derived(viewBoxOverride ? 0 : layout.originX);
-	const oy = $derived(viewBoxOverride ? 0 : layout.originY);
+	const ox = $derived(layout.originX);
+	const oy = $derived(layout.originY);
 	const vbW = $derived(w + 2 * pad);
 	const vbH = $derived(h + 2 * pad);
 	const HEAD_H = 16 * (STROKE_W / 1.5);
 </script>
 
 <svg
-	viewBox={viewBoxOverride ?? `${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
+	viewBox={`${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
 	class="block {fill ? 'h-full w-full' : `h-auto${naturalSize ? '' : ' w-full'}`}{textCapScale ? ' mx-auto' : ''}"
 	style="font-family: var(--font-prose);{textCapScale
 		? `max-width: ${Math.round(vbW * textCapScale * 100) / 100}px;`

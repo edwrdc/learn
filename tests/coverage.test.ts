@@ -7,12 +7,10 @@ import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
 import {
 	batchRuns,
-	batchTag,
 	coverageOf,
 	coverageSlots,
 	messageFingerprint,
 	messageViewLines,
-	teacherProseBlocks,
 } from "../src/graph/coverage.ts";
 import type { CoverageEntry } from "../src/graph/model/types.ts";
 
@@ -124,15 +122,6 @@ describe("messageFingerprint — what changes it, what never does", () => {
 		assert.deepEqual(messageViewLines(failed, "r9"), []);
 	});
 
-	it("teacherProseBlocks — the prompt material: teacher text blocks only, plain, in order", () => {
-		const blocks = teacherProseBlocks([
-			user("u1", "learner asks"),
-			teacher("t1", " first insight "),
-			assistantWithCalls("a1", [{ id: "q1", name: "quiz" }]),
-			teacher("t2", "second insight"),
-		]);
-		assert.deepEqual(blocks, ["first insight", "second insight"]);
-	});
 });
 
 describe("coverageOf — uncovered is DERIVED, never dual-tracked", () => {
@@ -223,20 +212,6 @@ describe("batchRuns — token-budgeted, consecutive, never splits a message", ()
 	});
 });
 
-describe("batchTag — deterministic, ref-stable, mutation-sensitive", () => {
-	it("the same members in the same order → the same 12-hex tag; a different order is a different batch", () => {
-		const slots = coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")]);
-		assert.equal(batchTag(slots), batchTag(coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")])));
-		assert.notEqual(batchTag(slots), batchTag([...slots].reverse()), "batches are ordered runs");
-		assert.match(batchTag(slots), /^[0-9a-f]{12}$/);
-	});
-
-	it("a re-opened member changes the tag — its observations land as new events", () => {
-		const slots = coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")]);
-		const mutated = coverageSlots([teacher("m1", "aaaa!"), teacher("m2", "bbbb")]);
-		assert.notEqual(batchTag(slots), batchTag(mutated));
-	});
-});
 
 describe("the all-sessions coverage GET is dead (extraction-UX close-out, 2026-09-24)", () => {
 	it("the route file is gone — the only coverage endpoint is the Extract POST", () => {

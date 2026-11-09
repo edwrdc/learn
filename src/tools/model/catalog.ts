@@ -3,7 +3,7 @@
 
 export type QuestionKind = "quiz" | "explain" | "ask";
 
-export interface ToolInfo {
+interface ToolInfo {
 	kind: "question" | "practice" | "plan" | "job" | "side" | "submit";
 	/** It never mutates app state, so a crash mid-call may rerun it. */
 	replaySafe?: true;
@@ -55,7 +55,7 @@ export const TOOLS = {
 	submit_review: { kind: "submit" },
 } as const satisfies Record<string, ToolInfo>;
 
-export type ToolName = keyof typeof TOOLS;
+type ToolName = keyof typeof TOOLS;
 
 type NamesOf<K extends ToolInfo["kind"]> = { [N in ToolName]: (typeof TOOLS)[N]["kind"] extends K ? N : never }[ToolName];
 

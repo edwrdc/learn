@@ -30,9 +30,9 @@ import * as path from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
 import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult, buildProbeHandoffSteer } from "../src/jobs/model/types.ts";
-import { composeInstructions } from "../src/session/agents.ts";
+import { composeInstructions } from "../src/session/prompts.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
-import { webTools } from "../src/tools/web/web.ts";
+import { createWebTools } from "../src/tools/web/web.ts";
 import { handleChatRequest } from "../src/session/turn.ts";
 import { testEngines } from "./support-durable.ts";
 import { runningTurn } from "../src/session/turn-runs.ts";
@@ -819,6 +819,7 @@ describe("researcher agent", () => {
 	it("runs with the web tool set (no network touched)", async () => {
 		// The researcher role's tool set is webTools — that is what its
 		// durable run sees.
+		const webTools = createWebTools(() => null);
 		assert.ok(webTools.web_search, "web_search available");
 		assert.ok(webTools.web_fetch, "web_fetch available");
 		assert.equal(Object.keys(webTools).length, 2, "ONLY the web tools — no question/plan tools");

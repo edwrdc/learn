@@ -9,7 +9,7 @@ import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey } fro
 import { openChatRuntime, setRuntimeBootstrap } from "./session/durable.ts";
 import { handleChatInput, resumeForegroundTurn } from "./session/turn.ts";
 
-export interface BootOptions {
+interface BootOptions {
 	/** Background upkeep: crash recovery at boot, the extraction trigger and
 	 *  compaction after turns. Tests turn it off: their chats are fixtures. */
 	upkeep?: boolean;
@@ -18,7 +18,7 @@ export interface BootOptions {
 	engineFor?: (role: ModelRole) => PiEngine | undefined;
 }
 
-export interface AppServices {
+interface AppServices {
 	jobRunner: JobRunner;
 	extraction: ExtractionPipeline;
 	upkeep: boolean;

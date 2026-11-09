@@ -86,7 +86,7 @@ function newGraphChainId(): string {
  *  step appends one CoverageEntry per message on success ("covered" means
  *  exactly this merge happened). The notes path passes neither and keeps
  *  the whole-file checkpoint. */
-export interface MergeSource {
+interface MergeSource {
 	foldedAt: string;
 	/** The batch being merged (chat path): one entry per message in the
 	 *  extracted batch — undefined (notes path / coverage-less callers) →
@@ -233,7 +233,7 @@ export function mergeFindings(
 		ledgers.appendChain({ id, premises, conclusion, createdAt: now, provenance: pointOf(chatId) });
 		idOfKey.set(key, id);
 		assertedByChat.add(key);
-		stats.chains!++;
+		stats.chains++;
 	};
 	for (const chain of findings.chains) emitChain(chain); // the extractor's chains — the one chain source (digest-aware, owner 2026-09-30)
 
@@ -595,7 +595,7 @@ export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
  *  The prober's session-list tool renders these; the per-session view is
  *  graphSessionPropositions below. Pure derivation over the same ports
  *  the snapshot reads — Teacher's tool handlers call these in-process. */
-export interface GraphSessionEntry {
+interface GraphSessionEntry {
 	/** chatId or notes source id ("src_…") — the birth-session key. */
 	id: string;
 	/** The chat's title, or the file's path — the cluster label's source. */
@@ -658,7 +658,7 @@ export async function graphSessionIndex(deps: GraphDeps): Promise<GraphSessionEn
 /** One birth proposition of one session — WHAT WAS COVERED there (2026-09-27
  *  cleanup: no understanding levels; assessment is
  *  territory and nothing writes it until that module exists). */
-export interface GraphSessionProposition {
+interface GraphSessionProposition {
 	nodeId: string;
 	/** The compact handle — the same name the canvas shows. */
 	name: string;
@@ -673,7 +673,5 @@ export async function graphSessionPropositions(deps: GraphDeps, sessionId: strin
 		.sort((a, b) => (a.nodeId < b.nodeId ? -1 : 1));
 }
 
-// Re-export: the contract owns the shape; legacy importers still reach it.
-export type { EmissionStats };
 
 

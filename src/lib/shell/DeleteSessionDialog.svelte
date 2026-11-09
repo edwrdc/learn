@@ -12,7 +12,7 @@ import type { ChatListItem } from "@/src/session/model";
 	}: {
 		chat: Pick<ChatListItem, "id" | "title"> | null;
 		onClose: () => void;
-		onDeleted: (id: string, mode: ChatDeleteMode, graphRevision: number) => void;
+		onDeleted: (id: string, graphRevision: number) => void;
 	} = $props();
 
 	let traces = $state(false);
@@ -35,7 +35,7 @@ import type { ChatListItem } from "@/src/session/model";
 		failure = null;
 		try {
 			const { graphRevision } = await deleteChat(chat.id, mode);
-			onDeleted(chat.id, mode, graphRevision);
+			onDeleted(chat.id, graphRevision);
 		} catch (error) {
 			failure =
 				error instanceof ApiError

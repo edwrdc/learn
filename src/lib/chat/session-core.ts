@@ -16,14 +16,14 @@
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { needsContinuation, newAnswerResult, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, projectView, type ChatInput, type LhMarkerMessage, type LhMessage, type LhViewMessage, type LiveExecution, type QuestionAnswerData } from "@/src/session/model";
 
-export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
+type SessionStatus = "ready" | "submitted" | "streaming" | "error";
 
 /** How often to poll turnInFlight while a racing turn runs (409 retry). */
-export const TURN_POLL_MS = 500;
+const TURN_POLL_MS = 500;
 /** Give up waiting (a wake turn can run long) and surface the 409. */
-export const TURN_WAIT_MAX_MS = 30_000;
+const TURN_WAIT_MAX_MS = 30_000;
 
-export interface SessionModelDeps {
+interface SessionModelDeps {
 	/** Injectable fetch (tests); defaults to the global. */
 	fetch?: typeof globalThis.fetch;
 	/** Injectable retry timing (tests). */
@@ -176,7 +176,7 @@ export function visibleQueuedSteers(
 	return queue.filter((s) => !ids.has(s.id));
 }
 
-export interface SessionModelOptions extends SessionModelDeps {
+interface SessionModelOptions extends SessionModelDeps {
 	chatId: string;
 	initialMessages: LhMessage[];
 	/** Fires on every state change (the hook re-renders). */
@@ -659,8 +659,7 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData): Promise<void> {
-		void tool;
+	submitAnswer(toolCallId: string, output: QuestionAnswerData): Promise<void> {
 		return this.send({ type: "answer", toolCallId, answer: output });
 	}
 

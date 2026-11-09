@@ -23,7 +23,7 @@ import type { JobStore } from "../jobs/model/index.ts";
 import type { JobRecord } from "../jobs/model/index.ts";
 import { compactionCutOf, type CompactionCut, type LhMessage } from "./model/transcript.ts";
 import { agentFor, type ChatPhase } from "./model/phases.ts";
-import { composeInstructions } from "./agents.ts";
+import { composeInstructions } from "./prompts.ts";
 import { createProberTools, createTeacherTools } from "./tools/registry.ts";
 import { practiceTools } from "./tools/practice.ts";
 import { toRegistrations } from "../tools/index.ts";

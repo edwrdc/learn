@@ -10,7 +10,7 @@ export function hintText(label: string, action?: KeyAction, binding?: string): s
 	return live ? `${label} (${live})` : label;
 }
 
-export type HintSide = "top" | "bottom" | "left" | "right";
+type HintSide = "top" | "bottom" | "left" | "right";
 
 export function hint(label: string, options: { action?: KeyAction; binding?: string; side?: HintSide } = {}) {
 	return (node: HTMLElement) => {

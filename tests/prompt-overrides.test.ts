@@ -37,7 +37,7 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-prompt-overrides-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const { PROMPTS_OVERRIDE_DIR } = await import("../src/platform/config.ts");
-const teacherAgent = await import("../src/session/agents.ts");
+const teacherAgent = await import("../src/session/prompts.ts");
 const { allSegmentPaths, effectivePromptSegments, promptOverrides } = await import("../src/session/prompts.ts");
 const { isValidSegmentPath } = await import("../src/settings/model/prompt-segments.ts");
 // Route-level pins drive the actual app/api handlers (framework-free

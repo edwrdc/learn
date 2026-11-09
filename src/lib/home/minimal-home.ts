@@ -8,7 +8,7 @@ export interface KnowledgeCounts {
 	importedNotes: number;
 }
 
-export interface KnowledgeLine {
+interface KnowledgeLine {
 	text: string;
 	block: "graph" | "sessions" | "notes";
 }

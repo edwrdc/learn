@@ -3,7 +3,6 @@
 	import type { JobRecord } from "@/src/jobs/model";
 	import { toolInfo } from "@/src/tools/model";
 	import DispatchCard from "$lib/artifacts/DispatchCard.svelte";
-	import JobCards from "$lib/artifacts/JobCards.svelte";
 	import ToolCallCard from "$lib/artifacts/ToolCallCard.svelte";
 	import ProbeDoneCard from "$lib/artifacts/ProbeDoneCard.svelte";
 	import PracticeCards from "./PracticeCards.svelte";
@@ -13,11 +12,11 @@
 </script>
 
 {#if tool === "research" || tool === "pdf"}
-	<JobCards {part} {jobs} />
-{:else if tool === "demo"}
-	<DispatchCard toolCallId={part.toolCallId} kind="demo" {jobs} />
-{:else if tool === "visual"}
-	<DispatchCard toolCallId={part.toolCallId} kind="visual" {jobs} />
+	{#if part.state === "output-available"}
+		<DispatchCard toolCallId={part.toolCallId} kind={tool} {jobs} />
+	{/if}
+{:else if tool === "demo" || tool === "visual"}
+	<DispatchCard toolCallId={part.toolCallId} kind={tool} {jobs} />
 {:else if tool === "probe_done"}
 	<ProbeDoneCard {part} />
 {:else if toolInfo(tool)?.kind === "side"}

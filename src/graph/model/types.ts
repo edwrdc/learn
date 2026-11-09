@@ -57,14 +57,12 @@ export interface GraphChain {
 
 /** What one extraction run merged into the graph ledgers — the merger's
  *  output, also persisted in extraction-run usage records (contracts/chat).
- *  `chains` is OPTIONAL IN OLD RECORDS ONLY: usage history from the
- *  pre-chains era carries `edges` instead — tolerated at read, never
- *  written again (no-backward-compat regime, owner 2026-09-30). */
+ */
 export interface EmissionStats {
 	/** New graph nodes appended. */
 	nodes: number;
 	/** New reasoning chains appended. */
-	chains?: number;
+	chains: number;
 	/** Chains the simplification pass removed in this merge (owner,
 	 *  2026-09-30 evening — ancestry-cover / prefer-fewest-premises).
 	 *  Maintenance, not extraction: appends are counted in `chains`
@@ -97,10 +95,6 @@ export interface NotesSource {
 	filePath: string;
 	/** ISO — when this file was imported (the checkpoint's foldedAt). */
 	importedAt: string;
-	/** Legacy content fingerprint. Accepted when reading old records, but
-	 * ignored: every explicit notes import processes the whole file. New
-	 * imports do not compute or write this field. No migration is needed. */
-	contentFp?: string;
 	/** The run's usage log — same append-only discipline as
 	 *  ChatRecord.extractions, idempotent per startedAt. */
 	extractions?: ExtractionRunUsage[];
@@ -206,7 +200,7 @@ export interface CoverageEntry {
  *  rewordings, and compressions of the same claim MERGE — do not create
  *  a duplicate because the wording differs. Only genuinely distinct
  *  propositions stay apart. */
-export interface IdentityLink {
+interface IdentityLink {
 	id: string;
 	linkTo: string;
 }

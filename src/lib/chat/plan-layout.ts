@@ -3,7 +3,7 @@ import { graphlib } from "dagre-d3-es";
 import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 import { curveBasis, line } from "d3-shape";
 
-export const PAD_X = 16;
+const PAD_X = 16;
 export const NODE_W_MIN = 96;
 export const NODE_H = 44;
 const NARROW_CHARS = new Set(" ijltfr.,:;'!|()[]-\\");
@@ -11,7 +11,7 @@ const WIDE_CHARS = new Set("mwMW@");
 const CAP_DIGIT = /[A-Z0-9]/;
 export const LINE_H = 13;
 export const GAP_X = 24;
-export const GAP_Y = 48;
+const GAP_Y = 48;
 export const GRAPH_PAD = 8;
 export const GLOW_MARGIN = 8;
 export const GLOW_BLUR = 5;
@@ -127,44 +127,6 @@ export function edgePathD(
 	return edgeLine(pts) ?? "";
 }
 
-export function topoFor(nodes: readonly LayoutNode[], edges: ReadonlyArray<{ from: string; to: string }>) {
-	const index = new Map(nodes.map((node, i) => [node.id, i] as const));
-	const indegree = new Map<string, number>(nodes.map((node) => [node.id, 0] as const));
-	const dependents = new Map<string, string[]>();
-	for (const edge of edges) {
-		if (!index.has(edge.from) || !index.has(edge.to)) continue;
-		indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
-		const list = dependents.get(edge.from);
-		if (list) list.push(edge.to);
-		else dependents.set(edge.from, [edge.to]);
-	}
-	const ready = nodes.filter((node) => (indegree.get(node.id) ?? 0) === 0).map((node) => node.id);
-	const order: LayoutNode[] = [];
-	const depth = new Map<string, number>();
-	const byId = new Map(nodes.map((node) => [node.id, node] as const));
-	while (ready.length > 0) {
-		ready.sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
-		const id = ready.shift()!;
-		const node = byId.get(id);
-		if (node) order.push(node);
-		const d = depth.get(id) ?? 0;
-		depth.set(id, d);
-		for (const next of dependents.get(id) ?? []) {
-			if ((depth.get(next) ?? -1) < d + 1) depth.set(next, d + 1);
-			const left = (indegree.get(next) ?? 0) - 1;
-			indegree.set(next, left);
-			if (left === 0) ready.push(next);
-		}
-	}
-	for (const node of nodes) {
-		if (!depth.has(node.id)) {
-			order.push(node);
-			depth.set(node.id, 0);
-		}
-	}
-	return { order, depth };
-}
-
 export function blockLayout(nodes: readonly LayoutNode[], edges: ReadonlyArray<{ from: string; to: string }>) {
 	const x = new Map<string, number>();
 	const y = new Map<string, number>();
@@ -260,7 +222,3 @@ export function latestTree(messages: readonly PopupMessage[]) {
 	return null;
 }
 
-export function planExists(messages: readonly PopupMessage[]): boolean {
-	const tree = latestTree(messages);
-	return !!tree && tree.nodes.length > 0;
-}

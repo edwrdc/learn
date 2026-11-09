@@ -66,7 +66,7 @@ function signature(endpoint: CustomEndpointConfig | null, key: string | undefine
  * request with no restart and no stale provider surviving. Returns the
  * endpoint it synced from.
  */
-export function syncCustomEndpointProvider(): CustomEndpointConfig | null {
+function syncCustomEndpointProvider(): CustomEndpointConfig | null {
 	const endpoint = settingsStore.readSettings()?.customEndpoint ?? null;
 	const key = endpoint ? activeKeyFor(endpoint)?.key : undefined;
 	const next = signature(endpoint, key);
@@ -98,7 +98,7 @@ export function missingProviderKey(provider: string, slots: ModelSlotName[]): Pr
 	return present ? null : providerKeyMissing(provider, slots);
 }
 
-export type CustomEndpointWriteResult =
+type CustomEndpointWriteResult =
 	| { ok: true; state: CustomEndpointState }
 	| { ok: false; error: string };
 
@@ -184,7 +184,7 @@ export function removeCustomEndpoint(): CustomEndpointState {
 	return customEndpointState();
 }
 
-export type DiscoveryResult =
+type DiscoveryResult =
 	| { ok: true; models: DiscoveredCustomModel[] }
 	| { ok: false; error: string; status: 400 | 502 };
 

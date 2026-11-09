@@ -100,11 +100,3 @@ test("graph: a NEWER-stamped sidecar is refused honestly", async () => {
 	assert.throws(() => graphStore.readSources(), /older than its data|format version 99/);
 });
 
-// ── the fixtures stay the legacy pin: golden data reads unstamped ───────────
-
-test("golden fixtures are deliberately the unstamped legacy shape (lazy v1 = current-valid)", async () => {
-	const here = path.dirname(new URL(import.meta.url).pathname);
-	const teach = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "golden-data", "chats", "chat_mv27rrra_feff23b6.json"), "utf8"));
-	assert.equal(teach.version, undefined, "fixture records pin the unstamped read path");
-	assert.ok(!fs.existsSync(path.join(here, "fixtures", "golden-data", "graph", "format.json")), "no sidecar in the fixture graph dir");
-});

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ThinkingBlock from "./ThinkingBlock.svelte";
 	import { type GraphContextPick } from "@/src/session/model";
 	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
@@ -35,7 +36,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import AbortTurnDialog from "./AbortTurnDialog.svelte";
 	import CompactionDivider from "./CompactionDivider.svelte";
 	import GraphContextCard from "./GraphContextCard.svelte";
-	import ThinkingCard from "./ThinkingCard.svelte";
 	import Reasoning from "./Reasoning.svelte";
 	import DictationBar from "./DictationBar.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
@@ -503,7 +503,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		if (!pending) return;
 		const reading = readingThinking.trim() || undefined;
 		readingThinking = "";
-		session.submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
+		session.submitAnswer(pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
 	}
 </script>
 
@@ -630,7 +630,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 										{:else if part.type === "data-compaction-cut"}
 											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} cut />
 										{:else if part.type === "data-practice-thinking"}
-											<ThinkingCard data={part.data as { problemCallId: string; text: string }} />
+											<ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={(part.data as { text: string }).text} defaultOpen />
 										{:else if part.type === "data-practice-next"}
 											<div data-testid="practice-next-line" class="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
 												<span aria-hidden="true">→</span>

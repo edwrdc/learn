@@ -30,7 +30,7 @@ import { runRole } from "./roles/role.ts";
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
 type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
 
-export interface JobRunnerDeps {
+interface JobRunnerDeps {
 	chatStore: ChatStore;
 	jobStore: JobStore;
 	/**

@@ -95,40 +95,6 @@ function usageAt(startedAt: number): ExtractionRunUsage {
 }
 
 describe("listChats batches record reads", () => {
-	it("imports every legacy record once when the first batch opens three at a time", async () => {
-		const ids = [
-			"chat_batch_legacy_1",
-			"chat_batch_legacy_2",
-			"chat_batch_legacy_3",
-			"chat_batch_legacy_4",
-			"chat_batch_legacy_5",
-		];
-		const backups = new Map(ids.map((id) => [id, writeLegacyRecord(id)]));
-		const readdirOrder = fs
-			.readdirSync(chatsDir())
-			.filter((name) => name.endsWith(".json"))
-			.map((name) => name.slice(0, -5));
-
-		const list = await chatStore.listChats();
-
-		const mine = list.filter((entry) => ids.includes(entry.id));
-		assert.deepEqual(
-			mine.map((entry) => entry.id),
-			readdirOrder.filter((id) => ids.includes(id)),
-			"equal updatedAt values keep the readdir order",
-		);
-		assert.equal(mine.length, ids.length, "no legacy record is dropped");
-		assert.ok(mine.every((entry) => entry.messageCount === 1), "each legacy transcript is imported");
-		for (const id of ids) {
-			const runtime = await openChatRuntime(id);
-			assert.equal((await readEntries(runtime)).length, 1, `${id}: one durable entry, not one per concurrent importer`);
-			assert.deepEqual(fs.readFileSync(path.join(runtime.dir, "legacy-chat.json")), backups.get(id), `${id}: the original bytes are the backup`);
-			const meta = JSON.parse(fs.readFileSync(chatFile(id), "utf-8")) as Record<string, unknown>;
-			assert.equal(meta.messages, undefined, `${id}: the metadata drops the transcript`);
-			assert.equal(meta.version, CURRENT_CHAT_VERSION);
-			await closeChatRuntime(id);
-		}
-	});
 
 	it("keeps updatedAt order across corrupt and current records", async () => {
 		writeMetaRecord("chat_batch_new", "Newest", "2026-04-01T00:00:00.000Z");

@@ -37,7 +37,7 @@ const endpoint = (role: string) =>
 			'verbatim ("n_…"), OR the local id of a proposition in this submission ("p1", …).',
 	});
 
-export const chainSchema = Type.Object({
+const chainSchema = Type.Object({
 	premises: Type.Array(endpoint("premise uses"), {
 		minItems: 1,
 		description:
@@ -97,7 +97,7 @@ export const sessionFindingsSchema = Type.Object({
 /** One proposed proposition, as the merger reads it after the submit seam
  *  filled it: aliases always present; messageId only on the session path
  *  (the notes door has no passages). */
-export type ExtractedProposition = Omit<Static<typeof sessionProposition>, "aliases" | "messageId"> & {
+type ExtractedProposition = Omit<Static<typeof sessionProposition>, "aliases" | "messageId"> & {
 	aliases: string[];
 	messageId?: string;
 };

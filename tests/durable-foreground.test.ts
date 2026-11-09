@@ -51,11 +51,12 @@ import { effectiveSettings, stores } from "../src/stores.ts";
 import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+server.ts";
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { projectView } from "../src/session/model/view.ts";
-import { bareQuestionTools } from "../src/session/agents.ts";
+import { bareQuestionTools } from "./support-tools.ts";
 import { providerEventsDir } from "../src/platform/provider-events.ts";
 import { PATHS } from "../src/platform/config.ts";
 import type { PiEngine } from "../src/platform/engines.ts";
 import type { AppTool } from "../src/tools/adapter.ts";
+import { posedPlaceholder } from "./support-tools.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -532,6 +533,8 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("q-a"),
+			posedPlaceholder("q-b"),
 		]);
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		const afterSeed = (await chatStore.getChat(chat.id))!.updatedAt;
@@ -578,6 +581,8 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("q-touch-a"),
+			posedPlaceholder("q-touch-b"),
 		]);
 		const originalTouch = chatStore.touchChat;
 		try {

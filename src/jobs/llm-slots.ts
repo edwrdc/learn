@@ -31,13 +31,13 @@ import { processState } from "../platform/model/index.ts";
  *  extraction chunks). */
 export const BG_LLM_PERMITS = 3;
 
-export interface LlmSlots {
+interface LlmSlots {
 	active: number;
 	queue: { resolve: () => void; dead: boolean }[];
 }
 
 /** The process's single permit pool. */
-export function bgLlmSlots(): LlmSlots {
+function bgLlmSlots(): LlmSlots {
 	return processState<LlmSlots>("llmSlots", () => ({ active: 0, queue: [] }));
 }
 

@@ -63,7 +63,7 @@ export interface DiscoveredCustomModel {
 	name: string;
 }
 
-export type CustomEndpointResult<T> =
+type CustomEndpointResult<T> =
 	| { ok: true; value: T }
 	| { ok: false; error: string };
 
@@ -81,7 +81,7 @@ function text(value: unknown, field: string, max: number): CustomEndpointResult<
 /** Is this host literally loopback? HTTP is allowed ONLY here; HTTPS is
  *  allowed anywhere. Plain names/IPs only — a DNS name that happens to
  *  resolve to 127.0.0.1 still requires HTTPS (we do not resolve names). */
-export function isLoopbackHost(hostname: string): boolean {
+function isLoopbackHost(hostname: string): boolean {
 	const host = hostname.toLowerCase();
 	return (
 		host === "localhost" ||

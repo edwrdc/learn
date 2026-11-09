@@ -22,7 +22,7 @@ import type { EmissionStats } from "../../graph/model/index.ts";
 import { callCost, sumSteps } from "./prices.ts";
 
 /** One pipeline stage's cumulative cost across every run. */
-export interface StageCost {
+interface StageCost {
 	/** Inferred USD summed over PRICED runs (partial when unpricedRuns > 0). */
 	dollars: number;
 	/** Stage-runs whose model is missing from PRICES (render "—", never zero). */
@@ -34,7 +34,7 @@ export interface StageCost {
 }
 
 /** One run in the recent-runs list (extraction or naming). */
-export interface RecentRun {
+interface RecentRun {
 	startedAt: number;
 	/** ISO wall-clock. */
 	at: string;

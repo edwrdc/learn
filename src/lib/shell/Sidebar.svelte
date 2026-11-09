@@ -8,7 +8,6 @@
 	import { onMount } from "svelte";
 	import { Dumbbell, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from "@lucide/svelte";
 	import { fuzzyScore } from "@/src/platform/model";
-import { type ChatDeleteMode } from "@/src/graph/model";
 import { type ChatListItem } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
@@ -94,7 +93,7 @@ import { type ChatListItem } from "@/src/session/model";
 		void goto(`/chat/${encodeURIComponent(id)}`);
 	}
 
-	function onDeleted(id: string, _mode: ChatDeleteMode, graphRevision: number) {
+	function onDeleted(id: string, graphRevision: number) {
 		deleting = null;
 		chats = chats ? chats.filter((c) => c.id !== id) : chats;
 		if (pathname === `/chat/${id}`) void goto("/");

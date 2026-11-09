@@ -47,7 +47,7 @@ const SUMMARIZER_SYSTEM_PROMPT =
 /** The one-shot summary call: zero tools, one turn, text out. The engine
  *  is the chat's own conversation engine (owner ruling: the session's
  *  model writes its own summary). Injectable for tests. */
-export type Summarizer = (
+type Summarizer = (
 	prompt: string,
 	engine: PiEngine,
 	chatId: string,

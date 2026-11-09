@@ -49,10 +49,10 @@ import { abortBackgroundRun } from "./runtime.ts";
  *  Wave C: the input is the IDLE WAKE — every queued marker as the turn's
  *  input appends (the handler appends them natively under the wake's own
  *  turn claim; one composition for every turn). */
-export type TurnRunner = (chatId: string, input: TurnInput) => Promise<number>;
+type TurnRunner = (chatId: string, input: TurnInput) => Promise<number>;
 
 /** Re-runs a job's sub-agent loop (crash recovery for orphaned jobs). */
-export type JobRespawn = (jobId: string) => void;
+type JobRespawn = (jobId: string) => void;
 
 interface QueuedSteer {
 	steer: SteerMessage;
@@ -249,7 +249,7 @@ export function settleSteers(chatId: string, persisted: { id?: string }[]): void
 }
 
 /** Result of an abort attempt — the endpoint maps these to HTTP. */
-export interface AbortOutcome {
+interface AbortOutcome {
 	ok: boolean;
 	reason?: "not_found" | "not_running";
 }

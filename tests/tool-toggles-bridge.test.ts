@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { z } from "zod";
 import { describe, it } from "node:test";
-import { bareQuestionTools } from "../src/session/agents.ts";
+import { bareQuestionTools } from "./support-tools.ts";
 import { createProberTools, type ProberToolContext } from "../src/session/tools/registry.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { parseSection } from "../src/settings/model/schema.ts";

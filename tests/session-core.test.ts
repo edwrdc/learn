@@ -825,7 +825,7 @@ describe("send (one input event, verbatim consumption)", () => {
 			throw new Error(`unexpected fetch: ${String(input)}`);
 		}) as typeof globalThis.fetch;
 		const m = model({ initialMessages: [newUserMessage("hi"), quizCall] });
-		const pending = m.submitAnswer("quiz", "call-1", { correct: true } as never);
+		const pending = m.submitAnswer("call-1", { correct: true } as never);
 		// The dock's AnsweredCard state — before any server round-trip:
 		const state = m.getState();
 		const quizPart = state.messages

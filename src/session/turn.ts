@@ -286,7 +286,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
  *  composition seams (a job runner whose spawn/deliver a test owns), or a
  *  test-authored tool registry (the loop/protocol suites drive narrow tool
  *  sets; the composition root still installs them through the one adapter). */
-export interface ChatTurnInjection {
+interface ChatTurnInjection {
 	engine?: PiEngine;
 	deps?: Partial<ConversationDeps>;
 	tools?: Record<string, unknown>;

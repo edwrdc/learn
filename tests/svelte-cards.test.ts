@@ -325,7 +325,7 @@ describe("practice surface", () => {
 	});
 
 	it("thinking card arrives expanded with the card band and rail", async () => {
-		const body = await html("/src/lib/chat/ThinkingCard.svelte", { data: { problemCallId: "c", commit: false, text: "stuck at step two" } });
+		const body = await html("/src/lib/chat/ThinkingBlock.svelte", { testId: "thinking-card", label: "YOUR THINKING", text: "stuck at step two", defaultOpen: true });
 		assert.match(body, /YOUR THINKING/);
 		assert.ok(body.includes("stuck at step two"));
 		assert.ok(body.includes('aria-expanded="true"'));

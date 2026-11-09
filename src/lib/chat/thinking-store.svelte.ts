@@ -2,11 +2,11 @@
  *  default until toggled again. */
 export const userThinking = $state<{ value: boolean | null }>({ value: null });
 
-export function currentUserThinkingOpen(): boolean {
+function currentUserThinkingOpen(): boolean {
 	return userThinking.value ?? true;
 }
 
-export function setAllUserThinkingOpen(open: boolean): void {
+function setAllUserThinkingOpen(open: boolean): void {
 	userThinking.value = open;
 }
 

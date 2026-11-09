@@ -20,7 +20,7 @@ import * as path from "node:path";
  * agent (pdf-reader.ts) drives them through its own tool loop.
  */
 
-export interface PdfPageInfo {
+interface PdfPageInfo {
 	page: number;
 	text_length: number;
 	image_count: number;
@@ -29,7 +29,7 @@ export interface PdfPageInfo {
 	math_density: number;
 }
 
-export interface PdfInfo {
+interface PdfInfo {
 	path: string;
 	page_count: number;
 	/** Mean chars/page — the size class the strategy branches on. */
@@ -184,7 +184,7 @@ export async function pdfExtract(filePath: string, pageSpec: string): Promise<st
 	return out.join("\n");
 }
 
-export interface PdfSearchHit {
+interface PdfSearchHit {
 	page: number;
 	line: number;
 	/** contextLines around the hit, `>>>` marking the hit line. */

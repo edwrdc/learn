@@ -63,7 +63,7 @@ export type ServerEvent<K extends ServerEventType = ServerEventType> = {
 	type: K;
 } & ServerEvents[K];
 
-export type ServerEventListener = (event: ServerEvent) => void;
+type ServerEventListener = (event: ServerEvent) => void;
 
 /** The shared listener set. Ephemeral by design: a process restart
  *  drops the listeners with their connections; emitters never queue. */

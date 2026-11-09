@@ -24,7 +24,8 @@ export function parseNotesImportResults(body: unknown, files: readonly File[]): 
 				typeof result.stats !== "object" ||
 				!Number.isFinite(result.stats.nodes) ||
 				result.stats.nodes < 0 ||
-				(result.stats.chains !== undefined && (!Number.isFinite(result.stats.chains) || result.stats.chains < 0)))
+				!Number.isFinite(result.stats.chains) ||
+				result.stats.chains < 0)
 		)
 			throw invalid();
 		if (result.ok && !result.stats) throw invalid();

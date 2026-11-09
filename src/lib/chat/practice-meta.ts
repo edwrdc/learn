@@ -1,11 +1,11 @@
 /** The conclude card's metadata rows (the old MetadataPopover data seam). */
-export interface PracticeMetaInputs {
+interface PracticeMetaInputs {
 	conclude: { outcome?: string; rung?: unknown; missClass?: unknown; retest?: unknown };
 	problem: { mode?: unknown; target?: unknown };
 	names?: Record<string, string> | null;
 }
 
-export interface MetaRow {
+interface MetaRow {
 	label: string;
 	value: string;
 }

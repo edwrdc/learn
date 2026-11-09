@@ -6,7 +6,7 @@ import type { ServerEventType } from "@/src/platform/model";
 import { serverEvents } from "./server-events";
 import { onAppEvent, type SavedSection } from "$lib/events";
 
-export interface ResourceOptions {
+interface ResourceOptions {
 	events?: ServerEventType[];
 	settings?: SavedSection[];
 	visibility?: boolean;

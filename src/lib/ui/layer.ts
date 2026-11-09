@@ -2,7 +2,7 @@
  *  the newest one; a click outside a layer closes that layer. Call from an
  *  effect while the layer is open and return the cleanup. */
 
-export interface LayerOptions {
+interface LayerOptions {
 	/** Nodes that count as inside (the anchor, the popover body). */
 	inside?: () => ReadonlyArray<Node | null | undefined>;
 	/** Clicks inside a floating menu (MenuShell portals) count as inside. */

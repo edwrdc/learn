@@ -119,7 +119,7 @@ export function applyClusterLabels(
 }
 export const LABEL_MAX_WIDTH = 170; // wrap width at the reference label size, world units
 export const LABEL_GAP = 2.9; // world units between node edge and first label line (the 2px-at-fit reference ÷ 0.69)
-export const LABEL_LINE_HEIGHT = 1.3;
+const LABEL_LINE_HEIGHT = 1.3;
 /** The node→cluster label cross-fade spans gate × this (camera-ratio
  *  units) — PROPORTIONAL since 2026-09-17. The old absolute span (0.5
  *  ratio) read as a 100% relative change at the old 0.5 gate but a bare

@@ -27,7 +27,7 @@ import {
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
-import { bareQuestionTools } from "../src/session/agents.ts";
+import { bareQuestionTools } from "./support-tools.ts";
 import { handleChatInput, handleChatRequest } from "../src/session/turn.ts";
 import "./support-durable.ts";
 import { effectiveSettings, stores } from "../src/stores.ts";
@@ -49,6 +49,7 @@ import type { LhMessage } from "../src/session/model/transcript.ts";
 const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 const steerRoute = await import("../src/routes/api/chats/[id]/steer/+server.ts");
 import { PATHS } from "../src/platform/config.ts";
+import { posedPlaceholder } from "./support-tools.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
 // turns pin openrouter per chat — the gate reads env-first truth, so the
@@ -1357,13 +1358,14 @@ describe("the silent dismissal (A2)", () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("call-a"),
+			posedPlaceholder("call-b"),
 		]);
 
 		// First dismissal completes call-a; call-b still dangles.
 		assert.equal((await dismissPost(chat.id, "call-a")).status, 200);
 		const pending = danglingQuestionOf((await chatStore.getChat(chat.id))!.messages);
 		assert.equal(pending?.toolCallId, "call-b", "the dock advances to the next question");
-		assert.equal(endsInDismissal((await chatStore.getChat(chat.id))!.messages), true);
 
 		// Second dismissal: nothing dangles, still paused.
 		assert.equal((await dismissPost(chat.id, "call-b")).status, 200);

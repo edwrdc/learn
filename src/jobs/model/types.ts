@@ -17,7 +17,7 @@ import { newHandoffMessage } from "../../session/model/index.ts";
 import type { JobKind } from "../../tools/model/index.ts";
 
 export type { JobKind };
-export type JobStatus = "running" | "done" | "error";
+type JobStatus = "running" | "done" | "error";
 
 export interface JobRecord {
 	id: string;

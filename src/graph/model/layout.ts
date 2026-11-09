@@ -160,7 +160,7 @@ export function inferenceDepths(
 	return out;
 }
 
-export interface SimOptions {
+interface SimOptions {
 	/** Link spring rest length (world units). */
 	linkDistance?: number;
 	/** Link spring stiffness MULTIPLIER (1 = d3's default
@@ -204,14 +204,14 @@ export interface SimOptions {
 }
 
 /** Link input: edges are undirected for layout purposes. */
-export interface LayoutEdge {
+interface LayoutEdge {
 	from: string;
 	to: string;
 }
 
 /** A derived implication node's chain linkage — what the depth pass needs
  *  to anchor the junction between its premises and their conclusion. */
-export interface ImpLink {
+interface ImpLink {
 	/** The imp node's id (arg_-prefixed — the stored chain's id). */
 	id: string;
 	premises: ReadonlyArray<string>;
@@ -509,7 +509,7 @@ export function createGraphSimulation(
 	return sim;
 }
 
-export interface IncrementalLayoutOptions {
+interface IncrementalLayoutOptions {
 	/** Manual ticks for the settle (default 300 — d3's anneal to alphaMin). */
 	ticks?: number;
 	/** Per-tick anchor re-blend (default 0.85; 1 = fully pinned). */

@@ -24,6 +24,7 @@ const { handleChatInput } = await import("../src/session/turn.ts");
 const testEngines: { teacher?: PiEngine } = {};
 await (await import("../src/boot.ts")).boot({ engineFor: (role) => (role === "teacher" ? testEngines.teacher : undefined) }).recovered;
 const { deleteChatSession } = await import("../src/session/operations.ts");
+const { posedPlaceholder } = await import("./support-tools.ts");
 const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
 const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { runningTurn, unregisterTurn } = await import("../src/session/turn-runs.ts");
@@ -366,7 +367,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 					fauxToolCall("ask_user_question", question, { id: "q-first" }),
 					fauxToolCall("ask_user_question", question, { id: "q-last" }),
 				], { stopReason: "toolUse" }), id: "two-questions",
-			}]);
+			}, posedPlaceholder("q-first", "ask_user_question"), posedPlaceholder("q-last", "ask_user_question")]);
 			const runtime = await openChatRuntime(chat.id);
 			const realCommit = runtime.harness.commit;
 			const writeEntered = deferred();

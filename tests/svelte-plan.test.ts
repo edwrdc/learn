@@ -11,8 +11,6 @@ import {
 	NODE_H,
 	NODE_W_MIN,
 	nodeWidth,
-	planExists,
-	topoFor,
 	wrapTitle,
 } from "../src/lib/chat/plan-layout.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
@@ -33,9 +31,6 @@ const CHAIN: PlanTree = {
 
 describe("plan layout (pure)", () => {
 	it("layers a chain top-down, one node per depth row", () => {
-		const { order, depth } = topoFor(CHAIN.nodes, CHAIN.edges);
-		assert.deepEqual(order.map((node) => node.id), ["a", "b", "c"]);
-		assert.equal(depth.get("c"), 2);
 		const layout = blockLayout(CHAIN.nodes, CHAIN.edges);
 		const W = nodeWidth(wrapTitle("Alpha node"));
 		assert.equal(W, NODE_W_MIN);
@@ -85,11 +80,6 @@ describe("plan layout (pure)", () => {
 		assert.ok(Math.abs(estimateLineWidth("The normal-form ladder") - 106.3) < 0.5);
 	});
 
-	it("planExists is false without a tree", () => {
-		assert.equal(planExists([]), false);
-		assert.equal(planExists([{ id: "m2", role: "assistant", parts: [{ type: "tool-plan_init", state: "output-available", output: { ok: true, tree: { nodes: [], edges: [], version: 0 } } }] } as never]), false);
-		assert.equal(planExists([{ id: "m2", role: "assistant", parts: [{ type: "tool-plan_init", state: "output-available", output: { ok: true, tree: CHAIN } }] } as never]), true);
-	});
 });
 
 describe("plan block", () => {

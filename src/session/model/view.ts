@@ -46,7 +46,7 @@ import type { PlanBlockData } from "./types.ts";
  *  fields are optional-typed so the pre-Wave-D renderer code compiles
  *  against it with minimal casts; anything else stays `unknown` through
  *  the index signature. */
-export interface LhViewPart extends Record<string, unknown> {
+interface LhViewPart extends Record<string, unknown> {
 	type: string;
 	id?: string;
 	text?: string;
@@ -78,7 +78,7 @@ export interface LiveExecution {
 }
 
 /** The live turn's execution layer, maintained by the session hook. */
-export interface LiveTurnState {
+interface LiveTurnState {
 	/** toolCallId → its execution outcome seen so far. */
 	executions: ReadonlyMap<string, LiveExecution>;
 	/** True while the turn runs — calls with no execution yet render

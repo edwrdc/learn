@@ -22,7 +22,7 @@ import { stripModelValueDebris } from "../../platform/model/index.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
-export interface QuizOption {
+interface QuizOption {
 	label: string;
 	value: string;
 	description?: string;
@@ -206,8 +206,8 @@ export const quizInputBase = Type.Object({
 // path accepts) runs at the CALL BOUNDARY in the tool's execute:
 // quizInputProblems here, the per-session plan-nodeId validation in
 // tools.ts (it reads the live chat record, which this core never touches).
-export const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
-export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
+const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
+type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 
 /** Normalize a persisted quiz `type` (display seam): old records carry
  *  none, and unhealable wobble degrades to undefined — callers render
@@ -246,7 +246,6 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 		"collapsed); check = posed AFTER the step's teaching is complete (arrives collapsed behind the Check your " +
 		"understanding reveal). ONE question per turn either way.",
 });
-
 
 /** The TEACH-side quiz object. The required pair leads the property
  *  order (owner, 2026-10-09): glm-5.3 dropped `type`/`nodeId` on long
@@ -356,9 +355,6 @@ export function explainInputProblems(input: { correctAnswer: string }): string[]
 	return [];
 }
 
-/** The TEACHER's quiz declaration (base + the position field). */
-export const quizInputSchema = quizInputObject;
-
 export const askInputSchema = Type.Object({
 	// No `mode` param — the pi original has none: the mode is inferred from
 	// whether options are present (the dock does exactly this). One less
@@ -390,17 +386,16 @@ export type QuizToolInput = Static<typeof quizInputObject>;
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
 
-
 /** A real selected answer, in the order the options were displayed. */
-export interface OptionAnswer {
+interface OptionAnswer {
 	label: string;
 	value: string;
 	index: number; // 1-based display index
 }
 
 export type QuestionKind = "quiz" | "ask" | "explain";
-export type SelectMode = "single-select" | "multi-select";
-export type QuestionMode = SelectMode | "text";
+type SelectMode = "single-select" | "multi-select";
+type QuestionMode = SelectMode | "text";
 
 /** Full question data — stored in the `lh_question` custom entry. */
 export interface QuestionData {
@@ -466,7 +461,7 @@ export interface QuestionAnswerData {
 }
 
 /** Client-facing question payload — deliberately omits the answer. */
-export interface ClientQuestion {
+interface ClientQuestion {
 	id: string;
 	kind: QuestionKind;
 	question: string;
@@ -663,17 +658,6 @@ export function isCorrect(selectedIndices: number[], correctIndices: number[]): 
 }
 
 // ─── arming + answering ─────────────────────────────────────────────────────
-
-export function toClientQuestion(qd: QuestionData): ClientQuestion {
-	return {
-		id: qd.id,
-		kind: qd.kind,
-		question: qd.question,
-		context: qd.context,
-		mode: qd.mode,
-		options: qd.options,
-	};
-}
 
 /**
  * Turn an AnswerRequest into the full answer record + the user message the

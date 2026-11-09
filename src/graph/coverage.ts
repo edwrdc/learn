@@ -45,23 +45,8 @@ export function messageViewLines(message: LhMessage, mid: string): string[] {
 	return lines;
 }
 
-/**
- * The teacher's prose blocks of a transcript, in order — the extractor's
- * prompt material. SAME selection as messageViewLines (the parity
- * doctrine survives the ruling in this one function pair), rendered
- * without the provenance prefix: plain paragraphs.
- */
-export function teacherProseBlocks(messages: ReadonlyArray<LhMessage>): string[] {
-	const out: string[] = [];
-	for (const message of messages) {
-		if ((message as { role?: string }).role !== "assistant") continue;
-		for (const text of textOf((message as { content: unknown }).content)) out.push(text.trim());
-	}
-	return out;
-}
-
 /** Tokens of a message's view. */
-export function viewTokens(lines: string[]): number {
+function viewTokens(lines: string[]): number {
 	return tokensForChars(lines.join("\n").length);
 }
 
@@ -77,7 +62,7 @@ export function messageFingerprint(message: LhMessage): string {
 }
 
 /** One message's coverage-relevant projection. */
-export interface CoverageSlot {
+interface CoverageSlot {
 	message: LhMessage;
 	fp: string;
 	tokens: number;
@@ -90,7 +75,7 @@ export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[
 }
 
 /** The covered-fingerprint set for one chat, from the ledger. */
-export function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
+function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
 	const out = new Set<string>();
 	for (const e of entries) if (e.chatId === chatId) out.add(e.fp);
 	return out;
@@ -169,17 +154,3 @@ export function batchRuns(slots: ReadonlyArray<CoverageSlot>, uncovered: Readonl
 	return runs;
 }
 
-/**
- * A batch's deterministic tag: hash of its member fingerprints. This is the
- * observation-ref prefix for the run (obs:<tag>:<sourceId> in the merger):
- * re-running the SAME batch (crash recovery) produces the same refs and
- * dedupes; a re-opened (mutated) message changes the tag, so its fresh
- * understanding observations land as new events — the most-recent fold
- * sees the update. Run-local source ids ("p1"…) alone could never do this:
- * their positions shift between runs.
- */
-export function batchTag(batch: ReadonlyArray<CoverageSlot>): string {
-	const h = createHash("sha256");
-	for (const slot of batch) h.update(slot.fp);
-	return h.digest("hex").slice(0, 12);
-}

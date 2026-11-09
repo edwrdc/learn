@@ -188,3 +188,15 @@ export function healPromptSwitches(agent: AgentSettings): AgentSettings {
 	const prompts = Object.fromEntries(Object.entries(agent.prompts ?? {}).filter(([segmentPath]) => !orphans.includes(segmentPath)));
 	return { ...agent, prompts };
 }
+
+/** One agent's instructions: its segments (the user's override where its
+ *  switch is on and the file exists, else the source), joined by `---`.
+ *  Only numeric-prefix fragments load, so documentation can live in the
+ *  prompt directories without reaching the model. */
+export function composeInstructions(kind: PromptAgent, switches?: Record<string, boolean>): string {
+	return effectivePromptSegments(kind, switches ?? {})
+		.map((s) => (s.enabled ? s.overrideText! : s.sourceText))
+		.map((t) => t.trim())
+		.filter(Boolean)
+		.join("\n\n---\n\n");
+}

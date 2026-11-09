@@ -39,7 +39,7 @@ import { AUTH_PROVIDER_KEYS } from "./model/auth-keys.ts";
 import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelsSettings } from "./model/settings.ts";
 
 /** The picker's client-safe model entry (contract: core/contracts/models.ts). */
-export type ModelDto = ModelCatalogEntry;
+type ModelDto = ModelCatalogEntry;
 
 /**
  * The conversation agents' resolved default (pure form — the strong slot
@@ -67,7 +67,7 @@ export function catalogDefaultsFor(
 
 /** The conversation agents' resolved default — what a settings-less chat
  *  runs: the strong slot, i.e. the birth-default for new sessions. */
-export function catalogDefaults(): CatalogDefaults | null {
+function catalogDefaults(): CatalogDefaults | null {
 	return catalogDefaultsFor(effectiveSettings().models.strong);
 }
 
@@ -309,7 +309,7 @@ export function clampChatLevel(settings: ChatSettings, strong: EffectiveModelSpe
 
 /** A model choice the catalog accepts, with its thinking level clamped
  *  (levels never reject a write), or the 400 refusal. */
-export type CheckedModels<T> = { ok: true; value: T } | { ok: false; error: string; supported?: string[] };
+type CheckedModels<T> = { ok: true; value: T } | { ok: false; error: string; supported?: string[] };
 
 export function checkModelsSettings(settings: ModelsSettings): CheckedModels<ModelsSettings> {
 	const verdict = validateModelsSettings(settings);

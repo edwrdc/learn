@@ -46,7 +46,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 /** Kept-recent tail budget (pi's default, owner-approved 2026-10-05):
  * ~20k tokens of verbatim recent transcript always ride after the
  * summary — recency is cheap insurance against summary loss. */
-export const KEEP_RECENT_TOKENS = 20_000;
+const KEEP_RECENT_TOKENS = 20_000;
 
 /** The reserve subtracted from the model's contextWindow when the window
  * (not the user's threshold) is the binding constraint (pi's default). */
@@ -82,7 +82,7 @@ export function calculateContextTokens(usage: {
  * details, escaped quotes/backslashes) inflates ~3x (measured on the
  * 2026-10-05 relational-databases incident: 84k estimated vs ~30k real). */
 /** Anything the token estimator reads: a role and its content. */
-export type EstimableMessage = { role?: string; content?: unknown };
+type EstimableMessage = { role?: string; content?: unknown };
 
 export function estimateMessageTokens(message: EstimableMessage): number {
 	const content: unknown = (message as { content?: unknown }).content;
@@ -124,7 +124,7 @@ function textCharsOfContent(content: unknown): number {
  * so pre-marker usage is not a valid anchor (pi's "don't trust usage
  * captured before a later compaction" law). Index into messages, or
  * null. */
-export function lastAssistantUsageIndex(messages: readonly EstimableMessage[]): number | null {
+function lastAssistantUsageIndex(messages: readonly EstimableMessage[]): number | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if ((m as { role?: string }).role === "custom" && (m as LhMarkerMessage).customType === "compaction") return null;
@@ -137,7 +137,7 @@ export function lastAssistantUsageIndex(messages: readonly EstimableMessage[]): 
 	return null;
 }
 
-export interface ContextTokenEstimate {
+interface ContextTokenEstimate {
 	/** The estimate the trigger should compare against the threshold. */
 	tokens: number;
 	/** Provider-reported tokens from the usage anchor (0 when unanchored). */

@@ -105,7 +105,7 @@ function recoverCommandRuns(inner: string, display: boolean): string {
 	return recovered;
 }
 
-export function healOverescapedCommands(text: string): string {
+function healOverescapedCommands(text: string): string {
 	return text.includes("\\\\") ? mapMathContent(text, recoverCommandRuns) : text;
 }
 

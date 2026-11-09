@@ -41,7 +41,7 @@ export function composeSlotModel(
 
 export const PROMPT_IN_USE_HINT = "Your version is in use";
 
-export interface PromptSection {
+interface PromptSection {
 	id: "teacher" | "prober" | "shared";
 	label: string;
 	hint?: string;

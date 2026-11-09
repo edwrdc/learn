@@ -30,7 +30,7 @@ export interface DemoRunResult {
 	ok: boolean;
 }
 
-export interface RunDemoOptions {
+interface RunDemoOptions {
 	/** How long to let the page settle (animations, async CDN loads) — default 2s. */
 	settleMs?: number;
 	/** Optional JS expression evaluated in the page after settling; its value
@@ -38,13 +38,13 @@ export interface RunDemoOptions {
 	probe?: string;
 }
 
-export interface RenderSvgOptions {
+interface RenderSvgOptions {
 	/** Viewport size — defaults to the SVG's width/height attrs, else 900×700. */
 	width?: number;
 	height?: number;
 }
 
-export interface RenderPdfOptions {
+interface RenderPdfOptions {
 	/** Render DPI — 72 is 100% zoom; the skill's guidance is 100/150/200. */
 	dpi?: number;
 }
@@ -88,7 +88,7 @@ const CHROME_CANDIDATES = [
 	"/usr/bin/chromium-browser",
 ];
 
-export function resolveChromeExecutablePath(): string | null {
+function resolveChromeExecutablePath(): string | null {
 	const candidates = [process.env.CHROME_PATH, ...CHROME_CANDIDATES].filter(
 		(p): p is string => typeof p === "string" && p.length > 0,
 	);
@@ -138,7 +138,7 @@ export function browserServiceSpawnEnv(
 /** The helper binary: inside the packaged app the server runs under
  *  ELECTRON_RUN_AS_NODE so process.execPath IS the app binary; in dev
  *  (plain node) the electron package resolves to the dev binary path. */
-export function browserServiceBinary(): string | null {
+function browserServiceBinary(): string | null {
 	if (process.versions.electron) return process.execPath;
 	try {
 		const req = createRequire(import.meta.url);

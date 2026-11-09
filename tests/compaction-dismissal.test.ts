@@ -27,7 +27,7 @@ const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
 const { setBackgroundRun } = await import("../src/jobs/durable-run.ts");
 const { writeSettings } = await import("../src/settings/store.ts");
-const { bareQuestionTools } = await import("../src/session/agents.ts");
+const { bareQuestionTools } = await import("./support-tools.ts");
 const { stores } = await import("../src/stores.ts");
 writeSettings({ version: 1, compaction: { thresholdTokens: 40_000 }, graph: { enabled: false } });
 const chats: string[] = [];
@@ -47,7 +47,7 @@ function deferred() {
 	return { promise, resolve };
 }
 
-async function seed(legacy = false, parallel = false) {
+async function seed(parallel = false) {
 	const chat = chatStore.createChat("compaction dismissal");
 	chats.push(chat.id);
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
@@ -56,7 +56,7 @@ async function seed(legacy = false, parallel = false) {
 		id: "pose", role: "assistant", content: ids.map((id) => ({ type: "toolCall", id, name: "quiz", arguments: question })),
 		api: "openai-completions", provider: "openrouter", model: "test", usage, stopReason: "toolUse", timestamp: 1,
 	};
-	const results: LhMessage[] = legacy ? [] : ids.map((id) => ({
+	const results: LhMessage[] = ids.map((id) => ({
 		id: "placeholder-" + id, role: "toolResult", toolCallId: id, toolName: "quiz",
 		content: [{ type: "text", text: "Question posed" }], details: null, isError: false, timestamp: 2,
 	}));
@@ -148,9 +148,9 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 }
 
 for (const tail of ["large input", "prior summary"] as const) {
-	for (const legacy of [false, true]) {
-		it("keeps parallel questions before " + tail + ", legacy=" + legacy, { timeout: 15_000 }, async () => {
-			const id = await seed(legacy, true);
+	{
+		it("keeps parallel questions before " + tail, { timeout: 15_000 }, async () => {
+			const id = await seed(true);
 			let summaries = 0;
 			const largeSummary = deps(async () => { summaries++; return { summary: "z".repeat(84_000), usage }; });
 			if (tail === "prior summary") await ensureCompacted(largeSummary, id);

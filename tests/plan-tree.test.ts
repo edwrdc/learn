@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { derivePlanStatuses, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/session/model/plan-types.ts";
-import { createTree, emptyTree, PlanTreeError } from "../src/session/model/plan-tree.ts";
+import { createTree, PlanTreeError } from "../src/session/model/plan-tree.ts";
 import { planTools } from "../src/session/tools/plan.ts";
 import { parseMermaidPlan } from "../src/session/tools/mermaid-plan.ts";
 import { chatStore } from "../src/session/store.ts";

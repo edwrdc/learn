@@ -323,8 +323,4 @@ describe("pi thinking truth (pinned against pi-ai upgrades)", () => {
 		}
 	});
 
-	it("the legacy piEngineFor role entry point throws honestly (BYOK: no pins)", async () => {
-		const { piEngineFor } = await import("../src/platform/engines.ts");
-		assert.throws(() => piEngineFor("prober"), /no configured model for role "prober"/);
-	});
 });
