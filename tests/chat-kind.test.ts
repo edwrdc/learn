@@ -43,4 +43,23 @@ describe("session kind (practice sessions, 2026-10-04)", () => {
 		const listed = (await chatStore.listChats()).find((c) => c.id === chat.id);
 		assert.equal(listed?.kind, "teach");
 	});
+
+	it("a posed, unconcluded problem lists as pendingProblem (the sidebar's Problem waiting)", async () => {
+		const chat = await chatStore.createChat("practice with a problem", "practice");
+		const stamps = {
+			api: "faux",
+			provider: "faux",
+			model: "faux-1",
+			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			stopReason: "toolUse",
+		};
+		const call = (id: string, name: string) => ({ id: `a_${id}`, role: "assistant", content: [{ type: "toolCall", id, name, arguments: {} }], timestamp: 1, ...stamps });
+		const ack = (id: string, name: string) => ({ id: `r_${id}`, role: "toolResult", toolCallId: id, toolName: name, content: [{ type: "text", text: "ok" }], details: null, isError: false, timestamp: 2 });
+		await chatStore.saveMessages(chat.id, [call("p1", "problem"), ack("p1", "problem")] as never);
+		const pending = (await chatStore.listChats()).find((c) => c.id === chat.id);
+		assert.equal(pending?.pendingProblem, true);
+		await chatStore.saveMessages(chat.id, [call("c1", "conclude"), ack("c1", "conclude")] as never);
+		const concluded = (await chatStore.listChats()).find((c) => c.id === chat.id);
+		assert.equal(concluded?.pendingProblem, false);
+	});
 });

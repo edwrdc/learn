@@ -21,7 +21,8 @@ import type { ChatStore } from "./model/ports.ts";
 import type { GraphStore } from "../graph/model/index.ts";
 import type { JobStore } from "../jobs/model/index.ts";
 import type { JobRecord } from "../jobs/model/index.ts";
-import { hasProbeDone, type LhMessage } from "./model/transcript.ts";
+import { compactionCutOf, type CompactionCut, type LhMessage } from "./model/transcript.ts";
+import { agentFor, chatPhase, type ChatPhase } from "./model/phases.ts";
 import { composeInstructions } from "./agents.ts";
 import { createProberTools, createTeacherTools } from "./tools/registry.ts";
 import { practiceTools } from "./tools/practice.ts";
@@ -29,12 +30,7 @@ import { toRegistrations } from "../tools/index.ts";
 import { bindRunEngine, type PiEngine } from "../platform/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
 import { claimToolCallId, collectToolCallIds } from "./pi/call-ids.ts";
-import { activeCompactionOf, keptIndexFor } from "./model/compaction.ts";
-import {
-	CONTINUATION_KIND,
-	modelTextOf,
-	type ChatRuntime,
-} from "./durable.ts";
+import { CONTINUATION_KIND, projectTranscript, type ChatRuntime } from "./durable.ts";
 import type { DemoInput, PdfInput, ResearchInput, VisualInput } from "../jobs/index.ts";
 
 /** What the composition root hands the setup: the stores and the seams the
@@ -47,16 +43,6 @@ export interface ConversationDeps {
 	deliver: (steer: LhMessage) => void;
 	searchAvailable: () => boolean;
 	graphNodes: () => ReadonlyArray<{ id: string; name: string }>;
-}
-
-export type ChatPhase = "probe" | "teach" | "practice";
-
-/** The transcript's phase seam (the old construction branch): practice
- *  sessions are practice from turn one; otherwise a probe_done call means
- *  the probe concluded and the teacher takes over. */
-export function chatPhase(messages: readonly LhMessage[], kind: string | undefined): ChatPhase {
-	if (kind === "practice") return "practice";
-	return hasProbeDone(messages) ? "teach" : "probe";
 }
 
 /** The app's tool set for one phase, as durable registrations. */
@@ -112,18 +98,6 @@ function toolsFor(
 	);
 }
 
-/** The wire form of one record message (what the provider saw for it). */
-function wireOf(message: LhMessage): Message | null {
-	if (message.role === "custom") {
-		const text = modelTextOf(message);
-		return text === null || text === ""
-			? null
-			: { role: "user", content: [{ type: "text", text }], timestamp: message.timestamp };
-	}
-	const { id: _id, ...native } = message;
-	return native as Message;
-}
-
 /** The round-wide question stop (the patched afterTools seam): a round that
  *  called a question tool ends the run unless one of those calls failed
  *  authoring validation (the model must retry inside the same turn). The stop
@@ -177,12 +151,15 @@ function uniqueCallIdsHook(used: Set<string>) {
 }
 
 /** The app's request shaping, at the one boundary durable offers: the hidden
- *  continuation INPUT never reaches the provider, and an active compaction
- *  cut projects [summary] + [messages from the kept boundary onward] — the
- *  same context the provider receives. The cut is resolved per turn
- *  (the model-facing half of the app's compaction contract); native
- *  automatic compaction is disabled. */
-function requestFilterHook(runtime: ChatRuntime, cut: { kept: Message; head: Message } | null) {
+ *  continuation input never reaches the provider, and an active compaction
+ *  cut sends the system prompt, the summary head, then the entries from the
+ *  kept message onward (native automatic compaction is disabled).
+ *
+ *  Request messages are matched to their entries by order: pi-durable
+ *  reorders only tool results (each after its call) and moves the system
+ *  prompt to the front, so every other message comes from the next entry
+ *  that contributed one. */
+function requestFilterHook(runtime: ChatRuntime, cut: CompactionCut | null) {
 	return hook(GenerationTask, {
 		beforeRequest: async (request, api, context) => {
 			try {
@@ -193,33 +170,35 @@ function requestFilterHook(runtime: ChatRuntime, cut: { kept: Message; head: Mes
 					throw new Error(`[chat ${runtime.chatId}] no request checkpoint for task ${api.taskId}`);
 				}
 				const view = await runtime.root.context(context, { at: checkpoint.cutoff });
-				// Tool results are ordered within a round; user messages keep their order.
-				const hidden: boolean[] = [];
-				view.entries.forEach((entry, index) => {
-					for (const message of view.contributions[index] ?? []) {
-						if (message.role === "user") hidden.push(entry.kind === CONTINUATION_KIND);
-					}
+				const ordered = (role: string) => role !== "toolResult" && role !== "system";
+				const owners: number[] = [];
+				view.entries.forEach((_, index) => {
+					for (const message of view.contributions[index] ?? []) if (ordered(message.role)) owners.push(index);
 				});
+				const { entryOf } = projectTranscript(view.entries);
+				const indexOf = (messageId: string) => {
+					const entry = entryOf.get(messageId);
+					return entry === undefined ? -1 : view.entries.findIndex((candidate) => candidate.id === entry);
+				};
+				const keptAt = cut ? indexOf(cut.keptId) : -1;
+				const markerAt = cut ? indexOf(cut.markerId) : -1;
+				const active = keptAt >= 0;
+				const carried: Message[] = [];
+				const kept: Message[] = [];
 				let ordinal = 0;
-				const filtered = request.messages.filter((message) =>
-					message.role === "user" ? hidden[ordinal++] !== true : true,
-				);
-				if (cut === null) return { messages: filtered };
-				const markerText = (cut.head.content as Array<{ text?: string }>)[0]?.text;
-				const withoutMarker = filtered.filter(
-					(message) =>
-						!(
-							message.role === "user" &&
-							Array.isArray(message.content) &&
-							message.content.length === 1 &&
-							(message.content[0] as { text?: string }).text === markerText
-						),
-				);
-				const at = withoutMarker.findIndex(
-					(message) => JSON.stringify(message) === JSON.stringify(cut.kept),
-				);
-				if (at < 0) return { messages: withoutMarker };
-				return { messages: [cut.head, ...withoutMarker.slice(at)] };
+				let owner = -1;
+				for (const message of request.messages) {
+					if (ordered(message.role)) owner = owners[ordinal++] ?? owner;
+					if (message.role === "user" && view.entries[owner]?.kind === CONTINUATION_KIND) continue;
+					if (!active) {
+						kept.push(message);
+						continue;
+					}
+					if (owner === markerAt && message.role === "user") continue;
+					if (owner >= keptAt) kept.push(message);
+					else if (message.role === "system") carried.push(message);
+				}
+				return { messages: active ? [...carried, cut!.head, ...kept] : kept };
 			} catch (error) {
 				// Hook errors are non-fatal; abort the generation before rethrowing.
 				const signal = (api as unknown as { signal: AbortSignal }).signal;
@@ -254,40 +233,26 @@ export async function prepareConversation(
 	options?: PrepareOptions,
 ): Promise<void> {
 	const phase = options?.phase ?? chatPhase(messages, kind);
-	const active = activeCompactionOf(messages);
-	const kept = active ? keptIndexFor(messages, active) : -1;
-	const keptWire = kept >= 0 ? wireOf(messages[kept]!) : null;
-	const cut =
-		active && keptWire
-			? {
-					kept: keptWire,
-					head: {
-						role: "user" as const,
-						content: [{ type: "text" as const, text: active.content }],
-						timestamp: active.timestamp,
-					},
-				}
-			: null;
 	const extension = defineExtension({
 		name: "lh",
 		tools: options?.tools ? toRegistrations(options.tools) : toolsFor(phase, chatId, deps, effective),
 		hooks: [
 			questionStopHook(chatId),
 			uniqueCallIdsHook(new Set(collectToolCallIds(messages))),
-			requestFilterHook(runtime, cut),
+			requestFilterHook(runtime, compactionCutOf(messages)),
 		],
 	});
 	runtime.registry.install(extension);
-	const engineKind = phase === "practice" ? "practice" : phase === "probe" ? "prober" : "teacher";
+	const agent = agentFor(phase);
 	// The root conversation's provider session id IS the public chat id
 	// (store/durable.ts init), so binding the chat id binds this turn's
 	// engine for its requests only — a background child never shares it.
-	bindRunEngine(chatId, engine, providerEventObserver(chatId, engineKind));
+	bindRunEngine(chatId, engine, providerEventObserver(chatId, agent));
 	await runtime.root.configure(
 		{
 			model: { provider: engine.model.provider, modelId: engine.model.id },
 			...(engine.level ? { thinkingLevel: engine.level as never } : {}),
-			instructions: composeInstructions(engineKind, effective.agent.prompts),
+			instructions: composeInstructions(agent, effective.agent.prompts),
 			// The registry IS the enabled set (the tool toggles already
 			// filtered it); the stored filter stays unset so it never widens.
 			tools: null,

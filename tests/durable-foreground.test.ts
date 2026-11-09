@@ -70,11 +70,13 @@ const QUIZ_INPUT = {
 
 type Step = FauxResponseStep;
 
-function scripted(steps: Step[]): { engine: PiEngine; calls: string[][] } {
+function scripted(steps: Step[]): { engine: PiEngine; calls: string[][]; roles: string[][] } {
 	const calls: string[][] = [];
+	const roles: string[][] = [];
 	const faux = createFauxCore({});
 	const wrap = (step: Step) => (context: { messages: unknown[] }) => {
 		calls.push(context.messages.map((m) => JSON.stringify((m as { content: unknown }).content)));
+		roles.push(context.messages.map((m) => (m as { role: string }).role));
 		return typeof step === "function"
 			? (step as (c: unknown, a: unknown, n: unknown, m: unknown) => unknown)(context, undefined, undefined, undefined)
 			: step;
@@ -94,6 +96,7 @@ function scripted(steps: Step[]): { engine: PiEngine; calls: string[][] } {
 			},
 		},
 		calls,
+		roles,
 	};
 }
 
@@ -354,12 +357,38 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				timestamp: 4,
 			} as never,
 		]);
-		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("ok")])]);
+		const { engine, calls, roles } = scripted([fauxAssistantMessage([fauxText("ok")])]);
 		await turn(chat.id, { type: "text", text: "continue" }, engine);
+		assert.equal(roles[0]![0], "system", "the system prompt survives the cut");
+		assert.ok(calls[0]![1]!.includes("SUMMARY-TEXT"), "the summary head follows the system prompt");
 		const prompt = calls[0]!.join("\n");
 		assert.ok(prompt.includes("SUMMARY-TEXT"), "the active summary renders once at the head");
 		assert.equal(prompt.split("SUMMARY-TEXT").length - 1, 1, "the marker never renders twice");
 		assert.ok(prompt.includes("KEEP-ME"), "the kept tail rides the request");
+		assert.ok(!prompt.includes("OLD-SECRET"), "the dropped span never reaches the provider");
+	});
+
+	it("the compaction cut applies when the first kept message is a UI-only plan block", async () => {
+		const chat = await createChat("Durable: cut at a plan block");
+		await appendMessages(chat.id, [
+			{ id: "msg_u1", role: "user", content: "OLD-SECRET", timestamp: 1 } as never,
+			{ id: "msg_pb", role: "custom", customType: "plan-block", content: "", display: true, details: {}, timestamp: 2 } as never,
+			{ id: "msg_u2", role: "user", content: "KEEP-ME", timestamp: 3 } as never,
+			{
+				id: "msg_marker",
+				role: "custom",
+				customType: "compaction",
+				content: "## Compacted history\n\nSUMMARY-TEXT",
+				display: true,
+				details: { firstKeptMessageId: "msg_pb", tokensBefore: 1, at: new Date().toISOString() },
+				timestamp: 4,
+			} as never,
+		]);
+		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("ok")])]);
+		await turn(chat.id, { type: "text", text: "continue" }, engine);
+		const prompt = calls[0]!.join("\n");
+		assert.equal(prompt.split("SUMMARY-TEXT").length - 1, 1);
+		assert.ok(prompt.includes("KEEP-ME"));
 		assert.ok(!prompt.includes("OLD-SECRET"), "the dropped span never reaches the provider");
 	});
 

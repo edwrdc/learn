@@ -6,7 +6,7 @@
  * THE CONTRACT: full history stays persisted in the record — extraction
  * and the user's transcript keep reading everything. A compaction marker
  * (LhMarkerMessage, customType "compaction") carries a summary plus the
- * cut (firstKeptMessageId); toLlmMessages — the ONE model-facing seam —
+ * cut (firstKeptMessageId); compactionCutOf — shared by the request filter —
  * projects [summary] + [messages from the cut onward] on every request.
  * The live agent never holds dropped messages because every run is built
  * fresh from the record: question/problem poses terminate their runs, so
@@ -32,7 +32,9 @@
  * model can continue mid-thought.
  */
 
+import { tokensForChars } from "../../platform/model/index.ts";
 import type { PlanTree } from "./plan-types.ts";
+import type { ChatPhase } from "./phases.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./plan-types.ts";
 import { COMPACTED_HISTORY_HEADER } from "./types.ts";
 import type { LhMessage, LhMarkerMessage } from "./transcript.ts";
@@ -100,7 +102,7 @@ export function estimateMessageTokens(message: EstimableMessage): number {
 	} else {
 		chars += textCharsOfContent(content);
 	}
-	return Math.ceil(chars / 4);
+	return tokensForChars(chars);
 }
 
 function textCharsOfContent(content: unknown): number {
@@ -363,7 +365,7 @@ export function buildCompactionPrompt(input: {
 	/** The plan tree rendered (planTreeToText) or null. */
 	planTreeText: string | null;
 	/** The session kind (wording: tutor vs practice agent). */
-	kind: "teach" | "practice" | "probe";
+	kind: ChatPhase;
 }): string {
 	const planSection =
 		input.planTreeText ?? "No plan tree exists in this session (nothing was persisted).";

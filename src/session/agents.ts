@@ -21,10 +21,8 @@ import { askUserQuestionTool } from "./tools/registry.ts";
 import { quizInputObject, quizInputProblems } from "./model/questions.ts";
 import { effectivePromptSegments } from "./prompts.ts";
 import type { AppTool } from "../tools/index.ts";
+import type { PromptAgent } from "../settings/model/index.ts";
 
-/** Which agent's prompt directory to compose. Practice (2026-10-04)
- *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice";
 
 /** Compose one role's instructions. Composition is delegated to the store
  *  module's effectivePromptSegments — one canonical segment-discovery rule
@@ -34,7 +32,7 @@ export type AgentKind = "prober" | "teacher" | "practice";
  *  source. `switches` is the settings record's agent.prompts map (absent key
  *  = off); a switches-less call composes pure source. Overrides are a
  *  static-file read through config paths, not request state. */
-export function composeInstructions(kind: AgentKind, switches?: Record<string, boolean>): string {
+export function composeInstructions(kind: PromptAgent, switches?: Record<string, boolean>): string {
 	const segments = effectivePromptSegments(kind, switches ?? {});
 	return segments
 		.map((s) => (s.enabled ? s.overrideText! : s.sourceText))

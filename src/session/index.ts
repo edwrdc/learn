@@ -1,6 +1,6 @@
 export { compactionInFlight } from "./compaction.ts";
 export { parkDismissal } from "./dismissal-park.ts";
-export { modelTextOf, openChatRuntime } from "./durable.ts";
+export { openChatRuntime } from "./durable.ts";
 export type { ChatRuntime } from "./durable.ts";
 export { createChat, deleteChatSession, getChat, listChats, sessionCoverage } from "./operations.ts";
 export { piTurnResponse } from "./pi/durable-turn.ts";

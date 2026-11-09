@@ -10,19 +10,17 @@
  * id, never the message. This app needs a per-message id for client
  * identity (render keys, append-only adoption, the continuation seam), so
  * every record message carries ONE extra field — `id` — alongside the
- * native shape. `toLlmMessages` strips it at the wire: the provider never
- * sees it (verified single site, below).
+ * native shape. `wireOf` strips it at the wire: the provider never
+ * sees it.
  *
  * UI-ONLY CONTENT (owner ruling, fork 1 + the plan's custom-message
  * taxonomy): the probe→teach handoff, sub-agent steers,
  * and plan blocks are LhMarkerMessage — this app's custom role, shaped
  * exactly like pi's own CustomMessage ({role:"custom", customType,
- * content, display, details}). ONE seam — toLlmMessages, applied by the
- * durable request filter — owns every model-facing decision: markers
- * flatten to their canonical user text (single-sourced in
- * core/contracts), plan blocks are UI-only and filtered, and dangling
- * tool calls (an aborted turn) get the interrupted-result synthesis the
- * provider protocol demands.
+ * content, display, details}). wireOf decides what each one shows the
+ * model (markers flatten to their user text, UI-only markers show
+ * nothing) and compactionCutOf decides which messages a request skips;
+ * the durable entry writes and the request filter both use them.
  *
  * Answers (fork 1, owner 2026-09-26): the learner's answer IS the tool
  * call's ToolResultMessage — appended natively at answer time. The
@@ -83,8 +81,6 @@ export interface LhMarkerMessage {
 /** A record message: a native pi message (or our marker) plus the record id. */
 export type LhMessage = (UserMessage | AssistantMessage | ToolResultMessage | LhMarkerMessage) & { id: string };
 
-/** A model-facing message list: native messages plus our markers. */
-export type AppMessage = Message | LhMarkerMessage;
 
 // ─── id minting ──────────────────────────────────────────────────────────────
 
@@ -165,7 +161,7 @@ export function newHandoffMessage(chatId: string): LhMarkerMessage {
 }
 
 /** The plan presentation block: pure UI history (a frozen snapshot), no
- *  model face — toLlmMessages filters it. `planCallId` keys idempotent
+ *  model face — wireOf drops it. `planCallId` keys idempotent
  *  emission (one block per successful plan_init call). */
 export function newPlanBlockMessage(
 	planCallId: string,
@@ -201,7 +197,7 @@ export interface GraphContextPick {
  *  message BEFORE the learner's first user message — the picked
  *  propositions plus the reasoning chains among them (pre-formatted
  *  lines, formatChainLine shape). The model reads `content` (flattened
- *  to a user message by toLlmMessages like every marker); `details`
+ *  to a user message by wireOf like every marker); `details`
  *  feeds the transcript's collapsible GraphContextCard. No more seed
  *  text glued into the first prompt. */
 export function newGraphContextMessage(picks: readonly GraphContextPick[], chains: readonly string[]): LhMarkerMessage {
@@ -212,7 +208,7 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 	// context, not tags; names read, ids reference.
 	const lines = [
 		// PREAMBLE LAW (owner, 2026-10-10): custom markers flatten to
-		// USER-role messages on the wire (toLlmMessages) — this text arrives
+		// USER-role messages on the wire (wireOf) — this text arrives
 		// in the learner's voice channel, so it must not read like a system
 		// broadcast. The bracket convention (NEXT_PROBLEM_TEXT's kin) marks
 		// it honestly as injected session context, not learner speech.
@@ -272,7 +268,7 @@ export function newNextMessage(): LhMarkerMessage {
 }
 
 /** The problem-dismissal marker (ask-style discard, owner 2026-10-04):
- *  UI-ONLY — toLlmMessages filters it. The model's face arrives later, at
+ *  UI-ONLY — wireOf drops it. The model's face arrives later, at
  *  the user's next input, as the synthesized conclude pair
  *  (concludedByDismissalPair below) — the agent sees the dismissal as a
  *  conclude call it "made" with outcome "dismissed", so the slot-freed
@@ -477,107 +473,89 @@ export function pendingProblemDismissalOf(messages: readonly LhMessage[]): strin
 	return null;
 }
 
-// ─── the one model-facing seam (the agent's convertToLlm) ────────────────────
+// ─── the one model-facing seam ───────────────────────────────────────────────
+
+/** Markers with no model face: the plan block is UI history, and a problem
+ *  dismissal reaches the model later as its synthesized conclude pair. */
+const UI_ONLY_MARKERS: ReadonlySet<LhMarkerMessage["customType"]> = new Set(["plan-block", "problem-dismissed"]);
+
+/** The model-facing text of a marker, or null for a UI-only marker or a
+ *  native message. */
+export function modelTextOf(message: LhMessage): string | null {
+	if (message.role !== "custom") return null;
+	if (UI_ONLY_MARKERS.has(message.customType)) return null;
+	return message.content;
+}
+
+/** The provider message one record message contributes, or null when it
+ *  contributes none: markers flatten to a user message carrying their
+ *  text, native messages lose the record id. */
+export function wireOf(message: LhMessage): Message | null {
+	if (message.role === "custom") {
+		const text = modelTextOf(message);
+		return text === null || text === ""
+			? null
+			: { role: "user", content: [{ type: "text", text }], timestamp: message.timestamp };
+	}
+	const { id: _id, ...native } = message;
+	return native as Message;
+}
+
+/** The active compaction cut: the provider sees `head` (the summary), then
+ *  the record from `keptId` onward, never the marker itself. Null when no
+ *  marker is active or its kept message no longer exists — the marker then
+ *  reaches the model as plain text where it sits. */
+export interface CompactionCut {
+	keptId: string;
+	markerId: string;
+	head: Message;
+}
+
+export function compactionCutOf(messages: readonly LhMessage[]): CompactionCut | null {
+	const active = activeCompactionOf(messages);
+	if (!active || keptIndexFor(messages, active) < 0) return null;
+	const head = wireOf(active);
+	if (!head) return null;
+	return { keptId: active.details.firstKeptMessageId, markerId: active.id, head };
+}
 
 /** The ids of every toolResult in the tail (for the dangling-call scan). */
-function resultIdsFrom(messages: readonly AppMessage[]): Set<string> {
+function resultIdsFrom(messages: readonly LhMessage[]): Set<string> {
 	const ids = new Set<string>();
 	for (const m of messages) {
-		if ((m as { role?: string }).role === "toolResult") {
-			ids.add((m as ToolResultMessage).toolCallId);
-		}
+		if (m.role === "toolResult") ids.add(m.toolCallId);
 	}
 	return ids;
 }
 
 /**
- * The model-facing message list → the provider wire (the ONE place
- * model-facing decisions live):
- *
- * - user / assistant / toolResult pass through VERBATIM — signatures,
- *   usage, provider stamps all native — minus our record-`id` field.
- * - markers flatten to a user message carrying their content (the
- *   canonical text single-sourced in core/contracts); plan blocks are
- *   UI-only and filtered.
- * - dangling tool calls (an aborted turn's unanswered questions) get the
- *   synthesized interrupted result — the provider protocol's hard
- *   invariant: a tool call must be followed by its result.
- *
- * Contract: never throws — an unknown shape passes through untouched
- * rather than killing the run.
+ * The record → the provider messages a request would carry: the compaction
+ * cut, each message's wire form, and the interrupted result for every
+ * dangling tool call (the provider rejects an unanswered call).
  */
-export function toLlmMessages(messages: readonly AppMessage[]): Message[] {
-	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
-	// (the newest — chained compactions rule last) names the first kept
-	// message; everything before it is replaced by the marker's content
-	// (header + summary) rendered ONCE, up top. The marker itself is then
-	// skipped in place — it must never render twice. A cut naming a
-	// missing id degrades honestly (everything renders — never throw).
-	const lhMessages = messages as readonly LhMessage[];
-	const active = activeCompactionOf(lhMessages);
-	let start = 0;
-	let head: Message | null = null;
-	if (active) {
-		const kept = keptIndexFor(lhMessages, active);
-		if (kept > 0) {
-			start = kept;
-			head = {
-				role: "user",
-				content: [{ type: "text", text: active.content }],
-				timestamp: active.timestamp,
-			};
-		}
-	}
-	// The leading system message is request chrome, never compactable
-	// payload: the record never persists it, but a native caller's list can
-	// lead with it, so the cut carries it AHEAD of the compaction head.
-	const leading =
-		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
-	const out: Message[] = [];
-	if (leading) out.push(leading);
-	if (head) out.push(head);
-	for (let i = leading ? Math.max(start, 1) : start; i < messages.length; i++) {
+export function toLlmMessages(messages: readonly LhMessage[]): Message[] {
+	const cut = compactionCutOf(messages);
+	const start = cut ? messages.findIndex((m) => m.id === cut.keptId) : 0;
+	const out: Message[] = cut ? [cut.head] : [];
+	for (let i = start; i < messages.length; i++) {
 		const m = messages[i]!;
-		const role = (m as { role?: string }).role;
-		if (role === "custom") {
-			const marker = m as LhMarkerMessage;
-			// UI-only markers: plan blocks, and problem dismissals (the
-			// synthesized conclude pair carries the model's face).
-			if (marker.customType === "plan-block" || marker.customType === "problem-dismissed") continue;
-			// The ACTIVE compaction marker already rendered as the head —
-			// never twice. (Stale markers before the cut are unreachable; a
-			// marker whose cut could not resolve has no head and renders as
-			// its user text — honest degradation.)
-			if (marker.customType === "compaction" && head !== null && marker.id === active!.id) continue;
+		if (cut && m.id === cut.markerId) continue;
+		const wire = wireOf(m);
+		if (wire) out.push(wire);
+		if (m.role !== "assistant") continue;
+		const calls = m.content.filter((b) => b.type === "toolCall");
+		if (calls.length === 0) continue;
+		const answered = resultIdsFrom(messages.slice(i + 1));
+		for (const call of calls) {
+			if (answered.has(call.id)) continue;
 			out.push({
-				role: "user",
-				content: [{ type: "text", text: marker.content }],
-			timestamp: marker.timestamp,
+				role: "toolResult",
+				toolCallId: call.id,
+				toolName: call.name,
+				content: [{ type: "text", text: INTERRUPTED_TEXT }],
+				isError: false,
+				timestamp: m.timestamp,
 			});
-			continue;
-		}
-		// Strip the record id: the wire carries the native shape only.
-		const { id: _id, ...native } = m as LhMessage;
-		out.push(native as Message);
-		// Dangling-call synthesis: an assistant message whose toolCalls have
-		// no results in the remaining tail (abort mid-question) — the
-		// provider rejects unanswered calls outright.
-		if (role === "assistant") {
-			const assistant = m as AssistantMessage;
-			const calls = assistant.content.filter((b) => b.type === "toolCall");
-			if (calls.length === 0) continue;
-			const answered = resultIdsFrom(messages.slice(i + 1));
-			for (const call of calls) {
-				if (answered.has(call.id)) continue;
-				out.push({
-					role: "toolResult",
-					toolCallId: call.id,
-					toolName: call.name,
-					content: [{ type: "text", text: INTERRUPTED_TEXT }],
-					isError: false,
-					timestamp: assistant.timestamp,
-				});
-			}
 		}
 	}
 	return out;

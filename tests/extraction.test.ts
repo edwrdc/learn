@@ -921,7 +921,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		assert.ok(nativeUsage.extractor[0]!.cacheWrite > 0, "fresh native conversation writes its cached prefix");
 		assert.equal(step.cacheReadTokens, nativeUsage.extractor[0]!.cacheRead);
 		assert.equal(step.cacheWriteTokens, nativeUsage.extractor[0]!.cacheWrite);
-		assert.equal(step.reasoningTokens, 0);
+		assert.equal(step.reasoningTokens, undefined, "unreported reasoning stays absent");
 		assert.equal(nativeUsage.auditor.length, 1);
 		assert.equal(run.stages.auditor.steps[0]!.cacheReadTokens, 0, "auditor owns a fresh conversation too");
 		assert.ok(nativeUsage.auditor[0]!.cacheWrite > 0);

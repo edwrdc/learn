@@ -33,8 +33,26 @@
  * Both are strictly sequential; the two derivations agree on every settled
  * record (a call's part projects into the same view boundary).
  *
- * Pure: no imports, no runtime deps — safe on server, client, and tests.
+ * Pure — safe on server, client, and tests.
  */
+
+import { hasProbeDone, type LhMessage } from "./transcript.ts";
+import type { PromptAgent } from "../../settings/model/index.ts";
+
+/** Which agent runs the session's next turn. Practice sessions are practice
+ *  from turn one; otherwise the first probe_done call hands over to the
+ *  teacher. */
+export type ChatPhase = "probe" | "teach" | "practice";
+
+export function chatPhase(messages: readonly LhMessage[], kind: string | undefined): ChatPhase {
+	if (kind === "practice") return "practice";
+	return hasProbeDone(messages) ? "teach" : "probe";
+}
+
+/** The agent whose prompt and tools a phase runs. */
+export function agentFor(phase: ChatPhase): PromptAgent {
+	return phase === "practice" ? "practice" : phase === "probe" ? "prober" : "teacher";
+}
 
 /** The three phases of a session, as the picker / header / dividers see them. */
 export type Phase3 = "probe" | "plan" | "teach";
@@ -48,15 +66,20 @@ export interface PhaseMessage {
 	parts: ReadonlyArray<{ type: string; state?: string; input?: unknown; output?: unknown }>;
 }
 
-/** A quiz call's part input carries `nodeId` iff it is tagged (teach-only —
- *  the probe quiz schema has no nodeId field). */
-function taggedNodeId(input: unknown): boolean {
+/** The plan → teach seam: a quiz or explain call tagged with a plan
+ *  `nodeId` (the probe quiz schema has no nodeId field). */
+function startsTeaching(toolName: string | undefined, input: unknown): boolean {
 	return (
+		(toolName === "quiz" || toolName === "explain") &&
 		typeof input === "object" &&
 		input !== null &&
 		typeof (input as { nodeId?: unknown }).nodeId === "string" &&
 		(input as { nodeId: string }).nodeId.length > 0
 	);
+}
+
+function toolOfPart(type: string): string | undefined {
+	return type.startsWith("tool-") ? type.slice("tool-".length) : undefined;
 }
 
 /** The phase at `upToIndex` (inclusive; default: the last message). */
@@ -85,11 +108,7 @@ function advance(
 		}
 		// plan → teach via the first nodeId-tagged quizzing CALL — quiz OR
 		// explain, whichever mechanic the settings armed (both carry nodeId).
-		if (
-			phase === "plan" &&
-			(part.type === "tool-quiz" || part.type === "tool-explain") &&
-			taggedNodeId(part.input)
-		) {
+		if (phase === "plan" && startsTeaching(toolOfPart(part.type), part.input)) {
 			phase = "teach";
 		}
 	}
@@ -121,10 +140,7 @@ export function teachStepIndex(
 			latest = i;
 			continue;
 		}
-		if (
-			(part.type === "tool-quiz" || part.type === "tool-explain") &&
-			taggedNodeId(part.input)
-		) {
+		if (startsTeaching(toolOfPart(part.type), part.input)) {
 			// The call's governing step: 0–1 step-starts seen = the message's
 			// FIRST step → -1 (the divider belongs before the whole message);
 			// a later step → that step-start's index (the divider renders at
@@ -153,8 +169,6 @@ export function phaseTimeline(messages: readonly PhaseMessage[]): Phase3[] {
 
 // ─── the native fold (Wave D: record-side phase over LhMessage[]) ───────────
 
-import type { LhMessage } from "./transcript.ts";
-
 /** The phase at `upToIndex` (inclusive; default: the last message) of a
  *  NATIVE record. probe→plan advances at the probe_done call's clean
  *  toolResult; plan→teach at the assistant message carrying the first
@@ -179,11 +193,7 @@ export function phaseAt3Lh(messages: readonly LhMessage[], upToIndex?: number): 
 			const content = (m as { content?: ReadonlyArray<{ type?: string; name?: string; arguments?: unknown }> }).content ?? [];
 			if (phase === "plan") {
 				for (const block of content) {
-					if (
-						block.type === "toolCall" &&
-						(block.name === "quiz" || block.name === "explain") &&
-						taggedNodeId(block.arguments)
-					) {
+					if (block.type === "toolCall" && startsTeaching(block.name, block.arguments)) {
 						phase = "teach";
 						break;
 					}

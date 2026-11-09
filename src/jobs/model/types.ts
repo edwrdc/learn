@@ -64,16 +64,6 @@ export interface JobUsage {
 	lastStep?: CallUsage;
 }
 
-/** The per-model-call usage shape we fold into JobUsage — the SDK's
- * LanguageModelUsage narrowed structurally (no runtime "ai" import: any
- * object with these fields folds, including the real thing and test fakes). */
-export interface UsageStepLike {
-	inputTokens?: number | undefined;
-	inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number } | undefined;
-	outputTokens?: number | undefined;
-	outputTokenDetails?: { reasoningTokens?: number } | undefined;
-}
-
 /** Fold one model call's usage into the run's running total (pure). A
  * field neither the total nor the step reported stays undefined; once
  * reported, later unreported calls contribute 0. The `steps` counter is
@@ -81,7 +71,7 @@ export interface UsageStepLike {
 export function accumulateJobUsage(
 	total: JobUsage | undefined,
 	model: string,
-	step: UsageStepLike,
+	step: CallUsage,
 ): JobUsage {
 	const add = (a: number | undefined, b: number | undefined): number | undefined =>
 		a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
@@ -89,17 +79,11 @@ export function accumulateJobUsage(
 		model,
 		inputTokens: add(total?.inputTokens, step.inputTokens),
 		outputTokens: add(total?.outputTokens, step.outputTokens),
-		cacheReadTokens: add(total?.cacheReadTokens, step.inputTokenDetails?.cacheReadTokens),
-		cacheWriteTokens: add(total?.cacheWriteTokens, step.inputTokenDetails?.cacheWriteTokens),
-		reasoningTokens: add(total?.reasoningTokens, step.outputTokenDetails?.reasoningTokens),
+		cacheReadTokens: add(total?.cacheReadTokens, step.cacheReadTokens),
+		cacheWriteTokens: add(total?.cacheWriteTokens, step.cacheWriteTokens),
+		reasoningTokens: add(total?.reasoningTokens, step.reasoningTokens),
 		steps: (total?.steps ?? 0) + 1,
-		lastStep: {
-			inputTokens: step.inputTokens,
-			outputTokens: step.outputTokens,
-			cacheReadTokens: step.inputTokenDetails?.cacheReadTokens,
-			cacheWriteTokens: step.inputTokenDetails?.cacheWriteTokens,
-			reasoningTokens: step.outputTokenDetails?.reasoningTokens,
-		},
+		lastStep: step,
 	};
 }
 
@@ -235,7 +219,7 @@ export interface PdfResult {
 // LhMarkerMessage customs (role "custom"), the custom-message taxonomy's
 // wake members. The model-facing text rides `content` (single-sourced
 // below); the UI payload (the artifact, the abort badge) rides `details`
-// and never reaches the model (toLlmMessages maps the marker to a user
+// and never reaches the model (wireOf maps the marker to a user
 // message carrying `content` only). The deterministic id (`steer_<jobId>`)
 // IS the idempotency key — steerDelivered matches on it.
 

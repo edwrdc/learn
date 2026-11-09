@@ -1,4 +1,5 @@
 import type { SessionFindings } from "../model/findings.ts";
+import { tokensForChars } from "../../platform/model/index.ts";
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../../settings/model/index.ts";
@@ -13,7 +14,7 @@ import {
 import type { PiEngine } from "../../platform/index.ts";
 import { withBgLlmSlot } from "../../jobs/index.ts";
 import type { AuditVerdicts, CoverageEntry } from "../model/types.ts";
-import type { CallUsage, ChatRecord, ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
+import { usageFromPi, type CallUsage, type ChatRecord, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../snapshot.ts";
 import type { GraphStore } from "../model/ports.ts";
 import { emit, processState } from "../../platform/model/index.ts";
@@ -533,22 +534,6 @@ export interface ExtractionPipeline {
 	importNotes(input: NotesImportInput): Promise<EmissionStats>;
 }
 
-/** pi's per-step usage, flattened to the persisted CallUsage fields
- *  (the money channel's capture shape, contracts/chat.ts). Exported for
- *  the cluster namer — the same capture shape (2026-09 graph cost
- *  metrics wave). Module scope: no closure deps, pure projection. */
-export function callUsage(usage: Usage): CallUsage {
-	return {
-		inputTokens: usage.input,
-		outputTokens: usage.output,
-		cacheReadTokens: usage.cacheRead,
-		cacheWriteTokens: usage.cacheWrite,
-		// Optional in pi's Usage (providers that never emit reasoning
-		// tokens leave it unset) — persisted as 0, never dropped.
-		reasoningTokens: usage.reasoning ?? 0,
-	};
-}
-
 export function createExtractionPipeline(deps: ExtractionPipelineDeps): ExtractionPipeline {
 	const { chatStore, graphStore } = deps;
 	// Resolved FRESH per stage call (a settings PUT between stages lands).
@@ -685,7 +670,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			unit.anchors,
 			signal,
 			(usage, model, step, finishReason, tools) => {
-				recordStep(job.key, "extractor", callUsage(usage), model);
+				recordStep(job.key, "extractor", usageFromPi(usage), model);
 				console.info(`[extraction] extractor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
 		);
@@ -728,7 +713,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				`The current knowledge graph has ${graph.nodes.length} node(s). Explore it with your tools and link what links.`,
 			signal,
 			(usage, model, step, finishReason, tools) => {
-				recordStep(jobKey, "auditor", callUsage(usage), model);
+				recordStep(jobKey, "auditor", usageFromPi(usage), model);
 				console.info(`[extraction] auditor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
 			{ chatStore, graphStore },
@@ -1017,7 +1002,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		let current = "";
 		for (const line of text.split("\n")) {
 			const candidate = current.length === 0 ? line : current + "\n" + line;
-			if (current.length > 0 && Math.ceil(candidate.length / 4) > budget) {
+			if (current.length > 0 && tokensForChars(candidate.length) > budget) {
 				out.push(current);
 				current = line;
 			} else {

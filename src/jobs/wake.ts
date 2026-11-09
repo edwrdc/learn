@@ -36,13 +36,13 @@
 import { processState } from "../platform/model/index.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, steerDelivered, type JobRecord, type SteerMessage } from "./model/types.ts";
 import type { TurnInput } from "../session/model/index.ts";
-import { danglingQuestionOf, endsInDismissal, type LhMessage } from "../session/model/index.ts";
+import { danglingQuestionOf, endsInDismissal, modelTextOf, type LhMessage } from "../session/model/index.ts";
 import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
 import { fireJobAbort, isJobLive } from "./aborts.ts";
 import { stores } from "../stores.ts";
 import { isCommittedRunLive, isTurnRunning } from "../session/index.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { modelTextOf, openChatRuntime } from "../session/index.ts";
+import { openChatRuntime } from "../session/index.ts";
 import { abortBackgroundRun } from "./runtime.ts";
 
 /** Fires one server-side teacher turn: (chatId, input) → HTTP-ish status.

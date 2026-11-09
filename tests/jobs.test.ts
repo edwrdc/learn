@@ -322,7 +322,9 @@ describe("steer helpers (contracts.ts)", () => {
 		total = accumulateJobUsage(total, "z-ai/glm-5.3-flash", {
 			inputTokens: 10,
 			outputTokens: 5,
-			inputTokenDetails: { cacheReadTokens: 4 },
+			cacheReadTokens: 4,
+			cacheWriteTokens: undefined,
+			reasoningTokens: undefined,
 		});
 		assert.deepEqual(total, {
 			model: "z-ai/glm-5.3-flash",
@@ -342,7 +344,13 @@ describe("steer helpers (contracts.ts)", () => {
 		}, "lastStep is the most recent call's accounting, not cumulative");
 		// a later call that reports nothing new keeps reported fields summing
 		// (unreported contributes 0) and bumps the billing step count.
-		total = accumulateJobUsage(total, "z-ai/glm-5.3-flash", { inputTokens: 20, outputTokens: 0 });
+		total = accumulateJobUsage(total, "z-ai/glm-5.3-flash", {
+			inputTokens: 20,
+			outputTokens: 0,
+			cacheReadTokens: undefined,
+			cacheWriteTokens: undefined,
+			reasoningTokens: undefined,
+		});
 		assert.equal(total.inputTokens, 30);
 		assert.equal(total.outputTokens, 5);
 		assert.equal(total.cacheReadTokens, 4, "unreported after reported contributes 0");

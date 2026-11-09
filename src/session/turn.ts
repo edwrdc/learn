@@ -19,6 +19,7 @@
  * server-side steers (src/server/jobs.ts).
  */
 
+import { tokensForChars } from "../platform/model/index.ts";
 import { firstLineById } from "../graph/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
@@ -74,19 +75,19 @@ import {
 } from "./model/input-events.ts";
 import { steerDelivered } from "../jobs/model/index.ts";
 import type { SteerMessage } from "../jobs/model/index.ts";
-import type { LhMessage } from "./model/transcript.ts";
+import { modelTextOf, type LhMessage } from "./model/transcript.ts";
 import {
 	CONTINUATION_KIND,
 	CONTINUATION_TEXT,
 	appendMessages,
-	modelTextOf,
 	openChatRuntime,
 	projectEntries,
 	readEntries,
 	ChatRuntimeInitError,
 	type ChatRuntime,
 } from "./durable.ts";
-import { chatPhase, prepareConversation, type ConversationDeps } from "./durable-registry.ts";
+import { prepareConversation, type ConversationDeps } from "./durable-registry.ts";
+import { chatPhase } from "./model/phases.ts";
 import { runDurableTurn } from "./pi/durable-turn.ts";
 import type { RunDescriptor } from "../jobs/index.ts";
 
@@ -307,7 +308,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 					catalogContextLimits().get(kickModelId),
 				),
 				systemPromptTokens: Math.ceil(
-					composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4,
+					tokensForChars(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length),
 				),
 			};
 		}, chatId);
@@ -468,7 +469,7 @@ export async function handleChatInput(
 					effective.compaction?.thresholdTokens,
 					catalogContextLimits().get(modelId),
 				),
-				systemPromptTokens: Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4),
+				systemPromptTokens: tokensForChars(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length),
 			},
 			chatId,
 		);

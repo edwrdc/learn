@@ -119,7 +119,7 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 					assert.equal(request.chatId, id);
 					started.resolve();
 					await release.promise;
-					return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [] };
+					return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
 				});
 				run = providerResults(id, { type: "continue" });
 			} else {
@@ -252,7 +252,7 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 			assert.equal(request.kind, "compact");
 			assert.equal(request.chatId, chat.id);
 			started.resolve(); await release.promise;
-			return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [] };
+			return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
 		});
 		const faux = createFauxCore({ tokenSize: { min: 50_000, max: 50_000 } });
 		faux.setResponses([fauxAssistantMessage([fauxText("x".repeat(200_000)), fauxToolCall("quiz", question, { id: "q" })], { stopReason: "toolUse" })]);

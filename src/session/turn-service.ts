@@ -45,14 +45,16 @@ import {
 	appendEntries,
 	appendMessages,
 	editDraftFor,
+	entryMessageId,
 	findToolResultEntry,
 	openChatRuntime,
 	readChatMessages,
 	readEntries,
 	type ChatRuntime,
 } from "./durable.ts";
-import type { ChatPhase } from "./durable-registry.ts";
-import type { CallUsage } from "./model/types.ts";
+import type { ChatPhase } from "./model/phases.ts";
+import { usageFromPi, type CallUsage } from "./model/types.ts";
+import type { Message } from "@earendil-works/pi-ai";
 
 /** The safe (secret-free) model selection a turn was admitted under. The
  *  recovered turn rebuilds its engine from THIS, never from later settings. */
@@ -237,19 +239,11 @@ export async function appendRunUsage(
 		const steps: CallUsage[] = [];
 		let messageId: string | undefined;
 		for (const entry of entries) {
-			const message = entry.model?.[0] as
-				| { role?: string; stopReason?: string; usage?: Record<string, number | undefined> }
-				| undefined;
+			const message = entry.model?.[0] as Message | undefined;
 			if (message?.role !== "assistant") continue;
-			messageId ??= (entry.data as { id?: string } | undefined)?.id ?? `e${entry.id}`;
-			if (message.stopReason === "aborted" || !message.usage) continue;
-			steps.push({
-				inputTokens: message.usage.input ?? 0,
-				outputTokens: message.usage.output ?? 0,
-				cacheReadTokens: message.usage.cacheRead ?? 0,
-				cacheWriteTokens: message.usage.cacheWrite ?? 0,
-				reasoningTokens: message.usage.reasoning ?? 0,
-			});
+			messageId ??= entryMessageId(entry);
+			if (message.stopReason === "aborted") continue;
+			steps.push(usageFromPi(message.usage));
 		}
 		if (!messageId || steps.length === 0) return;
 		await chatStore.appendTurnUsage(chatId, {

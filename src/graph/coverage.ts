@@ -19,6 +19,7 @@
  * together.)
  */
 
+import { tokensForChars } from "../platform/model/index.ts";
 import { createHash } from "node:crypto";
 
 import type { CoverageEntry } from "./model/types.ts";
@@ -59,9 +60,9 @@ export function teacherProseBlocks(messages: ReadonlyArray<LhMessage>): string[]
 	return out;
 }
 
-/** Tokens of a message's view — chars/4, ceil, the app-wide estimate. */
+/** Tokens of a message's view. */
 export function viewTokens(lines: string[]): number {
-	return Math.ceil(lines.join("\n").length / 4);
+	return tokensForChars(lines.join("\n").length);
 }
 
 /**

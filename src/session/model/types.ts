@@ -6,7 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
 import type { ModelChoice } from "../../settings/model/index.ts";
-import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel as ThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import type { LhMessage } from "./transcript.ts";
 import type { Phase3 } from "./phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan-types.ts";
@@ -125,6 +125,18 @@ export interface CallUsage {
 	cacheWriteTokens: number | undefined;
 	/** The reasoning portion of the output tokens. */
 	reasoningTokens: number | undefined;
+}
+
+/** One provider call's usage as pi reports it; a field pi leaves unset
+ *  stays undefined. */
+export function usageFromPi(usage: Usage): CallUsage {
+	return {
+		inputTokens: usage.input,
+		outputTokens: usage.output,
+		cacheReadTokens: usage.cacheRead,
+		cacheWriteTokens: usage.cacheWrite,
+		reasoningTokens: usage.reasoning,
+	};
 }
 
 /** One billing turn: one full invocation of the teacher (a client turn or a

@@ -34,7 +34,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../platform/index.ts";
-import type { LhMessage } from "./model/transcript.ts";
+import { wireOf, type LhMessage } from "./model/transcript.ts";
 import { APP_IDENTITY, routedModels, unbindRunEngine } from "../platform/index.ts";
 
 /** Entry kind of the bookkeeping input that starts a reaction run. It is
@@ -287,7 +287,7 @@ export async function readEntries(runtime: ChatRuntime, context: Context = BACKG
 }
 
 /** The app id of the messages an entry contributes. */
-function messageId(entry: EntryRecord, index: number): string {
+export function entryMessageId(entry: EntryRecord, index = 0): string {
 	const data = entry.data as LhEntryData | undefined;
 	const base = data?.id ?? `e${entry.id}`;
 	return index === 0 ? base : `${base}#${index}`;
@@ -326,7 +326,7 @@ export function projectTranscript(entries: readonly EntryRecord[]): {
 	const push = (message: unknown, entry: EntryRecord, index: number, owner: EntryId = entry.id) => {
 		// The system prompt is request chrome, never transcript.
 		if ((message as { role?: string }).role === "system") return;
-		const id = messageId(entry, index);
+		const id = entryMessageId(entry, index);
 		messages.push({ ...(message as object), id } as LhMessage);
 		entryOf.set(id, owner);
 	};
@@ -371,37 +371,18 @@ export async function readChatMessages(chatId: string): Promise<LhMessage[]> {
 	return projectEntries(await readEntries(runtime));
 }
 
-/** UI-only markers carry no model face (durable stores the model
- *  contribution at write time). */
-const UI_ONLY_MARKERS = new Set(["plan-block", "problem-dismissed"]);
-
-/** The model-facing text of one record message, or null when it has none. */
-export function modelTextOf(message: LhMessage): string | null {
-	if (message.role !== "custom") return null;
-	if (UI_ONLY_MARKERS.has(message.customType)) return null;
-	return message.content;
-}
-
 /** The entry draft for one record message: pi-native messages ride `model`
- *  verbatim; markers keep their record shape in `data` and flatten to the
- *  single user message the provider saw before. */
+ *  verbatim; markers keep their record shape in `data`. */
 export function draftForMessage(message: LhMessage): EntryDraft {
+	const wire = wireOf(message);
 	if (message.role === "custom") {
-		const text = modelTextOf(message);
 		return {
 			kind: "lh.marker",
 			data: { message } as unknown as EntryDraft["data"],
-			...(text === null || text === ""
-				? {}
-				: { model: [{ role: "user" as const, content: [{ type: "text" as const, text }], timestamp: message.timestamp }] }),
+			...(wire ? { model: [wire] } : {}),
 		};
 	}
-	const { id, ...native } = message;
-	return {
-		kind: `lh.${native.role}`,
-		data: { id },
-		model: [native as never],
-	};
+	return { kind: `lh.${message.role}`, data: { id: message.id }, model: [wire as never] };
 }
 
 /** Append record messages to the chat transcript, in order, in one commit.
@@ -443,28 +424,11 @@ export async function appendMessages(chatId: string, messages: readonly LhMessag
 
 /** The ContextEdit draft that rewrites one record message in place. */
 export function editDraftFor(target: EntryId, message: LhMessage): EntryDraft {
-	if (message.role === "custom") {
-		const text = modelTextOf(message);
-		return {
-			kind: "lh.edit",
-			data: { message } as unknown as EntryDraft["data"],
-			edits: [
-				{
-					target,
-					action: "replace",
-					messages:
-						text === null || text === ""
-							? []
-							: [{ role: "user" as const, content: [{ type: "text" as const, text }], timestamp: message.timestamp }],
-				},
-			],
-		};
-	}
-	const { id, ...native } = message;
+	const wire = wireOf(message);
 	return {
 		kind: "lh.edit",
-		data: { id },
-		edits: [{ target, action: "replace", messages: [native as never] }],
+		data: (message.role === "custom" ? { message } : { id: message.id }) as unknown as EntryDraft["data"],
+		edits: [{ target, action: "replace", messages: wire ? [wire as never] : [] }],
 	};
 }
 

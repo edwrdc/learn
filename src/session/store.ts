@@ -32,7 +32,7 @@ import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, TurnUsa
 import type { PlanTree } from "./model/plan-types.ts";
 import { CURRENT_CHAT_VERSION } from "./model/types.ts";
 import type { LhMessage } from "./model/transcript.ts";
-import { danglingQuestionOf } from "./model/transcript.ts";
+import { activeProblemOf, danglingQuestionOf } from "./model/transcript.ts";
 import { phaseAt3Lh } from "./model/phases.ts";
 import {
 	appendEntries,
@@ -187,18 +187,20 @@ async function listChats(): Promise<ChatSummary[]> {
 			// Per-record isolation: a record whose projection fails must not blank
 			// the whole sidebar.
 			try {
-				const { messages, tree: _tree, turns: _turns, extractions: _extractions, ...summary } = record;
-				out.push({
-					...summary,
-					// Normalized kind: absent record field reads as teach.
-					kind: summary.kind ?? "teach",
-					messageCount: messages.length,
-					// Record-derived status for the session picker: phase from the
-					// transcript's explicit events, pending question/problem from the
-					// native dangling-call scans.
-					phase: phaseAt3Lh(messages),
-					pendingQuestion: danglingQuestionOf(messages) !== null,
-				} as ChatSummary);
+				const kind = record.kind ?? "teach";
+				const summary: ChatSummary = {
+					id: record.id,
+					title: record.title,
+					createdAt: record.createdAt,
+					updatedAt: record.updatedAt,
+					kind,
+					messageCount: record.messages.length,
+					phase: phaseAt3Lh(record.messages),
+					pendingQuestion: danglingQuestionOf(record.messages) !== null,
+					pendingProblem: kind === "practice" && activeProblemOf(record.messages) !== null,
+					...(record.settings ? { settings: record.settings } : {}),
+				};
+				out.push(summary);
 			} catch (err) {
 				console.error(`[chat ${record.id}] summary projection failed:`, err);
 			}

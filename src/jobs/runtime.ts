@@ -50,7 +50,8 @@ import {
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../settings/model/index.ts";
-import { accumulateJobUsage, type JobUsage, type UsageStepLike } from "./model/types.ts";
+import { accumulateJobUsage, type JobUsage } from "./model/types.ts";
+import { usageFromPi } from "../session/model/index.ts";
 import { createWebTools } from "../tools/index.ts";
 import { createPdfReadTools } from "../tools/index.ts";
 import { auditorGraphTools, type GraphToolContext } from "../graph/index.ts";
@@ -599,19 +600,10 @@ async function foldUsage(
 		const message = entry.model?.[0] as { role?: string; stopReason?: string; usage?: Usage } | undefined;
 		if (message?.role !== "assistant" || !message.usage) continue;
 		if (message.stopReason === "aborted") continue;
-		total = accumulateJobUsage(total, model, usageStep(message.usage));
+		total = accumulateJobUsage(total, model, usageFromPi(message.usage));
 	}
 	if (total) onUsage(total);
 	return total;
-}
-
-function usageStep(usage: Usage): UsageStepLike {
-	return {
-		inputTokens: usage.input,
-		outputTokens: usage.output,
-		inputTokenDetails: { cacheReadTokens: usage.cacheRead, cacheWriteTokens: usage.cacheWrite },
-		outputTokenDetails: usage.reasoning !== undefined ? { reasoningTokens: usage.reasoning } : undefined,
-	};
 }
 
 /** A settled-submission stand-in for an abort that lands around admission. */

@@ -33,6 +33,8 @@ import { activeCompactionOf, buildCompactionPrompt, compactionCutIndex, COMPACTI
 import { toLlmMessages, type LhMessage, type LhMarkerMessage } from "./model/transcript.ts";
 import { emit } from "../platform/model/index.ts";
 import type { ChatStore } from "./model/ports.ts";
+import { usageFromPi } from "./model/types.ts";
+import type { ChatPhase } from "./model/phases.ts";
 import { createHash } from "node:crypto";
 import type { PiEngine } from "../platform/index.ts";
 import { backgroundRun } from "../jobs/index.ts";
@@ -49,7 +51,7 @@ export type Summarizer = (
 	prompt: string,
 	engine: PiEngine,
 	chatId: string,
-) => Promise<{ summary: string; usage: Usage }>;
+) => Promise<{ summary: string; usage: Usage | undefined }>;
 
 /** The production summarizer over the durable background seam: one child
  *  conversation in the chat's own database. The run key is the span's
@@ -59,7 +61,7 @@ export async function subagentSummarizer(
 	prompt: string,
 	engine: PiEngine,
 	chatId: string,
-): Promise<{ summary: string; usage: Usage }> {
+): Promise<{ summary: string; usage: Usage | undefined }> {
 	const outcome = await backgroundRun({
 		// The engine is always the chat's own conversation engine (owner
 		// ruling); the compact role resolves no settings.
@@ -72,15 +74,7 @@ export async function subagentSummarizer(
 		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
 		prompt,
 	});
-	const usage: Usage = outcome.steps.at(-1)?.usage ?? {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: 0,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-	};
-	return { summary: outcome.text, usage };
+	return { summary: outcome.text, usage: outcome.steps.at(-1)?.usage };
 }
 
 /** Everything the service needs from its host (chat-handler wires the
@@ -92,7 +86,7 @@ export interface CompactionDeps {
 	/** provider:id of the engine (usage + marker provenance). */
 	modelId: string;
 	/** The session kind (summarizer wording: tutor vs practice). */
-	kind: "teach" | "practice" | "probe";
+	kind: ChatPhase;
 	/** The effective trigger threshold, RESOLVED by the caller:
 	 *  min(settings threshold, contextWindow − reserve) — the owner's
 	 *  effective-trigger ruling. The catalog window lookup is the
@@ -220,21 +214,15 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		// The money channel: the summary is a real model call on the
 		// session's own engine — its usage keys to the marker (provenance:
 		// the transcript shows the compaction divider at the marker).
-		await deps.chatStore.appendTurnUsage(chatId, {
-			id: crypto.randomUUID(),
-			messageId: marker.id,
-			at: details.at,
-			model: deps.modelId,
-			steps: [
-				{
-					inputTokens: usage.input,
-					outputTokens: usage.output,
-					cacheReadTokens: usage.cacheRead,
-					cacheWriteTokens: usage.cacheWrite,
-					reasoningTokens: usage.reasoning ?? 0,
-				},
-			],
-		});
+		if (usage) {
+			await deps.chatStore.appendTurnUsage(chatId, {
+				id: crypto.randomUUID(),
+				messageId: marker.id,
+				at: details.at,
+				model: deps.modelId,
+				steps: [usageFromPi(usage)],
+			});
+		}
 		// Notify-then-fetch: the record gained the marker (the client's
 		// dividers appear) and the status event ends the send gate.
 		emit("record-changed", { chatId });
