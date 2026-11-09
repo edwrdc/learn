@@ -42,12 +42,12 @@ import { untrack } from "svelte";
 
 {#if !result || typeof result.html !== "string" || typeof result.title !== "string"}
 	<div class="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Demo completed, but the result could not be displayed.</div>
-{:else if result.html.length === 0}
+{:else if result.failure !== undefined}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card-failed">
 		<div class="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 			Interactive demo <span class="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
 		</div>
-		<p class="mt-2 text-sm text-muted-foreground">{result.notes ?? "The demo could not be built."}</p>
+		<p class="mt-2 text-sm text-muted-foreground">{result.failure}</p>
 	</div>
 {:else}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">

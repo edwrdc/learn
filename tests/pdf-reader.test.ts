@@ -13,7 +13,8 @@ import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../src/platform/engines.ts";
-import { runPdfReaderAgent } from "../src/jobs/roles/pdf.ts";
+import { PDF_ROLE } from "../src/jobs/roles/pdf.ts";
+import { runRole } from "../src/jobs/roles/role.ts";
 import type { HeadlessApi } from "../src/jobs/headless.ts";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
@@ -105,8 +106,7 @@ describe("pdf-reader source paths", () => {
 				lastContext = JSON.stringify(args[1]);
 				return stream(...args);
 			};
-			const result = await runPdfReaderAgent(
-				{ path: inputPath, question: "Read the document" },
+			const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: inputPath, question: "Read the document" }),
 				{ engine, headless, run: roleRun() },
 			);
 			assert.equal(result.path, absolutePath);
@@ -126,9 +126,9 @@ describe("pdf-reader source paths", () => {
 			throw new Error("the model must not be called");
 		};
 		const missing = path.join("Course notes", "missing.pdf");
-		const result = await runPdfReaderAgent({ path: missing, question: "anything" }, { engine, run: roleRun() });
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: missing, question: "anything" }), { engine, run: roleRun() });
 		assert.equal(result.path, path.join(home, missing));
-		assert.match(result.brief, /^PDF failed:.*ENOENT/);
+		assert.match(result.failure ?? "", /ENOENT/);
 		assert.equal(modelCalls, 0);
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);
@@ -145,8 +145,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			),
 			fauxAssistantMessage([fauxText("The integral rule appears on page 1 (p. 1). Pages consulted: 1, 2")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "what is the integral of x?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is the integral of x?" }),
 			{ engine, run: roleRun() },
 		);
 		assert.equal(result.path, FIXTURE);
@@ -168,8 +167,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			),
 			fauxAssistantMessage([fauxText("Found it on page 1 (p. 1): the integral of x dx.")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "integral of x?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "integral of x?" }),
 			{ engine, run: roleRun(), onActivity: (line) => void (line && (nudged ||= line.startsWith("pdf_search"))) },
 		);
 		assert.match(result.brief, /Found it on page 1/);
@@ -188,8 +186,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			}),
 			fauxAssistantMessage([fauxText("The physics formula is visible on page 2 (p. 2).")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "what is the force formula?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is the force formula?" }),
 			{ engine, headless, run: roleRun() },
 		);
 		assert.deepEqual(result.pagesRead, [2, 3], "rendered pages are read pages");
@@ -208,8 +205,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			}),
 			fauxAssistantMessage([fauxText("Extracted instead: the calculus line (p. 1).")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "page 1 content?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "page 1 content?" }),
 			{
 				engine,
 				run: roleRun(),
@@ -235,12 +231,11 @@ describe("pdf-reader loop (faux engine)", () => {
 
 	it("an unreadable source fails deterministically before any model call", async () => {
 		const engine = fauxEngine([fauxAssistantMessage([fauxText("never reached")])]);
-		const result = await runPdfReaderAgent(
-			{ path: path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt"), question: "anything" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt"), question: "anything" }),
 			{ engine, run: roleRun() },
 		);
 		// had the model been consulted, the brief would be its text instead
-		assert.match(result.brief, /^PDF failed:/);
+		assert.ok(result.failure);
 		assert.ok(!result.brief.includes("never reached"));
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);

@@ -3,7 +3,7 @@
  *
  *   1. job store CRUD (create → get → update → list → dedup by toolCallId)
  *   2. steer helpers (pure, contracts.ts): buildSubagentSteer shape per kind,
- *      isSubagentFailure, steerDelivered
+ *      isJobFailure, steerDelivered
  *   3. dispatch (async protocol §2): drive handleChatRequest with a scripted
  *      mock teacher that emits a research tool call → the tool part resolves
  *      IMMEDIATELY with the fire-and-forget ack (the teacher's turn
@@ -29,7 +29,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
-import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isSubagentFailure, steerDelivered, type DemoResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult, buildProbeHandoffSteer } from "../src/jobs/model/types.ts";
+import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult, buildProbeHandoffSteer } from "../src/jobs/model/types.ts";
 import { composeInstructions } from "../src/session/agents.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { webTools } from "../src/tools/web/web.ts";
@@ -377,17 +377,6 @@ describe("steer helpers (contracts.ts)", () => {
 		assert.deepEqual(steer.details, { jobId: "job_c", kind: "demo", toolCallId: "call-c", aborted: true });
 	});
 
-	it("isSubagentFailure: failure shapes only (empty html/svg, failure brief)", async () => {
-		assert.equal(isSubagentFailure("research", research), false);
-		assert.equal(isSubagentFailure("research", { brief: "Research failed: x", sources: [] }), true);
-		// a brief with sources is a success even if the text mentions failure
-		assert.equal(isSubagentFailure("research", { brief: "Research failed: x", sources: [{ title: "s", url: "https://x" }] }), false);
-		assert.equal(isSubagentFailure("demo", demo), false);
-		assert.equal(isSubagentFailure("demo", { ...demo, html: "" }), true);
-		assert.equal(isSubagentFailure("visual", visual), false);
-		assert.equal(isSubagentFailure("visual", { ...visual, svg: "" }), true);
-	});
-
 	it("steerDelivered: matches on the deterministic steer id (any steer kind)", async () => {
 		const steer = buildSubagentSteer({ id: "job_y", kind: "demo", toolCallId: "c" }, demo);
 		assert.equal(steer.id, "steer_job_y");
@@ -402,26 +391,29 @@ describe("steer helpers (contracts.ts)", () => {
 	});
 
 	it("failure steers tell the teacher how to recover (research/demo/visual wording)", async () => {
-		const failResearch = buildSubagentSteer({ id: "j1", kind: "research", toolCallId: "c" }, { brief: "Research failed: API down", sources: [] });
-		const failDemo = buildSubagentSteer({ id: "j2", kind: "demo", toolCallId: "c" }, { title: "T", html: "", tested: true, notes: "FAILED: boom" });
-		const failVisual = buildSubagentSteer({ id: "j3", kind: "visual", toolCallId: "c" }, { svg: "", notes: "FAILED: boom" });
+		const failResearch = buildSubagentSteer({ id: "j1", kind: "research", toolCallId: "c" }, { brief: "", sources: [], failure: "API down" });
+		const failDemo = buildSubagentSteer({ id: "j2", kind: "demo", toolCallId: "c" }, { title: "T", html: "", tested: true, failure: "boom" });
+		const failVisual = buildSubagentSteer({ id: "j3", kind: "visual", toolCallId: "c" }, { svg: "", failure: "boom" });
 		for (const steer of [failResearch, failDemo, failVisual]) {
 			assert.ok(!steer.content.includes("rendered in the lesson"), "failure text never claims the artifact landed");
 		}
-		assert.ok(failResearch.content.includes("flag the uncertainty"));
+		assert.equal(
+			failResearch.content,
+			"Research failed: API down\n\nContinue with what you can establish and flag the uncertainty to the learner.",
+		);
+		assert.ok(failDemo.content.startsWith('The demo "T" could not be built: FAILED: boom. Fall back to explaining in prose'));
+		assert.ok(failVisual.content.startsWith("The figure could not be made: FAILED: boom. Fall back to prose or mermaid"));
 	});
 
-	it("pdf steers (sources v0): brief + page citations on success, PDF failed: shape on failure, abort wording per kind", async () => {
+	it("pdf steers (sources v0): brief + page citations on success, the failure reason on failure, abort wording per kind", async () => {
 		const pdf: PdfResult = { path: "/tmp/doc.pdf", question: "q?", brief: "The formula is on p. 2.", pagesRead: [2], pagesConsulted: [1, 2] };
 		const ok = buildSubagentSteer({ id: "jp", kind: "pdf", toolCallId: "cp" }, pdf);
 		assert.ok(ok.content.includes("page citations"), "the teacher is told to cite pages");
 		assert.ok(ok.content.includes("The formula is on p. 2."));
 		assert.equal((ok.details as { kind: string }).kind, "pdf");
 		assert.deepEqual((ok.details as { result: unknown }).result, pdf);
-		// failure shape mirrors research
-		assert.equal(isSubagentFailure("pdf", pdf), false);
-		assert.equal(isSubagentFailure("pdf", { ...pdf, brief: "PDF failed: unreadable" }), true);
-		const fail = buildSubagentSteer({ id: "jf", kind: "pdf", toolCallId: "cf" }, { ...pdf, brief: "PDF failed: unreadable" });
+		const fail = buildSubagentSteer({ id: "jf", kind: "pdf", toolCallId: "cf" }, { ...pdf, brief: "", failure: "unreadable" });
+		assert.ok(fail.content.startsWith("PDF failed: unreadable\n\n"));
 		assert.ok(fail.content.includes("flag the gap"));
 		// abort wording names the PDF job
 		const aborted = buildAbortSteer({ id: "ja", kind: "pdf", toolCallId: "ca" });
@@ -433,19 +425,19 @@ describe("steer helpers (contracts.ts)", () => {
 
 /**
  * A fake deliver seam: capture the steer and mimic the pipeline's final
- * status flip (done/error by isSubagentFailure) so the job record reads
+ * status flip (done/error by isJobFailure) so the job record reads
  * exactly as it will in production after the wake turn completes.
  */
 function fakeDeliver() {
 	const steers: SteerMessage[] = [];
 	return {
 		steers,
-		deliver: async (steer: SteerMessage) => {
+		deliver: async (_chatId: string, steer: SteerMessage) => {
 			steers.push(steer);
 			const jobId = (steer.details as { jobId: string }).jobId;
 			const job = jobStore.getJob(jobId);
 			if (job && job.status === "running") {
-				const failed = job.result ? isSubagentFailure(job.kind, job.result as never) : true;
+				const failed = job.result ? isJobFailure(job.result as JobResult) : true;
 				jobStore.updateJob(jobId, { status: failed ? "error" : "done", activity: failed ? "failed" : "delivered" });
 			}
 		},
@@ -633,7 +625,7 @@ describe("research runner (async protocol §3)", () => {
 		assert.equal((done.result as ResearchResult).brief, brief);
 		assert.ok((done.result as ResearchResult).sources.some((s) => s.url === url));
 		assert.equal(delivery.steers.length, 1);
-		assert.equal(isSubagentFailure("research", done.result as ResearchResult), false);
+		assert.equal(isJobFailure(done.result as ResearchResult), false);
 	});
 
 	it("a failing runner still steers (the teacher learns the outcome) and the job lands error", async () => {
@@ -795,7 +787,7 @@ describe("pdf runner (sources v0)", () => {
 		});
 	}
 
-	it("an unreadable source: the job lands error with the PDF failed: brief and the steer flags the gap", async () => {
+	it("an unreadable source: the job lands error with the failure reason and the steer flags the gap", async () => {
 		const chat = await chatStore.createChat("Test: pdf runner failure");
 		trackChat(chat.id);
 		const badPath = path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt");
@@ -814,7 +806,7 @@ describe("pdf runner (sources v0)", () => {
 		const done = jobStore.getJob(job.id)!;
 		assert.equal(done.status, "error", "the failure brief is a subagent failure");
 		const result = done.result as PdfResult;
-		assert.match(result.brief, /^PDF failed:/);
+		assert.ok(result.failure);
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);
 
@@ -835,22 +827,43 @@ describe("researcher agent", () => {
 	});
 
 	it("the pdf-reader declares exactly the four skill tools (sources v0)", async () => {
-		const { pdfRoleTools } = await import("../src/jobs/roles/pdf.ts");
-		const state = { kind: "pdf", consulted: [], read: [], pendingRender: null } as const;
-		const tools = pdfRoleTools(
-			{ read: async () => ({ ...state, consulted: [], read: [] }), update: async () => undefined },
-			path.join(import.meta.dirname, "fixtures", "sample-3page.pdf"),
-			{
-				available: () => false,
-				unavailableReason: () => "unused",
-				runDemo: async () => ({ consoleErrors: [], pageErrors: [], failedRequests: [], ok: true }),
-				renderSvg: async () => Buffer.alloc(0),
-				renderPdfPages: async () => [],
-			},
-		);
+		const { PDF_ROLE } = await import("../src/jobs/roles/pdf.ts");
+		const tools = PDF_ROLE.tools({
+			input: { path: path.join(import.meta.dirname, "fixtures", "sample-3page.pdf") },
+		} as never);
 		assert.deepEqual(Object.keys(tools).sort(), ["pdf_extract", "pdf_info", "pdf_render", "pdf_search"]);
 		// reset any accidental global override
 		testEngines.pdfReader = undefined;
+	});
+
+	it("a hung role tool hits the per-call timeout instead of holding the run", async () => {
+		const { DEMO_ROLE } = await import("../src/jobs/roles/demo.ts");
+		const { toolTimeoutMs } = await import("../src/tools/execute.ts");
+		const previous = toolTimeoutMs.current;
+		toolTimeoutMs.current = 50;
+		try {
+			const tools = DEMO_ROLE.tools({
+				state: { read: async () => ({ html: "<p>x</p>" }), update: async () => undefined },
+				host: { headless: { unavailableReason: () => null, runDemo: () => new Promise(() => undefined) } },
+			} as never);
+			await assert.rejects(tools.run_demo!.execute("c1", {}), /timed out/);
+		} finally {
+			toolTimeoutMs.current = previous;
+		}
+	});
+
+	it("the pdf-reader's 'all' page spec counts every page of the document", async () => {
+		const { PDF_ROLE } = await import("../src/jobs/roles/pdf.ts");
+		const state = { kind: "pdf" as const, consulted: [] as number[], read: [] as number[], pendingRender: null as { pages: number[]; dpi: number } | null };
+		const tools = PDF_ROLE.tools({
+			input: { path: path.join(import.meta.dirname, "fixtures", "sample-3page.pdf") },
+			state: { read: async () => state, update: async (mutate: (next: typeof state) => void) => mutate(state) },
+			host: { headless: { unavailableReason: () => null } },
+		} as never);
+		await tools.pdf_extract!.execute("c1", { pages: "all" });
+		assert.deepEqual(state.read, [1, 2, 3]);
+		await tools.pdf_render!.execute("c2", { pages: "all" });
+		assert.deepEqual(state.pendingRender?.pages, [1, 2, 3]);
 	});
 });
 
@@ -893,7 +906,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			return 200;
 		});
 
-		await deliverJobResult(handoff);
+		await deliverJobResult(chat.id, handoff);
 		await waitFor(() => seen !== undefined, 8000, "handoff wake fired");
 		const firedHandoff = seen!;
 		assert.equal(firedHandoff.chatId, chat.id);
@@ -913,7 +926,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			return 200;
 		});
 
-		await deliverJobResult(handoff);
+		await deliverJobResult(chat.id, handoff);
 		assert.equal(fired, 0, "already delivered — the pump resolves without firing a wake");
 	});
 
@@ -925,7 +938,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			return 200;
 		});
 
-		await deliverJobResult(steer);
+		await deliverJobResult(chatId, steer);
 		await waitFor(() => jobStore.getJob(jobId)!.status !== "running", 8000, "job flip after delivery");
 
 		assert.equal(jobStore.getJob(jobId)!.status, "done");
@@ -963,7 +976,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 
 		// The delivery promise floats while the quiz blocks — awaiting it now
 		// would deadlock the test (the pump defers until the gate opens).
-		const delivery = deliverJobResult(steer);
+		const delivery = deliverJobResult(chatId, steer);
 
 		await delay(1200);
 		assert.equal(fired, 0, "no wake while the quiz is pending");
@@ -1027,7 +1040,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			} as never,
 		]);
 
-		const delivery = deliverJobResult(steer);
+		const delivery = deliverJobResult(chatId, steer);
 
 		await delay(1200);
 		assert.equal(fired, 0, "no wake while the session sits dismissal-paused");
@@ -1047,14 +1060,14 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 	});
 
 	it("retries with backoff on a 409 (a client turn raced in) and delivers on the retry", async () => {
-		const { jobId, steer } = await setup();
+		const { chatId, jobId, steer } = await setup();
 		let calls = 0;
 		setTurnRunner(async () => {
 			calls++;
 			return calls === 1 ? 409 : 200;
 		});
 
-		await deliverJobResult(steer);
+		await deliverJobResult(chatId, steer);
 		assert.ok(calls >= 2, "409 was retried");
 		await waitFor(() => jobStore.getJob(jobId)!.status !== "running", 8000, "job flip after the retry");
 		assert.equal(jobStore.getJob(jobId)!.status, "done");
@@ -1072,7 +1085,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 			return 200;
 		});
 
-		await deliverJobResult(steer);
+		await deliverJobResult(chatId, steer);
 		assert.equal(fired, 0, "no duplicate wake for an already-delivered steer");
 		assert.equal(jobStore.getJob(jobId)!.status, "done", "the job still flips — recovery completes");
 	});
@@ -1377,7 +1390,7 @@ describe("abort (src/server/jobs.ts abortJob)", () => {
 			if (cid === chat.id) fired.push(...((input as SteerInput).steers as SteerMessage[]));
 			return 200;
 		});
-		void deliverJobResult(buildSubagentSteer(job, result)).catch(() => {
+		void deliverJobResult(job.chatId, buildSubagentSteer(job, result)).catch(() => {
 			/* dropped by the abort below */
 		});
 		await waitFor(() => jobStore.getJob(job.id)!.activity === "delivering result", 8000, "queued");
@@ -1529,6 +1542,7 @@ describe("BYOK job refusal (no factory floor)", () => {
 		assert.equal(done.status, "error", "the job lands error, never a phantom run");
 		assert.match(done.error ?? "", /No model configured/);
 		assert.match(done.error ?? "", /missing: cheap/);
+		assert.equal(done.refusal, "models_not_configured", "the refusal carries its code");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
 			delivery.steers[0]!.content.includes("Research failed: No model configured"),
@@ -1573,6 +1587,7 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		const done = jobStore.getJob(job.id)!;
 		assert.equal(done.status, "error", "the job lands error, never a phantom run");
 		assert.equal(done.error, providerKeyMissing(engine.model.provider, ["cheap"]).error, "the envelope's error line verbatim");
+		assert.equal(done.refusal, "provider_key_missing", "the refusal carries its code");
 		assert.deepEqual(seen, [[engine.model.provider, "cheap"]], "the check saw the engine's provider + the researcher's tier");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(

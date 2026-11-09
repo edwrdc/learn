@@ -40,7 +40,7 @@ export interface ConversationDeps {
 	graphStore: GraphStore;
 	jobStore: JobStore;
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	deliver: (steer: LhMessage) => void;
+	deliver: (chatId: string, steer: LhMessage) => void;
 	searchAvailable: () => boolean;
 	graphNodes: () => ReadonlyArray<{ id: string; name: string }>;
 }
@@ -87,7 +87,7 @@ function toolsFor(
 			{
 				chatId,
 				chatStore: deps.chatStore,
-				deliver: (steer) => deps.deliver(steer),
+				deliver: (steer) => deps.deliver(chatId, steer),
 				jobStore: deps.jobStore,
 				spawn: deps.spawn,
 				searchAvailable: deps.searchAvailable,

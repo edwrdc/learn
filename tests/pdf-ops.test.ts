@@ -2,7 +2,7 @@
  * pdf-ops (sources v0) — the pdfjs text layer against a committed fixture
  * (tests/fixtures/sample-3page.pdf: 3 pages, distinct subjects, "force" on
  * page 2 only). The render path (headless Chrome) is covered by the
- * pdf-reader loop tests via the headlessOverride fake.
+ * pdf-reader loop tests via an injected fake headless.
  */
 import assert from "node:assert/strict";
 import * as path from "node:path";

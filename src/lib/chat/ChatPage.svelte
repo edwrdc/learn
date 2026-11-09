@@ -4,7 +4,7 @@ import { untrack } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
 	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
 	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
-import { isProviderKeyRefusal, kbdEventForAction, slotsConfigured, type ModelsSettings } from "@/src/settings/model";
+import { kbdEventForAction, slotsConfigured, type ModelsSettings } from "@/src/settings/model";
 import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";

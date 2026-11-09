@@ -30,19 +30,15 @@ process.env.LH_DATA_DIR = TMP;
 
 const { chatStore } = await import("../src/session/store.ts");
 const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
-const {
-	BackgroundRunDoc,
-	BackgroundRunsDoc,
-	configureBackgroundRuns,
-} = await import("../src/jobs/runtime.ts");
+const { BackgroundRunDoc, BackgroundRunsDoc } = await import("../src/jobs/runtime.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
 type RunDescriptor = import("../src/jobs/durable-run.ts").RunDescriptor;
-type BackgroundRunState = import("../src/jobs/durable-run.ts").RunState;
-const { runDemoBuilder } = await import("../src/jobs/roles/demo.ts");
-const { runVisualMaker } = await import("../src/jobs/roles/visual.ts");
-const { runPdfReaderAgent } = await import("../src/jobs/roles/pdf.ts");
+const { DEMO_ROLE } = await import("../src/jobs/roles/demo.ts");
+const { VISUAL_ROLE } = await import("../src/jobs/roles/visual.ts");
+const { PDF_ROLE } = await import("../src/jobs/roles/pdf.ts");
+const { runRole } = await import("../src/jobs/roles/role.ts");
 const { runSubmitAgent } = await import("../src/graph/extraction/submit-agent.ts");
 const { subagentSummarizer } = await import("../src/session/compaction.ts");
-const { headlessOverride } = await import("../src/jobs/headless.ts");
 // The composition root wires the durable run/retire seams at module init.
 await import("../src/session/turn.ts");
 await import("./support-durable.ts");
@@ -64,7 +60,7 @@ const SVG_1 = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="100">
 const FINDINGS = { propositions: [{ id: "p1", name: "One", statement: "One true idea.", aliases: [] }], chains: [] };
 
 after(() => {
-	headlessOverride.current = undefined;
+	configureBackgroundRuns({ headless: undefined });
 	fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -190,13 +186,13 @@ describe("durable role restart (real close, fresh open)", () => {
 	it("demo: resumes from the persisted html and finishes with one verification", async () => {
 		const chat = await chatStore.createChat("Durable: demo restart");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const run = { chatId: chat.id, jobId: "demo-restart" };
 		const first = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("write_demo", { html: GOOD_HTML }, { id: "w1" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		const firstRun = runDemoBuilder({ title: "T", brief: "b" }, { engine: first, headless, run });
+		const firstRun = runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: first, headless, run });
 		await waitFor(() => first.calls >= 2, 10000, "the demo model call mid-flight");
 		await closeChatRuntime(chat.id);
 		await assert.rejects(firstRun, (err: unknown) => err instanceof Error && err.name === "AbortError");
@@ -206,7 +202,7 @@ describe("durable role restart (real close, fresh open)", () => {
 			fauxAssistantMessage([fauxText("Sweep the slider.")]),
 		]);
 		await reopen(chat.id, resumed, headless);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: resumed, headless, run });
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: resumed, headless, run });
 
 		assert.equal(result.html, GOOD_HTML, "the pre-close html is the deliverable");
 		assert.equal(result.notes, "Sweep the slider.");
@@ -218,20 +214,20 @@ describe("durable role restart (real close, fresh open)", () => {
 	it("pdf: page state survives and the brief finishes from the reattached conversation", async () => {
 		const chat = await chatStore.createChat("Durable: pdf restart");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const run = { chatId: chat.id, jobId: "pdf-restart" };
 		const first = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("pdf_extract", { pages: "1-2" }, { id: "e1" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		const firstRun = runPdfReaderAgent({ path: FIXTURE, question: "what is on page one?" }, { engine: first, headless, run });
+		const firstRun = runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is on page one?" }), { engine: first, headless, run });
 		await waitFor(() => first.calls >= 2, 10000, "the pdf model call mid-flight");
 		await closeChatRuntime(chat.id);
 		await assert.rejects(firstRun, (err: unknown) => err instanceof Error && err.name === "AbortError");
 
 		const resumed = fauxEngine([fauxAssistantMessage([fauxText("The rule is on page 1 (p. 1). Pages consulted: 1, 2")])]);
 		await reopen(chat.id, resumed, headless);
-		const result = await runPdfReaderAgent({ path: FIXTURE, question: "what is on page one?" }, { engine: resumed, headless, run });
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is on page one?" }), { engine: resumed, headless, run });
 
 		assert.match(result.brief, /page 1/);
 		assert.deepEqual(result.pagesRead, [1, 2], "extracted pages were persisted before the close");
@@ -243,13 +239,13 @@ describe("durable role restart (real close, fresh open)", () => {
 	it("visual: the resumed run renders, looks and delivers the verified SVG", async () => {
 		const chat = await chatStore.createChat("Durable: visual restart");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const run = { chatId: chat.id, jobId: "visual-restart" };
 		const first = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("write_svg", { svg: SVG_1 }, { id: "w1" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		const firstRun = runVisualMaker({ brief: "a line" }, { engine: first, headless, run });
+		const firstRun = runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "a line" }), { engine: first, headless, run });
 		await waitFor(() => first.calls >= 2, 10000, "the visual model call mid-flight");
 		await closeChatRuntime(chat.id);
 		await assert.rejects(firstRun, (err: unknown) => err instanceof Error && err.name === "AbortError");
@@ -259,7 +255,7 @@ describe("durable role restart (real close, fresh open)", () => {
 			fauxAssistantMessage([fauxText("A horizontal line.")]),
 		]);
 		await reopen(chat.id, resumed, headless);
-		const result = await runVisualMaker({ brief: "a line" }, { engine: resumed, headless, run });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "a line" }), { engine: resumed, headless, run });
 
 		assert.equal(result.svg, SVG_1, "the persisted SVG is delivered");
 		assert.equal(result.notes, "A horizontal line.");
@@ -338,18 +334,17 @@ describe("durable role caps and concurrency", () => {
 	it("pdf: the cap ends the run with the iteration-limit failure, never an invented brief", async () => {
 		const chat = await chatStore.createChat("Durable: pdf cap");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const engine = fauxEngine(
 			[1, 2, 3].map((n) =>
 				fauxAssistantMessage([fauxToolCall("pdf_info", {}, { id: `i${n}` })], { stopReason: "toolUse" }),
 			),
 		);
 		configureBackgroundRuns({ resolveEngine: () => engine, searchProvider: () => null, headless: () => headless });
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "q" },
-			{ engine, headless, run: { chatId: chat.id, jobId: "pdf-cap" }, maxIterations: 3 },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "q" }),
+			{ engine, headless, run: { chatId: chat.id, jobId: "pdf-cap" }, maxTurns: 3 },
 		);
-		assert.match(result.brief, /^PDF failed: iteration limit \(3\) reached without a brief\.$/);
+		assert.equal(result.failure, "iteration limit (3) reached without a brief.");
 		assert.deepEqual(result.pagesRead, []);
 		assert.equal(engine.calls, 3);
 	});
@@ -357,25 +352,24 @@ describe("durable role caps and concurrency", () => {
 	it("visual: the cap never delivers an unlooked SVG", async () => {
 		const chat = await chatStore.createChat("Durable: visual cap");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const engine = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("write_svg", { svg: SVG_1 }, { id: "w1" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Done, trust me.")]),
 		]);
 		configureBackgroundRuns({ resolveEngine: () => engine, searchProvider: () => null, headless: () => headless });
-		const result = await runVisualMaker(
-			{ brief: "a line" },
-			{ engine, headless, run: { chatId: chat.id, jobId: "visual-cap" }, maxIterations: 2 },
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "a line" }),
+			{ engine, headless, run: { chatId: chat.id, jobId: "visual-cap" }, maxTurns: 2 },
 		);
 		assert.equal(result.svg, "");
-		assert.match(result.notes ?? "", /^FAILED: iteration limit \(2\) reached without a verified SVG\.$/);
+		assert.equal(result.failure, "iteration limit (2) reached without a verified SVG.");
 		assert.equal(headless.svgRenders.length, 0, "the cap stopped the forced look");
 	});
 
 	it("research and visual run concurrently on one Harness, each on its own engine", async () => {
 		const chat = await chatStore.createChat("Durable: concurrent roles");
 		const headless = fakeHeadless();
-		headlessOverride.current = headless;
+		configureBackgroundRuns({ headless: () => headless });
 		const { runBackgroundConversation } = await import("../src/jobs/runtime.ts");
 		const research = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_search", { query: "router isolation" }, { id: "ws1" })], { stopReason: "toolUse" }),
@@ -445,10 +439,3 @@ describe("durable role caps and concurrency", () => {
 	});
 });
 
-describe("durable role state shape", () => {
-	it("every kind seeds the discriminated state union", async () => {
-		const { initialState } = await import("../src/jobs/durable-run.ts");
-		const kinds: BackgroundRunState["kind"][] = ["research", "demo", "visual", "pdf", "extract", "audit", "compact"];
-		for (const kind of kinds) assert.equal(initialState(kind).kind, kind);
-	});
-});

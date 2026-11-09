@@ -41,12 +41,12 @@ import { untrack } from "svelte";
 
 {#if !result || typeof result.svg !== "string"}
 	<div class="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Figure completed, but the result could not be displayed.</div>
-{:else if result.svg.length === 0}
+{:else if result.failure !== undefined}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground" data-testid="visual-card-failed">
 		<div class="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 			Figure <span class="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
 		</div>
-		<p class="mt-2 text-sm text-muted-foreground">{result.notes ?? "The figure could not be drawn."}</p>
+		<p class="mt-2 text-sm text-muted-foreground">{result.failure}</p>
 	</div>
 {:else}
 	<div class={natural !== null ? "my-4 mx-auto w-fit max-w-full" : "my-4 w-full"} data-testid="visual-card">

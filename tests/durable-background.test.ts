@@ -35,8 +35,9 @@ const {
 	closeChatRuntime,
 	openChatRuntime,
 } = await import("../src/session/durable.ts");
-const { BackgroundRunsDoc, configureBackgroundRuns } = await import("../src/jobs/runtime.ts");
-type RunDescriptor = import("../src/jobs/runtime.ts").RunDescriptor;
+const { BackgroundRunsDoc } = await import("../src/jobs/runtime.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
+type RunDescriptor = import("../src/jobs/durable-run.ts").RunDescriptor;
 const { createJobRunner } = await import("../src/jobs/runner.ts");
 const { setTurnRunner, abortJob } = await import("../src/jobs/wake.ts");
 const { isJobLive } = await import("../src/jobs/aborts.ts");
@@ -129,7 +130,7 @@ describe("durable background restart", () => {
 		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
-			deliver: async (steer) => {
+			deliver: async (_chatId, steer) => {
 				delivered.push(steer);
 			},
 			searchProvider: () => search,
@@ -370,7 +371,7 @@ describe("durable background restart", () => {
 		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
-			deliver: async (steer) => {
+			deliver: async (_chatId, steer) => {
 				delivered.push(steer);
 			},
 			searchProvider: () => search,

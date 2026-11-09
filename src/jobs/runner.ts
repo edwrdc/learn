@@ -1,19 +1,13 @@
 import type { PiEngine } from "../platform/index.ts";
 import type { SearchProvider } from "../tools/model/index.ts";
-import { buildSubagentSteer, type DemoResult, type DemoToolInput, type JobKind, type JobRecord, type PdfResult, type PdfToolInput, type ResearchResult, type ResearchToolInput, type SteerMessage, type VisualResult, type VisualToolInput } from "./model/types.ts";
+import { buildSubagentSteer, type DemoToolInput, type JobRecord, type JobResult, type PdfToolInput, type ResearchToolInput, type SteerMessage, type VisualToolInput } from "./model/types.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { ModelRole } from "../settings/model/index.ts";
-import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../settings/model/index.ts";
+import { MODELS_NOT_CONFIGURED_CODE, ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../settings/model/index.ts";
 import type { ChatStore } from "../session/model/index.ts";
 import type { JobStore } from "./model/ports.ts";
-import { backgroundRun } from "./durable-run.ts";
-import { runDemoBuilder } from "./roles/demo.ts";
-import { runPdfReaderAgent } from "./roles/pdf.ts";
-import { RESEARCHER_INSTRUCTIONS } from "./roles/research.ts";
-import { runVisualMaker } from "./roles/visual.ts";
+import { JOB_ROLES } from "./roles/registry.ts";
+import { runRole } from "./roles/role.ts";
 
 /**
  * The background job runner (contracts.ts "THE ASYNC PROTOCOL" §2–3), created
@@ -28,10 +22,9 @@ import { runVisualMaker } from "./roles/visual.ts";
  *     `deliver`; the wake pipeline fires the server-side teacher turn and
  *     flips the job to done/error when the lesson has actually resumed.
  *
- *   On failure the result is the failure shape (empty html/svg + "FAILED: …"
- *   notes; research: failure brief) — and it STILL steers, because the
- *   teacher must learn the outcome. If delivery itself fails, the job is
- *     marked error (the learner's activity card shows it).
+ *   A failed job's result carries `failure` — and it STILL steers, because
+ *   the teacher must learn the outcome. If delivery itself fails, the job is
+ *   marked error (the learner's activity card shows it).
  */
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
@@ -45,7 +38,7 @@ export interface JobRunnerDeps {
 	 * steer is delivered (the wake turn completed and the job status
 	 * flipped); rejects when delivery fails unrecoverably.
 	 */
-	deliver: (steer: SteerMessage) => Promise<void>;
+	deliver: (chatId: string, steer: SteerMessage) => Promise<void>;
 	/** Settings-resolved engine per role (model slots wave, 2026-09-20):
 	 *  the role-override → slot chain, read FRESH per job (the server
 	 *  wiring passes effectiveSettings-based resolution). Test overrides
@@ -75,73 +68,20 @@ export interface JobRunner {
 	runJob(jobId: string, input?: JobToolInput): Promise<void>;
 }
 
-/** The durable seam itself lives in ./durable-run.ts (submit/role modules
- *  call it too); re-exported here for the composition root. */
-export { setBackgroundRun } from "./durable-run.ts";
-
-/** One job loop's injected machinery: the kill switch (real abort, 2026-09
- * semantics) and the usage tap (money channel — every model call folds into
- * JobRecord.usage as it completes). */
-interface LoopContext {
-	/** Fires when abortJob kills the run; abortSignal is passed into every
-	 * model call so the spend stops mid-call, not at the next loop check. */
-	abortSignal: AbortSignal;
-	/** The controller itself — a durable run registers it as its kill switch
-	 * so `abortSignal.aborted` also guards the runner's unwind. */
-	controller: AbortController;
-	/** The job's chat (debug: raw provider-event recording under
-	 * LH_PROVIDER_EVENTS=1 — forwarded into every subagent run). */
-	chatId?: string;
+function refusalOf(envelope: ProviderKeyMissing | null) {
+	return envelope ? { code: envelope.code, reason: envelope.error } : null;
 }
-
-/** The kind→role table (model slots wave, 2026-09-20): which ModelRole's
- * engine each sub-agent kind runs — the engineFor injection key. */
-const KIND_ROLE: Record<JobKind, ModelRole> = {
-	research: "researcher",
-	demo: "demoBuilder",
-	visual: "visualMaker",
-	pdf: "pdfReader",
-};
 
 export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	const { chatStore, jobStore, deliver } = deps;
 
-	function makeLoopContext(jobId: string): LoopContext {
-		const chatId = jobStore.getJob(jobId)?.chatId;
-		// Real-kill wiring (2026-09 abort semantics): the controller is what
-		// the abort endpoint fires (agent/subagents/aborts.ts registry); the
-		// signal rides into every model call of the loop.
-		const controller = new AbortController();
-		registerJobAbort(jobId, controller);
-		return { abortSignal: controller.signal, controller, chatId };
-	}
-
 	/** True while the job may still write terminal state (result, error,
-	 * steer). False once abortJob has flipped it to error ("Aborted by learner") —
-	 * the runner then unwinds silently; the abort path owns the record and
-	 * the abort steer. */
+	 * steer). False once abortJob has flipped it to error ("Aborted by
+	 * learner") — the runner then unwinds silently; the abort path owns the
+	 * record and the abort steer. */
 	function stillRunning(jobId: string): boolean {
 		return jobStore.getJob(jobId)?.status === "running";
 	}
-
-	/** The kind→runner map: one sub-agent loop per kind. Each kind's
-	 *  runner narrows the union input itself (dispatch-time inputs are
-	 *  kind-correct by construction; transcript fallbacks are cast after). */
-	/** The engine one job runs on. undefined = the BYOK chain came up
-	 *  empty (owner, 2026-09-22) — runJob refuses below, honestly. */
-	function pickEngine(kind: JobKind): PiEngine | undefined {
-		return deps.engineFor?.(KIND_ROLE[kind]);
-	}
-
-	const KIND_RUNNERS: Record<
-		JobKind,
-		(jobId: string, engine: PiEngine, input: JobToolInput | undefined, loop: LoopContext) => Promise<void>
-	> = {
-		research: (jobId, engine, input, loop) => runResearchJob(jobId, engine, input, loop),
-		demo: (jobId, engine, input, loop) => runDemoJob(jobId, engine, input, loop),
-		visual: (jobId, engine, input, loop) => runVisualJob(jobId, engine, input, loop),
-		pdf: (jobId, engine, input, loop) => runPdfJob(jobId, engine, input, loop),
-	};
 
 	async function runJob(jobId: string, input?: JobToolInput): Promise<void> {
 		const job = jobStore.getJob(jobId);
@@ -150,95 +90,60 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			return;
 		}
 		if (job.status !== "running") return; // already finished / re-run after crash recovery
-		const run = KIND_RUNNERS[job.kind];
-		if (!run) {
-			console.error(`[job ${jobId}] unknown kind: ${job.kind}`);
-			jobStore.updateJob(jobId, { status: "error", error: `unknown kind ${job.kind}`, activity: "failed" });
+		if (!(await chatStore.getChat(job.chatId))) {
+			jobStore.updateJob(jobId, { status: "error", error: `Chat not found: ${job.chatId}`, activity: "failed" });
 			return;
 		}
-		const engine = pickEngine(job.kind);
-		// The per-need refusal guards (BYOK 2026-09-22 / provider-key
-		// interlude 2026-09-25): no engine for the kind's tier, or the
-		// resolved engine's provider key gone — both refuse through the SAME
-		// convention as every other failed job: record the honest error (no
-		// status flip: finalizeJob owns the terminal flip after delivery),
-		// then steer the kind's failure shape through finishJob so the wake
-		// pipeline resumes the lesson and the teacher reads the refusal
-		// instead of waiting forever on a job it already dispatched.
-		const refuse = async (reason: string): Promise<void> => {
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			const resolved = (await resolveInput(job, input)) as
-				| ResearchToolInput
-				| DemoToolInput
-				| VisualToolInput
-				| PdfToolInput
-				| undefined;
-			const pdf = resolved as PdfToolInput | undefined;
-			const failure: ResearchResult | DemoResult | VisualResult | PdfResult =
-				job.kind === "research"
-					? { brief: `Research failed: ${reason}`, sources: [] }
-					: job.kind === "demo"
-						? {
-								title: typeof (resolved as DemoToolInput | undefined)?.title === "string" && (resolved as DemoToolInput).title.trim() ? (resolved as DemoToolInput).title : "Interactive demo",
-								html: "",
-								tested: true,
-								notes: `FAILED: ${reason}`,
-							}
-						: job.kind === "visual"
-							? { svg: "", notes: `FAILED: ${reason}` }
-							: {
-									path: typeof pdf?.path === "string" ? pdf.path : "",
-									question: typeof pdf?.question === "string" ? pdf.question : "",
-									brief: `PDF failed: ${reason}`,
-									pagesRead: [],
-									pagesConsulted: [],
-								};
-			await finishJob(jobId, failure);
-		};
-		if (!engine) {
-			const tier = ROLE_SLOT[KIND_ROLE[job.kind]];
-			const envelope = modelsNotConfigured([tier]);
-			console.info(`[job ${jobId}] refused — ${JSON.stringify(envelope)}`);
-			await refuse(`${envelope.error} (missing: ${tier})`);
+		const role = JOB_ROLES[job.kind];
+		const roleInput = role.input(await resolveInput(job, input));
+		// BYOK (owner, 2026-09-22) and the provider-key interlude (2026-09-25):
+		// no engine for the kind's tier, or its provider key gone, fails the
+		// job like any other failure — the teacher reads the refusal instead
+		// of waiting forever on a job it already dispatched.
+		const tier = ROLE_SLOT[role.model];
+		const engine = deps.engineFor?.(role.model);
+		const refusal = !engine
+			? { code: MODELS_NOT_CONFIGURED_CODE, reason: `${modelsNotConfigured([tier]).error} (missing: ${tier})` }
+			: refusalOf(deps.providerKeyMissing?.(engine.model.provider, tier) ?? null);
+		if (refusal || !engine) {
+			console.info(`[job ${jobId}] refused — ${refusal?.reason}`);
+			jobStore.updateJob(jobId, { refusal: refusal?.code });
+			await finishJob(jobId, role.failure(roleInput, refusal?.reason ?? ""));
 			return;
 		}
-		// Key presence (2026-09-25): the engine exists, but its provider's
-		// key may be gone — refuse the spawn BEFORE the loop, same
-		// convention (the injected check reads the key store; absent in
-		// engine-injecting tests).
-		const keyRefusal =
-			deps.providerKeyMissing?.(engine.model.provider, ROLE_SLOT[KIND_ROLE[job.kind]]) ?? null;
-		if (keyRefusal) {
-			console.info(`[job ${jobId}] refused — ${JSON.stringify(keyRefusal)}`);
-			await refuse(keyRefusal.error);
-			return;
-		}
+		const abort = new AbortController();
+		registerJobAbort(jobId, abort);
 		try {
-			await run(jobId, engine, input, makeLoopContext(jobId));
+			jobStore.updateJob(jobId, { activity: role.activity });
+			const result = await runRole(role, roleInput, {
+				engine,
+				run: { chatId: job.chatId, jobId },
+				search: deps.searchProvider,
+				signal: abort.signal,
+				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+				onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
+			});
+			await finishJob(jobId, result);
+		} catch (err) {
+			// An abort or a runtime close: the abort path owns the record, and a
+			// closed run stays recoverable — no failure may be delivered for it.
+			if (abort.signal.aborted || (err instanceof Error && err.name === "AbortError")) return;
+			const reason = err instanceof Error ? err.message : String(err);
+			await finishJob(jobId, role.failure(roleInput, reason));
 		} finally {
 			unregisterJobAbort(jobId);
 		}
 	}
 
-	/** Resolve the job's tool input: dispatch passes it directly; only a
-	 *  crash-recovery re-spawn (no input) falls back to scanning the
-	 *  transcript (by then onFinish has long persisted the part). */
-	async function resolveInput(
-		job: JobRecord,
-		input: JobToolInput | undefined,
-	): Promise<JobToolInput | undefined> {
+	/** The job's tool input: dispatch passes it directly; a crash-recovery
+	 *  re-spawn reads the call's arguments from the transcript. */
+	async function resolveInput(job: JobRecord, input: JobToolInput | undefined): Promise<JobToolInput | undefined> {
 		if (input) return input;
 		const chat = await chatStore.getChat(job.chatId);
-		if (!chat) return undefined;
-		// Wave D: the record is native history — the scan reads the native
-		// assistant blocks directly (a toolCall's arguments are the input).
-		for (const m of chat.messages) {
-			if ((m as { role?: string }).role !== "assistant") continue;
-			const content = (m as { content?: unknown }).content;
-			if (!Array.isArray(content)) continue;
-			for (const block of content as Array<{ type?: string; id?: string; arguments?: unknown }>) {
-				if (block.type !== "toolCall" || block.id !== job.toolCallId) continue;
-				return block.arguments as JobToolInput | undefined;
+		for (const m of chat?.messages ?? []) {
+			if (m.role !== "assistant") continue;
+			for (const block of m.content) {
+				if (block.type === "toolCall" && block.id === job.toolCallId) return block.arguments as unknown as JobToolInput;
 			}
 		}
 		return undefined;
@@ -250,17 +155,16 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 * actually resumed — until then the job reads "running" so the client's
 	 * activity card keeps polling and re-syncs once, at the end.
 	 */
-	async function finishJob(jobId: string, result: ResearchResult | DemoResult | VisualResult | PdfResult): Promise<void> {
+	async function finishJob(jobId: string, result: JobResult): Promise<void> {
 		const job = jobStore.getJob(jobId);
-		if (!job) return;
-		// Aborted mid-run or mid-delivery (abortJob flips the record before
-		// the loop unwinds): no result write, no steer — the abort path owns
-		// the record and queues the abort steer itself.
-		if (job.status !== "running") return;
-		jobStore.updateJob(jobId, { result, activity: "delivering result" });
-		const steer = buildSubagentSteer(job, result);
+		if (!job || !stillRunning(jobId)) return;
+		jobStore.updateJob(jobId, {
+			result,
+			activity: "delivering result",
+			...(result.failure !== undefined ? { error: result.failure } : {}),
+		});
 		try {
-			await deliver(steer);
+			await deliver(job.chatId, buildSubagentSteer(job, result));
 		} catch (err) {
 			const reason = err instanceof Error ? err.message : String(err);
 			console.error(`[job ${jobId}] steer delivery failed:`, err);
@@ -268,253 +172,5 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		}
 	}
 
-	/** Chat-record + input resolution shared by all three runners. */
-	async function jobContext(jobId: string): Promise<{ job: JobRecord; chatId: string } | null> {
-		const job = jobStore.getJob(jobId);
-		if (!job || job.status !== "running") return null;
-		const chat = await chatStore.getChat(job.chatId);
-		if (!chat) {
-			jobStore.updateJob(jobId, { status: "error", error: `Chat not found: ${job.chatId}`, activity: "failed" });
-			return null;
-		}
-		return { job, chatId: job.chatId };
-	}
-
-	// ─── research ───────────────────────────────────────────────────────────
-
-	async function runResearchJob(
-		jobId: string,
-		model: PiEngine | undefined,
-		passedInput: JobToolInput | undefined,
-		loop: LoopContext,
-	): Promise<void> {
-		const ctx = await jobContext(jobId);
-		if (!ctx) return;
-		const { job } = ctx;
-
-		const input = (passedInput ?? (await resolveInput(job, passedInput))) as ResearchToolInput | undefined;
-		const question = typeof input?.question === "string" && input.question.trim() ? input.question : "(no question)";
-		const context = typeof input?.context === "string" && input.context.trim() ? input.context : undefined;
-
-		const prompt = [
-			`Research question: ${question}`,
-			context ? `Context (what this is needed for): ${context}` : null,
-			"Produce your final brief in the required format.",
-		]
-			.filter(Boolean)
-			.join("\n\n");
-
-		// Per-job PDF dir (researcher PDF wave, 2026-10-07): web_fetch_pdf
-		// downloads land here; every pdf tool is scoped to it; it dies with
-		// the job (never enters the record).
-		const pdfDir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-research-"));
-
-		try {
-			jobStore.updateJob(jobId, { activity: "researching" });
-			// The researcher is a real durable conversation in this chat's
-			// database; a re-entry after a crash reattaches to it instead of
-			// spending the run again.
-			const outcome = await backgroundRun({
-				jobId,
-				chatId: ctx.chatId,
-				kind: "research",
-				role: "researcher",
-				engine: model!,
-				maxTurns: 12,
-				systemPrompt: RESEARCHER_INSTRUCTIONS,
-				prompt,
-				input: { question, ...(context ? { context } : {}) },
-				attachments: { pdfDir },
-				search: deps.searchProvider,
-				abort: loop.controller,
-				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
-				onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
-			});
-			const brief = outcome.text;
-			const durableUrls = outcome.state.kind === "research" ? outcome.state.fetchedUrls : [];
-			if (!brief.trim()) throw new Error("the researcher produced no text");
-			const research: ResearchResult = {
-				brief: brief.trim(),
-				sources: parseSources(brief.trim(), durableUrls),
-			};
-			await finishJob(jobId, research);
-		} catch (err) {
-			// Real-kill abort (2026-09): the abort path flipped the record and
-			// queued the abort steer — unwind silently, keep the usage
-			// folded so far (flushed by runJob's finally). A runtime close is
-			// the same: the durable run stays recoverable, so no failure
-			// result may be delivered for it.
-			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
-			const reason = err instanceof Error ? err.message : String(err);
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			await finishJob(jobId, { brief: `Research failed: ${reason}`, sources: [] });
-		} finally {
-			await fs.rm(pdfDir, { recursive: true, force: true });
-		}
-	}
-
-	// ─── demo + visual ──────────────────────────────────────────────────────
-
-	async function runDemoJob(
-		jobId: string,
-		model: PiEngine | undefined,
-		passedInput: JobToolInput | undefined,
-		loop: LoopContext,
-	): Promise<void> {
-		const ctx = await jobContext(jobId);
-		if (!ctx) return;
-		const { job } = ctx;
-
-		const input = (passedInput ?? (await resolveInput(job, passedInput))) as DemoToolInput | undefined;
-		const title = typeof input?.title === "string" && input.title.trim() ? input.title : "Interactive demo";
-		const brief = typeof input?.brief === "string" ? input.brief : "";
-
-		try {
-			jobStore.updateJob(jobId, { activity: "building demo" });
-			const result = await runDemoBuilder(
-				{ title, brief },
-				{
-					engine: model,
-					abortSignal: loop.abortSignal,
-					chatId: loop.chatId,
-					run: { chatId: ctx.chatId, jobId },
-					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
-					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
-				},
-			);
-			if (isDemoFailure(result) && stillRunning(jobId))
-				jobStore.updateJob(jobId, { error: result.notes ?? "demo build failed" });
-			await finishJob(jobId, result);
-		} catch (err) {
-			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
-			const reason = err instanceof Error ? err.message : String(err);
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			await finishJob(jobId, { title, html: "", tested: true, notes: `FAILED: ${reason}` });
-		}
-	}
-
-	async function runVisualJob(
-		jobId: string,
-		model: PiEngine | undefined,
-		passedInput: JobToolInput | undefined,
-		loop: LoopContext,
-	): Promise<void> {
-		const ctx = await jobContext(jobId);
-		if (!ctx) return;
-		const { job } = ctx;
-
-		const input = (passedInput ?? (await resolveInput(job, passedInput))) as VisualToolInput | undefined;
-		const brief = typeof input?.brief === "string" ? input.brief : "";
-
-		try {
-			jobStore.updateJob(jobId, { activity: "drawing figure" });
-			const result = await runVisualMaker(
-				{ brief },
-				{
-					engine: model,
-					abortSignal: loop.abortSignal,
-					chatId: loop.chatId,
-					run: { chatId: ctx.chatId, jobId },
-					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
-					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
-				},
-			);
-			if (isVisualFailure(result) && stillRunning(jobId))
-				jobStore.updateJob(jobId, { error: result.notes ?? "visual build failed" });
-			await finishJob(jobId, result);
-		} catch (err) {
-			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
-			const reason = err instanceof Error ? err.message : String(err);
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			await finishJob(jobId, { svg: "", notes: `FAILED: ${reason}` });
-		}
-	}
-
-	// ─── pdf reading (sources v0) ────────────────────────────────────────────
-
-	async function runPdfJob(
-		jobId: string,
-		model: PiEngine | undefined,
-		passedInput: JobToolInput | undefined,
-		loop: LoopContext,
-	): Promise<void> {
-		const ctx = await jobContext(jobId);
-		if (!ctx) return;
-		const { job } = ctx;
-
-		const input = (passedInput ?? (await resolveInput(job, passedInput))) as PdfToolInput | undefined;
-		const path = typeof input?.path === "string" && input.path.trim() ? input.path.trim() : "";
-		const question = typeof input?.question === "string" ? input.question : "";
-
-		try {
-			jobStore.updateJob(jobId, { activity: "reading pdf" });
-			const result = await runPdfReaderAgent(
-				{ path, question },
-				{
-					engine: model,
-					abortSignal: loop.abortSignal,
-					chatId: loop.chatId,
-					run: { chatId: ctx.chatId, jobId },
-					onUsage: (usage) => jobStore.updateJob(jobId, { usage }),
-					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
-				},
-			);
-			if (isPdfFailure(result) && stillRunning(jobId))
-				jobStore.updateJob(jobId, { error: result.brief.replace(/^PDF failed:\s*/i, "") });
-			await finishJob(jobId, result);
-		} catch (err) {
-			if (loop.abortSignal.aborted || (err instanceof Error && err.name === "AbortError")) return;
-			const reason = err instanceof Error ? err.message : String(err);
-			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			await finishJob(jobId, { path, question, brief: `PDF failed: ${reason}`, pagesRead: [], pagesConsulted: [] });
-		}
-	}
-
 	return { runJob };
-}
-
-// ─── module-level pure helpers ──────────────────────────────────────────────
-
-/** Failure shape (W6 brief): html === "" with "FAILED: …" notes. */
-function isDemoFailure(result: DemoResult): boolean {
-	return typeof result.html !== "string" || result.html.length === 0;
-}
-
-function isVisualFailure(result: VisualResult): boolean {
-	return typeof result.svg !== "string" || result.svg.length === 0;
-}
-
-/** The pdf-reader's failure brief (mirrors the research failure shape). */
-function isPdfFailure(result: PdfResult): boolean {
-	return /^PDF failed:/i.test(result.brief);
-}
-
-function hostOf(url: string | undefined): string {
-	if (!url) return "(no url)";
-	try {
-		return new URL(url).hostname;
-	} catch {
-		return url.slice(0, 40);
-	}
-}
-
-/** Sources for the result: markdown links cited in the brief, else fetched URLs. */
-function parseSources(brief: string, fetchedUrls: string[]): ResearchResult["sources"] {
-	const sources: ResearchResult["sources"] = [];
-	const seen = new Set<string>();
-	for (const match of brief.matchAll(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g)) {
-		const title = (match[1] ?? "").trim();
-		const url = match[2]!;
-		if (!title || seen.has(url)) continue;
-		seen.add(url);
-		sources.push({ title, url });
-	}
-	if (sources.length === 0) {
-		for (const url of fetchedUrls) {
-			if (seen.has(url)) continue;
-			seen.add(url);
-			sources.push({ title: hostOf(url), url });
-		}
-	}
-	return sources.slice(0, 10);
 }

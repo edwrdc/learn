@@ -127,7 +127,7 @@ describe("svelte artifact cards", () => {
 		const jobs = [
 			{
 				id: "j1", kind: "research", chatId: "c1", toolCallId: "t1", status: "error",
-				error: "No model configured — set up your models first (missing: cheap)",
+				error: "No model configured — set up your models first (missing: cheap)", refusal: "models_not_configured",
 				activity: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 			},
 		];

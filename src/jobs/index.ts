@@ -1,10 +1,9 @@
 export { activityFeed } from "./activity.ts";
-export { backgroundRun, setBackgroundRetire } from "./durable-run.ts";
-export type { RoleRunIdentity, RoleStateIo, SubmitRunState } from "./durable-run.ts";
+export { backgroundRun, configureBackgroundRuns, setBackgroundRetire, setBackgroundRun } from "./durable-run.ts";
+export type { RoleRunIdentity, RoleStateIo, RunDescriptor, SubmitRunState } from "./durable-run.ts";
 export { withBgLlmSlot } from "./llm-slots.ts";
-export { createJobRunner, setBackgroundRun } from "./runner.ts";
-export { configureBackgroundRuns, resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
-export type { RunDescriptor } from "./runtime.ts";
+export { createJobRunner } from "./runner.ts";
+export { resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
 export { jobStore } from "./store.ts";
 export { jobTools } from "./tools.ts";
 export type { DemoInput, JobToolContext, PdfInput, ResearchInput, VisualInput } from "./tools.ts";

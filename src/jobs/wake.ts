@@ -2,7 +2,7 @@
  * THE WAKE PIPELINE (contracts.ts "THE ASYNC PROTOCOL" §4) — server-side
  * steer delivery for finished sub-agent jobs. One registry, two vehicles:
  *
- *   deliverJobResult(steer) — the runner calls this on job completion. The
+ *   deliverJobResult(chatId, steer) — the runner calls this on job completion. The
  *     steer joins a per-chat serialized registry and the pump drives it:
  *
  *       1. LIVE RUN → the durable inbox. The marker is submitted to the
@@ -34,7 +34,7 @@
  */
 
 import { processState } from "../platform/model/index.ts";
-import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, steerDelivered, type JobRecord, type SteerMessage } from "./model/types.ts";
+import { buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type JobRecord, type JobResult, type SteerMessage } from "./model/types.ts";
 import type { TurnInput } from "../session/model/index.ts";
 import { danglingQuestionOf, endsInDismissal, modelTextOf, type LhMessage } from "../session/model/index.ts";
 import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
@@ -150,10 +150,9 @@ function failSteer(steer: SteerMessage, err: Error): void {
 /** Queue ANY steer (result, abort, probe handoff) through the pipeline.
  *  Resolves when the wake turn has completed; rejects when delivery fails
  *  unrecoverably. Never rejects for queueing itself. */
-export function deliverJobResult(steer: SteerMessage): Promise<void> {
+export function deliverJobResult(chatId: string, steer: SteerMessage): Promise<void> {
 	return new Promise<void>((resolve, reject) => {
 		const s = state();
-		const chatId = chatIdOf(steer);
 		const queue = s.queues.get(chatId) ?? [];
 		queue.push({ steer, resolve, reject });
 		s.queues.set(chatId, queue);
@@ -326,23 +325,10 @@ export function abortJob(jobId: string): AbortOutcome {
 			console.error(`[job ${jobId}] durable abort failed:`, error);
 		});
 	}
-	void deliverJobResult(buildAbortSteer(job)).catch(() => {
+	void deliverJobResult(job.chatId, buildAbortSteer(job)).catch(() => {
 		/* deliverJobResult marks the job error on unrecoverable failure */
 	});
 	return { ok: true };
-}
-
-function chatIdOf(steer: SteerMessage): string {
-	// The probe handoff carries its chat directly in the marker details (the
-	// job record would say it too, but the details are the cheap path).
-	if (steer.customType === "probe-handoff") {
-		return (steer.details as { chatId: string }).chatId;
-	}
-	// The chat is resolvable from the job record; the steer's details
-	// carry jobId, which indexes the store.
-	const jobId = jobIdOf(steer);
-	const job = jobId ? stores.jobStore.getJob(jobId) : undefined;
-	return job?.chatId ?? "";
 }
 
 /**
@@ -356,7 +342,6 @@ function chatIdOf(steer: SteerMessage): string {
  * fires ONE turn carrying every pending marker as its input appends.
  */
 async function pump(chatId: string): Promise<void> {
-	if (!chatId) return;
 	const s = state();
 	if (s.pumping.has(chatId)) return;
 	s.pumping.add(chatId);
@@ -532,7 +517,7 @@ function finalizeJob(jobId: string): void {
 	const job = stores.jobStore.getJob(jobId);
 	if (!job || job.status !== "running") return;
 	const result = job.result;
-	const failed = result ? isSubagentFailure(job.kind, result as never) : true;
+	const failed = result ? isJobFailure(result as JobResult) : true;
 	stores.jobStore.updateJob(jobId, {
 		status: failed ? "error" : "done",
 		activity: failed ? "failed" : "delivered",
@@ -601,9 +586,9 @@ export async function recoverStaleJobs(): Promise<void> {
 				if (await isTurnRunning(job.chatId)) continue; // a wake turn may be delivering it right now
 				if (job.result) {
 					// The wake never fired (or crashed mid-flight): re-deliver.
-					const steer = buildSubagentSteer(job, job.result as never);
+					const steer = buildSubagentSteer(job, job.result as JobResult);
 					stores.jobStore.updateJob(job.id, { activity: "recovering: re-delivering" });
-					void deliverJobResult(steer).catch(() => {
+					void deliverJobResult(job.chatId, steer).catch(() => {
 						/* deliverJobResult marks the job error on failure */
 					});
 				} else {

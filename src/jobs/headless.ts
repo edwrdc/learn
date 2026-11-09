@@ -15,9 +15,6 @@ import { standardFontsDir } from "../tools/index.ts";
  * Chrome fallback resolution: CHROME_PATH first, then common macOS,
  * Windows and Linux install paths. `available()` is a cheap executable
  * check; the helper must still prove it can launch/connect at job time.
- *
- * Test seam: `headlessOverride.current` replaces the whole API (tests inject
- * a fake; nothing here touches a real browser). Builders call `getHeadless()`.
  */
 
 export interface DemoRunResult {
@@ -70,11 +67,8 @@ export interface HeadlessApi {
 	renderPdfPages(pdfPath: string, pages: number[], opts?: RenderPdfOptions): Promise<RenderedPdfPage[]>;
 }
 
-/** Test seam — undefined in production. */
-export const headlessOverride: { current?: HeadlessApi } = {};
-
 export function getHeadless(): HeadlessApi {
-	return headlessOverride.current ?? realHeadless;
+	return realHeadless;
 }
 
 // ─── Chrome resolution ───────────────────────────────────────────────────────

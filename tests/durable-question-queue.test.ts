@@ -176,7 +176,7 @@ function queueJob(chatId: string): { job: JobRecord; delivered: Promise<void> } 
 	const job = jobStore.createJob({ kind: "research", chatId, toolCallId: `call_job_${Date.now()}` });
 	const result = { brief: "Research brief: the orbit is elliptical.", sources: [] };
 	jobStore.updateJob(job.id, { result });
-	return { job, delivered: deliverJobResult(buildSubagentSteer(job, result)) };
+	return { job, delivered: deliverJobResult(job.chatId, buildSubagentSteer(job, result)) };
 }
 
 const createdChats: string[] = [];

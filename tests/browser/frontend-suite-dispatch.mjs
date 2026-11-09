@@ -106,8 +106,8 @@ export async function run(run, check) {
 			assert.ok(findCard(done, "Researcher", "Dispatched"), `the call without a job stopped reading as pending: ${JSON.stringify(done)}`);
 
 			page.js(`window.__lhJobs.set(${JSON.stringify([
-				job({ status: "error", error: MODELS_REFUSAL }),
-				job({ id: "job_pdf_probe", kind: "pdf", toolCallId: PDF_CALL, status: "error", error: KEY_REFUSAL }),
+				job({ status: "error", error: MODELS_REFUSAL, refusal: "models_not_configured" }),
+				job({ id: "job_pdf_probe", kind: "pdf", toolCallId: PDF_CALL, status: "error", error: KEY_REFUSAL, refusal: "provider_key_missing" }),
 			])}); window.__lhJobs.fireResync(); true`);
 			await page.waitForJs(`document.body.innerText.includes("needs model setup")`, 15_000, "the research refusal");
 			await page.waitForJs(`document.body.innerText.includes("needs a provider key")`, 15_000, "the pdf refusal");

@@ -31,11 +31,13 @@ import { Value } from "typebox/value";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
 import { PATHS } from "../src/platform/config.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/jobs/tools.ts";
-import { runDemoBuilder } from "../src/jobs/roles/demo.ts";
-import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/jobs/headless.ts";
+import { DEMO_ROLE } from "../src/jobs/roles/demo.ts";
+import { runRole } from "../src/jobs/roles/role.ts";
+import type { DemoRunResult, HeadlessApi } from "../src/jobs/headless.ts";
+import { configureBackgroundRuns } from "../src/jobs/durable-run.ts";
 import { createJobRunner } from "../src/jobs/runner.ts";
-import { runVisualMaker } from "../src/jobs/roles/visual.ts";
-import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/jobs/model/types.ts";
+import { VISUAL_ROLE } from "../src/jobs/roles/visual.ts";
+import { buildAbortSteer, buildSubagentSteer, isJobFailure, setSteerUiInverted, type JobResult, type SteerMessage, type VisualResult } from "../src/jobs/model/types.ts";
 import type { JobRecord } from "../src/jobs/model/types.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { chatStore } from "../src/session/store.ts";
@@ -56,12 +58,12 @@ function testRunner() {
 	const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 		chatStore,
 		jobStore,
-		deliver: async (steer) => {
+		deliver: async (_chatId, steer) => {
 			steers.push(steer);
 			const jobId = (steer.details as { jobId: string }).jobId;
 			const job = jobStore.getJob(jobId);
 			if (job && job.status === "running") {
-				const failed = job.result ? isSubagentFailure(job.kind, job.result as never) : true;
+				const failed = job.result ? isJobFailure(job.result as JobResult) : true;
 				jobStore.updateJob(jobId, { status: failed ? "error" : "done", activity: failed ? "failed" : "delivered" });
 			}
 		},
@@ -95,7 +97,7 @@ after(() => {
 			/* already gone */
 		}
 	}
-	headlessOverride.current = undefined;
+	configureBackgroundRuns({ headless: undefined });
 	testEngines.demoBuilder = undefined;
 	testEngines.visualMaker = undefined;
 });
@@ -229,8 +231,7 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ text: "Drag the damping slider to see the oscillation decay." },
 		]);
 
-		const result = await runDemoBuilder(
-			{ title: "Damped oscillator", brief: "A mass on a spring with a damping slider." },
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "Damped oscillator", brief: "A mass on a spring with a damping slider." }),
 			{ engine: model, headless, run: roleRun(), onActivity: (line) => activities.push(line) },
 		);
 
@@ -249,37 +250,37 @@ describe("demo builder (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ text: "Done." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true, "tested by the final verification gate");
 		assert.equal(headless.demoRuns.length, 1, "the gate ran the demo once itself");
 	});
 
-	it("fails (empty html + FAILED notes) when the demo never passes verification", async () => {
+	it("fails when the demo never passes verification", async () => {
 		const headless = fakeHeadless({ brokenWhenIncludes: "BROKEN" });
 		const model = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: BROKEN_HTML } }] },
 			{ text: "It works, trust me." },
 		]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: model, headless, run: roleRun() });
 		assert.equal(result.html, "");
 		assert.equal(result.tested, true, "the loop ran");
-		assert.match(result.notes ?? "", /^FAILED:/);
-		assert.match(result.notes ?? "", /ReferenceError/);
+		assert.ok(result.failure);
+		assert.match(result.failure ?? "", /ReferenceError/);
 	});
 
 	it("fails fast with a clear message when no Chrome is available (never skips testing)", async () => {
 		const model = scriptedModel([{ text: "should never be reached" }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: noChromeHeadless(), run: roleRun() });
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: model, headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
-		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
+		assert.match(result.failure ?? "", /Chrome/);
 	});
 
 	it("fails when the model never writes a demo", async () => {
 		const model = scriptedModel([{ text: "I cannot build this." }]);
-		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
+		const result = await runRole(DEMO_ROLE, DEMO_ROLE.input({ title: "T", brief: "b" }), { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.html, "");
-		assert.match(result.notes ?? "", /^FAILED: the builder never wrote a demo/);
+		assert.match(result.failure ?? "", /^the builder never wrote a demo/);
 	});
 });
 
@@ -296,7 +297,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "A number line from -3 to 3 with the root marked at 0." },
 		]);
 		const activities: string[] = [];
-		const result = await runVisualMaker({ brief: "Number line, root at 0." }, { engine: model, headless, run: roleRun(), onActivity: (l) => activities.push(l) });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "Number line, root at 0." }), { engine: model, headless, run: roleRun(), onActivity: (l) => activities.push(l) });
 
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "A number line from -3 to 3 with the root marked at 0.");
@@ -311,7 +312,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ text: "Done." }, // premature finish — no render yet
 			{ text: "Looked at it — correct." }, // after the forced look
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1, "delivered after the forced look");
 		assert.equal(result.notes, "Looked at it — correct.");
 		assert.equal(headless.svgRenders.length, 1, "the gate rendered the svg once itself");
@@ -329,7 +330,7 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Moved the start of the line." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: model, headless, run: roleRun() });
 
 		assert.equal(result.svg, SVG_1.replace('<line x1="10"', '<line x1="20"'), "the edit was applied to the delivered svg");
 		assert.equal(result.notes, "Moved the start of the line.");
@@ -343,9 +344,9 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "e0", toolName: "edit_svg", input: { old_text: "svg", new_text: "x" } }] },
 			{ text: "Cannot proceed." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, "", "the failed edit produced no deliverable");
-		assert.match(result.notes ?? "", /never wrote an SVG/);
+		assert.match(result.failure ?? "", /never wrote an SVG/);
 	});
 
 	it("feeds render errors back to the model instead of crashing", async () => {
@@ -357,22 +358,22 @@ describe("visual maker (fake model + fake headless)", () => {
 			{ toolCalls: [{ toolCallId: "r2", toolName: "render_svg", input: {} }] },
 			{ text: "Fixed and verified." },
 		]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless, run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: model, headless, run: roleRun() });
 		assert.equal(result.svg, SVG_1);
 		assert.equal(result.notes, "Fixed and verified.");
 	});
 
 	it("fails when the model never writes an svg", async () => {
 		const model = scriptedModel([{ text: "This idea is purely relational — belongs in mermaid." }]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless(), run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: model, headless: fakeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
-		assert.match(result.notes ?? "", /^FAILED: the maker never wrote an SVG/);
+		assert.match(result.failure ?? "", /^the maker never wrote an SVG/);
 	});
 
 	it("fails with a clear message when no Chrome is available", async () => {
-		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless(), run: roleRun() });
+		const result = await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "b" }), { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless(), run: roleRun() });
 		assert.equal(result.svg, "");
-		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
+		assert.match(result.failure ?? "", /Chrome/);
 	});
 });
 
@@ -442,7 +443,7 @@ describe("demo/visual job runners", () => {
 		createdJobs.push(job.id);
 
 		// runJob has no headless injection point — the module override is the seam.
-		headlessOverride.current = fakeHeadless();
+		configureBackgroundRuns({ headless: () => fakeHeadless() });
 		testEngines.demoBuilder = scriptedModel([
 			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
@@ -452,7 +453,7 @@ describe("demo/visual job runners", () => {
 		try {
 			await runner.runJob(job.id);
 		} finally {
-			headlessOverride.current = undefined;
+			configureBackgroundRuns({ headless: undefined });
 			testEngines.demoBuilder = undefined;
 		}
 
@@ -522,9 +523,9 @@ describe("demo/visual job runners", () => {
 		assert.match(errored.error ?? "", /never wrote an SVG/);
 
 		assert.ok(steers[0], "failure still delivers a steer — the teacher learns the outcome");
-		const result = (steers[0]!.details as { result: unknown }).result as { svg: string; notes?: string };
+		const result = (steers[0]!.details as { result: unknown }).result as VisualResult;
 		assert.equal(result.svg, "");
-		assert.match(result.notes ?? "", /^FAILED:/);
+		assert.ok(result.failure);
 	});
 
 	it("dispatch through a teacher turn: the call acks mid-turn and the runner completes in the background", async () => {
@@ -547,7 +548,7 @@ describe("demo/visual job runners", () => {
 			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
 			{ text: "Sweep it." },
 		]);
-		headlessOverride.current = fakeHeadless();
+		configureBackgroundRuns({ headless: () => fakeHeadless() });
 		const { steers, runner } = testRunner();
 
 		try {
@@ -600,7 +601,7 @@ describe("demo/visual job runners", () => {
 			assert.equal(jobStore.listJobs(chat.id).length, 1, "no duplicate job for the same tool part");
 		} finally {
 			testEngines.demoBuilder = undefined;
-			headlessOverride.current = undefined;
+			configureBackgroundRuns({ headless: undefined });
 		}
 	});
 });

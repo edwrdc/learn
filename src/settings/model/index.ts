@@ -11,6 +11,6 @@ export { graphToolsEnabled, resolveConversationSpec, resolveRoleSpec, resolveSet
 export type { EffectiveModelSpec, EffectiveSettings } from "./resolution.ts";
 export { SETTINGS_SECTIONS, isHexColor, isSettingsSection, parseModelChoice, parseSection, sanitizeUserSettings } from "./schema.ts";
 export type { Parsed, SettingsSection } from "./schema.ts";
-export { COMPACTION_THRESHOLD_FLOOR, CURRENT_SETTINGS_VERSION, DEFAULT_THINKING_ORDER, FACTORY_SETTINGS, MODEL_SLOTS, ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError, ROLE_SLOT, THINKING_LEVELS, isModelsRefusal, isProviderKeyRefusal, modelsNotConfigured, providerKeyMissing, slotsConfigured } from "./settings.ts";
+export { COMPACTION_THRESHOLD_FLOOR, CURRENT_SETTINGS_VERSION, DEFAULT_THINKING_ORDER, FACTORY_SETTINGS, MODEL_SLOTS, ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError, ROLE_SLOT, THINKING_LEVELS, MODELS_NOT_CONFIGURED_CODE, modelsNotConfigured, providerKeyMissing, slotsConfigured } from "./settings.ts";
 export type { AgentSettings, AppearanceSettings, CompactionSettings, GraphSettings, ModelChoice, ModelSlotName, ModelsSettings, ProviderKeyMissing, UserSettings } from "./settings.ts";
-export type { ModelRole } from "./settings.ts";
+export type { ModelRole, RefusalCode } from "./settings.ts";

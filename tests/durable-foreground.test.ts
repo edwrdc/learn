@@ -437,7 +437,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			return 200;
 		});
 		await handleChatRequest(post(chat.id, { type: "text", text: "probe me" }), { engine, tools: bareQuestionTools() });
-		const delivery = deliverJobResult(buildProbeHandoffSteer(chat.id));
+		const delivery = deliverJobResult(chat.id, buildProbeHandoffSteer(chat.id));
 		await new Promise((r) => setTimeout(r, 900));
 		assert.equal(wakes, 0, "the handoff waits while the run is live (it must START the teacher's run)");
 		release();
@@ -896,7 +896,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				false,
 				"a steer is refused while the run is already gone",
 			);
-			const delivered = deliverJobResult(steer);
+			const delivered = deliverJobResult(chat.id, steer);
 			const entriesAtHold = (await readEntries(runtime)).length;
 			await new Promise((resolve) => setTimeout(resolve, 900));
 			assert.equal(requests, 1, "no unmanaged model request from the steer or job result");

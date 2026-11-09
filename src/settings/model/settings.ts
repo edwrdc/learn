@@ -129,13 +129,6 @@ export function modelsNotConfigured(missing: ModelSlotName[]): ModelsNotConfigur
 	};
 }
 
-/** The refusal error text (BYOK, 2026-09-22): job/turn surfaces compose the
- *  record wording around this prefix; UI consumers detect refused work by
- *  it (info tone, not scary-error) — the envelope's home module owns the
- *  string so the writer and the matcher can never drift. */
-export function isModelsRefusal(error: string | undefined): boolean {
-	return !!error && error.startsWith(modelsNotConfigured([]).error);
-}
 /** The typed throw for in-process seams (extraction pipeline): callers
  *  catch it to skip honestly (trigger) or surface the 503 envelope
  *  (routes) instead of logging a failure. */
@@ -166,8 +159,6 @@ export interface ProviderKeyMissing {
 	/** Which slot tiers the refused action resolves to that provider. */
 	slots: ModelSlotName[];
 }
-/** The refusal wording's invariant tail — the matcher below keys on it
- * (the label prefix varies by provider). */
 const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
 	const label =
@@ -181,13 +172,8 @@ export function providerKeyMissing(provider: string, slots: ModelSlotName[]): Pr
 		slots,
 	};
 }
-/** The refusal error text (same discipline as isModelsRefusal): UI
- * consumers detect key-refused work by the wording (info tone, not
- * scary-error) — the envelope's home module owns the string so the
- * writer and the matcher can never drift. */
-export function isProviderKeyRefusal(error: string | undefined): boolean {
-	return !!error && error.endsWith(PROVIDER_KEY_MISSING_TAIL);
-}
+/** Why a piece of work was refused before it ran (the envelopes' codes). */
+export type RefusalCode = typeof MODELS_NOT_CONFIGURED_CODE | typeof PROVIDER_KEY_MISSING_CODE;
 /** The typed throw for in-process seams (extraction pipeline) — the
  * ProviderKeyMissing sibling of ModelsNotConfiguredError: callers catch
  * it to skip honestly (trigger) or surface the 503 envelope (routes). */

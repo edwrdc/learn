@@ -1,6 +1,5 @@
 /** The background-agents feed's pure fold: jobs + extractions → ordered
  *  blobs, money/context doctrine included. */
-import { isModelsRefusal, isProviderKeyRefusal } from "@/src/settings/model";
 import { jobCost, type CallUsage } from "@/src/session/model";
 import { type JobKind, type JobRecord } from "@/src/jobs/model";
 
@@ -68,9 +67,9 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			startedAt: Date.parse(job.createdAt) || 0,
 			cost: jobCost(job),
 			context,
-			activity: isModelsRefusal(job.error)
+			activity: job.refusal === "models_not_configured"
 				? "needs model setup"
-				: isProviderKeyRefusal(job.error)
+				: job.refusal === "provider_key_missing"
 					? "needs a provider key"
 					: (job.activity ?? ""),
 			model: usage?.model,

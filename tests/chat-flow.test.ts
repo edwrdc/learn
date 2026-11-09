@@ -452,7 +452,7 @@ describe("teacher chat flow (scripted model)", () => {
 		// claimSteers pops the queue inside handleChatInput — the write-ahead
 		// persist is imminent but the TURN is still running). The record
 		// assertion therefore waits for the wake response to land.
-		await deliverJobResult(steer); // queue + pump → waitForIdle → the wake turn
+		await deliverJobResult(job.chatId, steer); // queue + pump → waitForIdle → the wake turn
 		await waitFor(async () => {
 			const rec = await chatStore.getChat(chat.id);
 			const at = rec?.messages.findIndex((m) => (m as { id?: string }).id === steer.id) ?? -1;
@@ -529,7 +529,7 @@ describe("teacher chat flow (scripted model)", () => {
 		// The runner stores the result BEFORE delivery (finalizeJob reads it).
 		jobStore.updateJob(job.id, { result: { brief: "Mid-run brief.", sources: [] } });
 		const steer = buildSubagentSteer(job, { brief: "Mid-run brief.", sources: [] });
-		const delivery = deliverJobResult(steer);
+		const delivery = deliverJobResult(job.chatId, steer);
 		await new Promise((r) => setTimeout(r, 300)); // vehicle 1 hands off
 		assert.equal(wakes, 0, "no wake — the live run owns the delivery");
 

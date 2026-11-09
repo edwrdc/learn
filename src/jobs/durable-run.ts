@@ -21,8 +21,8 @@ import type { JobUsage } from "./model/types.ts";
 import type { JobKind, SearchProvider } from "../tools/model/index.ts";
 import type { PiEngine } from "../platform/index.ts";
 import type { GraphToolContext } from "../graph/index.ts";
-import type { AppToolResult } from "../tools/index.ts";
 import type { HeadlessApi } from "./headless.ts";
+import { processState } from "../platform/model/index.ts";
 
 /** The roles the durable background runner drives. */
 export type BackgroundKind = JobKind | "extract" | "audit" | "compact";
@@ -124,7 +124,6 @@ export interface RunDescriptor {
 	prompt: string;
 	input: JsonObject;
 	state: RunState;
-	activity: string;
 	/** Set by the durable cap hook: the turn budget ended the run. */
 	capped?: boolean;
 }
@@ -163,11 +162,8 @@ export interface BackgroundRunRequest {
 	/** The caller's graph context for the auditor's exploration tools
 	 *  (tests); production falls back to the host's real stores. */
 	graph?: GraphToolContext;
-	/** The job's abort controller: firing it makes the caller's own
-	 *  `abortSignal.aborted` guard see the kill, exactly like a pi loop. */
-	abort?: AbortController;
-	/** A non-job caller's abort signal (extraction, compaction): aborting the
-	 *  child conversation stops the spend; the run stays recoverable. */
+	/** Aborting stops the child conversation's spend; the run stays
+	 *  recoverable. */
 	signal?: AbortSignal;
 	onActivity?: (line: string) => void;
 	onUsage?: (usage: JobUsage) => void;
@@ -183,12 +179,39 @@ export interface BackgroundRunResult {
 	steps: RunStep[];
 }
 
+/** A user message's content inside a role's own conversation. */
+export type RoleMessageContent = string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+
 /** Read/modify one role's persisted state. Tools use it to read the state
  *  they edit (e.g. the current SVG) and to commit progress before their
- *  result; the durable layer owns the doc. */
+ *  result; the durable layer owns the doc. `append` lands a user message in
+ *  the same commit as the state change. */
 export interface RoleStateIo<T extends RunState> {
 	read(): Promise<T>;
-	update(mutate: (state: T) => void): Promise<void>;
+	update(mutate: (state: T) => void, append?: RoleMessageContent): Promise<void>;
+}
+
+/** Host services the background runtime cannot import from the composition
+ *  root (boot configures them). */
+export interface BackgroundServices {
+	/** Resolve the engine for a stored descriptor (settings + credential
+	 *  snapshot read fresh; never persisted). */
+	resolveEngine(descriptor: RunDescriptor): PiEngine | undefined;
+	searchProvider(): SearchProvider | null;
+	/** Verification engines (tests inject; production uses the app's own
+	 *  browser/native rasterizers). */
+	headless?(): HeadlessApi;
+	/** The live graph the auditor explores (production: the real stores). */
+	graphContext?(): GraphToolContext;
+}
+
+export function backgroundServices(): Partial<BackgroundServices> {
+	return processState("backgroundServices", () => ({ services: {} as Partial<BackgroundServices> })).services;
+}
+
+/** Boot sets every service; a test replaces only the ones it fakes. */
+export function configureBackgroundRuns(next: Partial<BackgroundServices>): void {
+	Object.assign(backgroundServices(), next);
 }
 
 export type DurableBackgroundRun = (request: BackgroundRunRequest) => Promise<BackgroundRunResult>;
@@ -220,31 +243,19 @@ export async function retireBackgroundRun(chatId: string, jobId: string): Promis
 	await backgroundRetireSeam?.(chatId, jobId);
 }
 
-/** Initial role state for a fresh run. */
-export function initialState(kind: BackgroundKind): RunState {
-	switch (kind) {
-		case "research":
-			return { kind: "research", fetchedUrls: [] };
-		case "demo":
-			return { kind: "demo", html: null, testedHtml: null, lastResult: null };
-		case "visual":
-			return { kind: "visual", currentSvg: null, renderedSvg: null, pendingRender: false };
-		case "pdf":
-			return { kind: "pdf", consulted: [], read: [], pendingRender: null };
-		case "extract":
-		case "audit":
-			return { kind, submitted: null };
-		case "compact":
-			return { kind: "compact" };
-	}
-}
-
 /** Where a role's durable run lives: the runtime owner and its stable key. */
 export interface RoleRunIdentity {
 	chatId: string;
 	jobId: string;
 }
 
-export function textResult(text: string): AppToolResult {
-	return { content: [{ type: "text", text }] };
+/** A run that ended without an answer; `state` is what it had reached. */
+export class RunFailure extends Error {
+	constructor(
+		message: string,
+		readonly state: RunState | undefined,
+	) {
+		super(message);
+		this.name = "RunFailure";
+	}
 }

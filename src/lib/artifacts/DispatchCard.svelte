@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from "svelte";
 	import { Check, Settings, X } from "@lucide/svelte";
-	import { isModelsRefusal, isProviderKeyRefusal } from "@/src/settings/model";
 	import { type JobKind, type JobRecord } from "@/src/jobs/model";
 	import { jobAgentLabel } from "@/src/tools/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
@@ -29,7 +28,7 @@
 			<div class="mt-1 text-sm text-muted-foreground" data-testid="dispatch-pending">Dispatched…</div>
 		{/if}
 	</div>
-{:else if isModelsRefusal(job.error)}
+{:else if job.refusal === "models_not_configured"}
 	<div class="flex items-center gap-2 text-xs text-muted-foreground" data-testid="dispatch-refused">
 		<Settings class="size-3.5" />
 		<span class="font-medium uppercase tracking-wide">{label}</span>
@@ -38,7 +37,7 @@
 			<button type="button" data-testid="dispatch-setup-link" onclick={actions.openSetup} class="ml-1 rounded-sm border border-border bg-card px-2 py-0.5 font-ui normal-case tracking-normal text-foreground transition-colors hover:border-muted-foreground/50">Set up models</button>
 		{/if}
 	</div>
-{:else if isProviderKeyRefusal(job.error)}
+{:else if job.refusal === "provider_key_missing"}
 	<div class="flex items-center gap-2 text-xs text-muted-foreground" data-testid="dispatch-refused">
 		<Settings class="size-3.5" />
 		<span class="font-medium uppercase tracking-wide">{label}</span>

@@ -6,9 +6,7 @@
 
 	const research = $derived(kind === "research" ? (output as ResearchResult | undefined) : undefined);
 	const pdf = $derived(kind === "pdf" ? (output as PdfResult | undefined) : undefined);
-	const failed = $derived(
-		research ? research.brief.startsWith("Research failed") : pdf ? pdf.brief.startsWith("PDF failed") : false,
-	);
+	const failed = $derived((research ?? pdf)?.failure !== undefined);
 	const readList = $derived(pdf ? (pdf.pagesRead ?? pdf.pagesConsulted ?? []) : []);
 	const consultedList = $derived(pdf?.pagesConsulted ?? []);
 </script>
@@ -22,7 +20,7 @@
 				Research brief
 				{#if failed}<span class="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>{/if}
 			</div>
-			<div class="text-sm [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"><Markdown text={research.brief} /></div>
+			<div class="text-sm [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"><Markdown text={research.failure ?? research.brief} /></div>
 			{#if research.sources.length > 0}
 				<div class="mt-3 border-t pt-2">
 					<div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Sources</div>
@@ -44,7 +42,7 @@
 				PDF brief
 				{#if failed}<span class="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>{/if}
 			</div>
-			<div class="text-sm [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"><Markdown text={pdf.brief} /></div>
+			<div class="text-sm [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"><Markdown text={pdf.failure ?? pdf.brief} /></div>
 			{#if !failed && readList.length > 0}
 				<div class="mt-3 border-t pt-2 text-xs text-muted-foreground">Pages read: {readList.join(", ")}</div>
 			{/if}

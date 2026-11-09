@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createWebTools } from "../src/tools/web/web.ts";
 import { jobTools } from "../src/jobs/tools.ts";
-import { RESEARCHER_INSTRUCTIONS } from "../src/jobs/roles/research.ts";
+import { RESEARCH_ROLE } from "../src/jobs/roles/research.ts";
 import { runBackgroundConversation } from "../src/jobs/runtime.ts";
 import type { PiEngine } from "../src/platform/engines.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
@@ -31,7 +31,7 @@ async function runResearcherAgent(
 		role: "researcher",
 		engine: opts.engine,
 		maxTurns: 12,
-		systemPrompt: RESEARCHER_INSTRUCTIONS,
+		systemPrompt: RESEARCH_ROLE.instructions,
 		prompt,
 		search: opts.search,
 	});

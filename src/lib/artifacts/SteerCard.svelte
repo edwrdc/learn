@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Check, CircleX } from "@lucide/svelte";
-	import { isSubagentFailure, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/jobs/model";
+	import { isJobFailure, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/jobs/model";
 import { type LhMessage, type LhViewMessage } from "@/src/session/model";
 	import DemoOutputCard from "./DemoOutputCard.svelte";
 	import VisualOutputCard from "./VisualOutputCard.svelte";
@@ -26,7 +26,7 @@ import { type LhMessage, type LhViewMessage } from "@/src/session/model";
 		<div class="rounded-xl border bg-card p-4 text-sm text-muted-foreground">A sub-agent finished, but its result could not be displayed.</div>
 	{/if}
 {:else if data.kind === "research"}
-	{#if isSubagentFailure("research", data.result as ResearchResult)}
+	{#if isJobFailure(data.result)}
 		<ResearchBrief output={data.result} kind="research" />
 	{:else}
 		<details data-testid="research-complete-badge" class="group w-full text-xs text-muted-foreground">
@@ -44,7 +44,7 @@ import { type LhMessage, type LhViewMessage } from "@/src/session/model";
 		</details>
 	{/if}
 {:else if data.kind === "pdf"}
-	{#if isSubagentFailure("pdf", data.result as PdfResult)}
+	{#if isJobFailure(data.result)}
 		<ResearchBrief output={data.result} kind="pdf" />
 	{:else}
 		<details data-testid="pdf-complete-badge" class="group w-full text-xs text-muted-foreground">

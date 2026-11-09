@@ -7,6 +7,7 @@
  * of "ai" (safe everywhere: server, client, tests). See docs/vision.md.
  */
 import type { CallUsage } from "../../session/model/index.ts";
+import type { RefusalCode } from "../../settings/model/index.ts";
 import type { LhMessage, LhMarkerMessage } from "../../session/model/index.ts";
 import { newHandoffMessage } from "../../session/model/index.ts";
 
@@ -31,6 +32,8 @@ export interface JobRecord {
 	/** The sub-agent's result (steer-artifact payload). */
 	result?: unknown;
 	error?: string;
+	/** Set when the job was refused before it ran (no model, no key). */
+	refusal?: RefusalCode;
 	/** Money channel (observability, 2026-09): accumulated token usage of
 	 * the sub-agent's run, written by the runner as steps complete. Cost is
 	 * inferred at read time (core/prices.ts). Absent on pre-2026-09 jobs and
@@ -154,7 +157,12 @@ export interface ResearchToolInput {
 	context?: string;
 }
 
-export interface ResearchResult {
+/** Every job result carries `failure` (the reason) when the job failed. */
+interface JobFailure {
+	failure?: string;
+}
+
+export interface ResearchResult extends JobFailure {
 	brief: string;
 	sources: { title: string; url: string }[];
 }
@@ -165,7 +173,7 @@ export interface DemoToolInput {
 	brief: string;
 }
 
-export interface DemoResult {
+export interface DemoResult extends JobFailure {
 	title: string;
 	/** Self-contained single-file HTML/JS document (sandboxed-iframe ready). */
 	html: string;
@@ -179,7 +187,7 @@ export interface VisualToolInput {
 	brief: string;
 }
 
-export interface VisualResult {
+export interface VisualResult extends JobFailure {
 	/** Complete SVG markup (verified by the maker looking at the render). */
 	svg: string;
 	notes?: string;
@@ -190,6 +198,8 @@ export interface VisualResult {
  *  renders inside its own loop — and returns a text brief with page
  *  citations (user-decided: rendered images never leave the sub-agent's
  *  context; the teacher gets text). */
+export type JobResult = ResearchResult | DemoResult | VisualResult | PdfResult;
+
 export interface PdfToolInput {
 	/** Path to the learner's PDF (relative or absolute). */
 	path: string;
@@ -197,11 +207,11 @@ export interface PdfToolInput {
 	question: string;
 }
 
-export interface PdfResult {
+export interface PdfResult extends JobFailure {
 	path: string;
 	question: string;
 	/** The distilled brief. Page citations inside the text point at
-	 *  pagesConsulted. Failure shape: /^PDF failed:/i (mirrors research). */
+	 *  pagesConsulted. */
 	brief: string;
 	/** Pages the reader actually READ — extract or render output entered the
 	 *  loop (the honest count for the UI badge; search-hit snippets don't
@@ -238,7 +248,7 @@ export interface SubagentResultMeta {
 /** The data-subagent-artifact part payload: what the UI renders. */
 export interface SubagentArtifactData {
 	kind: JobKind;
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: JobResult;
 	/** The learner's pinned UI state (invert switch) riding the record. */
 	ui?: { inverted?: boolean };
 }
@@ -246,7 +256,7 @@ export interface SubagentArtifactData {
 /** A result steer's marker details: the UI's meta + artifact in one
  *  payload (the projection splits it into metadata + data part). */
 export interface SteerDetails extends SubagentResultMeta {
-	result: ResearchResult | DemoResult | VisualResult | PdfResult;
+	result: JobResult;
 	/** LEARNER UI state pinned onto the artifact (owner, 2026-10-07): the
 	 *  invert switch's position, persisted so navigating away and back (or
 	 *  restarting) keeps it. A VIEW preference — never enters the teacher's
@@ -274,39 +284,20 @@ export function setSteerUiInverted(
 /** Anything the wake pipeline may queue and deliver — a native marker. */
 export type SteerMessage = LhMarkerMessage;
 
-/** Whether a result is the failure shape (html/svg empty, failure brief). */
-export function isSubagentFailure(
-	kind: JobKind,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
-): boolean {
-	if (kind === "research") {
-		const r = result as ResearchResult;
-		return r.sources.length === 0 && /^Research failed:/i.test(r.brief);
-	}
-	if (kind === "demo") {
-		const r = result as DemoResult;
-		return typeof r.html !== "string" || r.html.length === 0;
-	}
-	if (kind === "pdf") {
-		const r = result as PdfResult;
-		return /^PDF failed:/i.test(r.brief);
-	}
-	const r = result as VisualResult;
-	return typeof r.svg !== "string" || r.svg.length === 0;
+export function isJobFailure(result: JobResult): boolean {
+	return result.failure !== undefined;
 }
 
 /** The model-facing text of a steer: what the result IS, what to do with it. */
-function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualResult | PdfResult): string {
-	if (isSubagentFailure(kind, result)) {
+function steerText(kind: JobKind, result: JobResult): string {
+	if (result.failure !== undefined) {
 		if (kind === "research")
-			return `${(result as ResearchResult).brief}\n\nContinue with what you can establish and flag the uncertainty to the learner.`;
+			return `Research failed: ${result.failure}\n\nContinue with what you can establish and flag the uncertainty to the learner.`;
 		if (kind === "demo")
-			return `The demo "${(result as DemoResult).title}" could not be built: ${
-				(result as DemoResult).notes ?? "unknown reason"
-			}. Fall back to explaining in prose; if the brief was the problem, re-call demo with a tighter one.`;
+			return `The demo "${(result as DemoResult).title}" could not be built: FAILED: ${result.failure}. Fall back to explaining in prose; if the brief was the problem, re-call demo with a tighter one.`;
 		if (kind === "pdf")
-			return `${(result as PdfResult).brief}\n\nContinue with what you can establish from the session and flag the gap to the learner.`;
-		return `The figure could not be made: ${(result as VisualResult).notes ?? "unknown reason"}. Fall back to prose or mermaid, or re-call visual with a tighter brief.`;
+			return `PDF failed: ${result.failure}\n\nContinue with what you can establish from the session and flag the gap to the learner.`;
+		return `The figure could not be made: FAILED: ${result.failure}. Fall back to prose or mermaid, or re-call visual with a tighter brief.`;
 	}
 	if (kind === "research")
 		return `Research complete — the researcher's full brief follows. Weave it into the lesson and cite its sources when you use its findings:\n\n${(result as ResearchResult).brief}`;
@@ -328,7 +319,7 @@ function steerText(kind: JobKind, result: ResearchResult | DemoResult | VisualRe
  */
 export function buildSubagentSteer(
 	job: Pick<JobRecord, "id" | "kind" | "toolCallId">,
-	result: ResearchResult | DemoResult | VisualResult | PdfResult,
+	result: JobResult,
 ): SteerMessage {
 	return {
 		id: `steer_${job.id}`,

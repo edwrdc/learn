@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { parseModelsRefusal, parseProviderKeyRefusal, parseModelUnavailableRefusal } from "../src/lib/chat/chat-logic.ts";
 import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../src/lib/settings/setup.ts";
 import {
-	isModelsRefusal,
-	isProviderKeyRefusal,
 	modelsNotConfigured,
 	providerKeyMissing,
 	PROVIDER_KEY_MISSING_CODE,
@@ -57,15 +55,6 @@ describe("parseModelsRefusal — the send refusal detector", () => {
 	});
 });
 
-describe("isModelsRefusal — the job-record matcher", () => {
-	it("matches the runner's composed wording, not real failures", () => {
-		assert.equal(isModelsRefusal(`${modelsNotConfigured(["vision"]).error} (missing: vision)`), true);
-		assert.equal(isModelsRefusal(modelsNotConfigured(["cheap"]).error), true);
-		assert.equal(isModelsRefusal(undefined), false);
-		assert.equal(isModelsRefusal("FAILED: headless crashed"), false);
-	});
-});
-
 describe("providerKeyMissing — the envelope factory (provider-key interlude, 2026-09-25)", () => {
 	it("names the provider from the curated label and carries the exact machine code", () => {
 		const envelope = providerKeyMissing("openrouter", ["strong"]);
@@ -96,17 +85,6 @@ describe("parseProviderKeyRefusal — the send refusal detector's twin (zero-key
 		assert.equal(parseProviderKeyRefusal("FAILED: headless crashed"), false);
 		assert.equal(parseProviderKeyRefusal(undefined), false);
 		assert.equal(parseProviderKeyRefusal("{not json"), false);
-	});
-});
-
-describe("isProviderKeyRefusal — the job-record matcher (provider-key interlude)", () => {
-	it("matches the envelope wording regardless of provider label, not real failures", () => {
-		assert.equal(isProviderKeyRefusal(providerKeyMissing("together", ["cheap"]).error), true);
-		assert.equal(isProviderKeyRefusal(providerKeyMissing("openai", ["strong"]).error), true);
-		assert.equal(isProviderKeyRefusal(""), false);
-		assert.equal(isProviderKeyRefusal(undefined), false);
-		assert.equal(isProviderKeyRefusal("FAILED: headless crashed"), false);
-		assert.equal(isProviderKeyRefusal(modelsNotConfigured(["strong"]).error), false, "the models refusal is a different failure");
 	});
 });
 

@@ -49,58 +49,28 @@ import {
 } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
-import type { ModelRole } from "../settings/model/index.ts";
 import { accumulateJobUsage, type JobUsage } from "./model/types.ts";
 import { usageFromPi } from "../session/model/index.ts";
-import { createWebTools } from "../tools/index.ts";
-import { createPdfReadTools } from "../tools/index.ts";
-import { auditorGraphTools, type GraphToolContext } from "../graph/index.ts";
-import { toRegistrations, type AppTool, type AppToolResult } from "../tools/index.ts";
+import { auditorGraphTools, AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool, type GraphToolContext, type SubmitRunInput } from "../graph/index.ts";
+import { toRegistrations } from "../tools/index.ts";
 import { bindRunEngine, unbindRunEngine, type PiEngine } from "../platform/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
-import type { SearchProvider } from "../tools/model/index.ts";
 import { openChatRuntime, type ChatRuntime } from "../session/index.ts";
-import { registerJobAbort } from "./aborts.ts";
 import {
-	initialState,
+	backgroundServices,
+	RunFailure,
 	type BackgroundKind,
 	type BackgroundRunRequest,
 	type BackgroundRunResult,
-	type DemoRunState,
-	type PdfRunState,
+	type RoleMessageContent,
 	type RoleStateIo,
 	type RunDescriptor,
 	type RunState,
 	type RunStep,
 	type SubmitRunState,
-	type VisualRunState,
 } from "./durable-run.ts";
-
-export type {
-	BackgroundRunRequest,
-	BackgroundRunResult,
-	RunDescriptor,
-	RunRole,
-	RunState,
-} from "./durable-run.ts";
-import { demoRoleTools } from "./roles/demo.ts";
-import {
-	pdfImageContent,
-	pdfRoleTools,
-	PDF_UNREAD_MESSAGE,
-} from "./roles/pdf.ts";
-import {
-	visualImageContent,
-	visualRoleTools,
-	VISUAL_UNLOOKED_MESSAGE,
-} from "./roles/visual.ts";
-import {
-	AUDIT_TOOL,
-	FINDINGS_TOOL,
-	submitRoleTool,
-	type SubmitRunInput,
-} from "../graph/index.ts";
-import { getHeadless, type HeadlessApi } from "./headless.ts";
+import { JOB_ROLES } from "./roles/registry.ts";
+import { roleHeadless, type DurableRole, type RoleHost, type RoleRun } from "./roles/role.ts";
 import { stores } from "../stores.ts";
 
 interface RunRef {
@@ -145,231 +115,140 @@ export const BackgroundRunDoc = defineDoc<JsonObject>({
 		prompt: "",
 		input: {},
 		state: { kind: "research", fetchedUrls: [] },
-		activity: "",
 	}),
 	checkpointWhen: () => false,
 });
 
-/** Host services the background runtime cannot import from the server
- *  composition root (the composition root configures them at module init). */
-export interface BackgroundServices {
-	/** Resolve the engine for a stored descriptor (settings + credential
-	 *  snapshot read fresh; never persisted). */
-	resolveEngine(descriptor: RunDescriptor): PiEngine | undefined;
-	searchProvider(): SearchProvider | null;
-	/** Verification engines (tests inject; production resolves the app's
-	 *  own browser/native rasterizers at call time). */
-	headless?(): HeadlessApi;
-	/** The live graph the auditor explores (production: the real stores;
-	 *  tests inject their ledgers). */
-	graphContext?(): GraphToolContext;
+/** The extraction stages: one validated submit ends the run; the auditor
+ *  also explores the live graph. */
+function submitRole(kind: "extract" | "audit"): DurableRole<SubmitRunState> {
+	return {
+		initialState: () => ({ kind, submitted: null }),
+		// Read at run time: graph and jobs import each other.
+		get submitTool() {
+			return kind === "audit" ? AUDIT_TOOL : FINDINGS_TOOL;
+		},
+		tools(run) {
+			const submit = submitRoleTool(run.input as unknown as SubmitRunInput, run.state);
+			return kind === "audit" ? { ...auditorGraphTools(run.host.graph()), [submit.name]: submit } : { [submit.name]: submit };
+		},
+	};
 }
 
-function backgroundHost(): { services?: BackgroundServices } {
-	return processState("backgroundServices", () => ({}));
-}
-
-export function configureBackgroundRuns(next: BackgroundServices): void {
-	backgroundHost().services = next;
-}
-
-/** What one role's tools and hooks need at build time. */
-interface RoleDeps {
-	search: () => SearchProvider | null;
-	headless: () => HeadlessApi;
-	graph: () => GraphToolContext;
-	/** The run descriptor of one conversation (a committed read). */
-	readRun: (conversationId: ConversationId) => Promise<RunDescriptor | undefined>;
-	onActivity?: (line: string) => void;
-}
+const DURABLE_ROLES: Record<BackgroundKind, DurableRole<any>> = {
+	...JOB_ROLES,
+	extract: submitRole("extract"),
+	audit: submitRole("audit"),
+	compact: { initialState: () => ({ kind: "compact" }), tools: () => ({}) },
+};
 
 function productionGraph(): GraphToolContext {
 	return { chatStore: stores.chatStore, graphStore: stores.graphStore };
 }
 
-function roleDeps(
-	runtime: ChatRuntime,
-	request: BackgroundRunRequest | undefined,
-	host: BackgroundServices | undefined,
-): RoleDeps {
+function roleHost(request: BackgroundRunRequest | undefined): RoleHost {
+	const services = backgroundServices();
 	return {
-		search: request?.search ?? (() => host?.searchProvider() ?? null),
-		headless: () => request?.headless ?? host?.headless?.() ?? getHeadless(),
-		graph: () => request?.graph ?? host?.graphContext?.() ?? productionGraph(),
-		readRun: async (conversationId) =>
-			(await runtime.harness.snapshot(BackgroundRunDoc, conversationId, BACKGROUND_CONTEXT)) as
-				| RunDescriptor
-				| undefined,
+		headless: roleHeadless(request?.headless),
+		search: request?.search ?? (() => services.searchProvider?.() ?? null),
+		graph: () => request?.graph ?? services.graphContext?.() ?? productionGraph(),
 		onActivity: request?.onActivity,
 	};
 }
 
-/** The persisted role state as a read/modify handle for the role's tools. */
-function roleState<T extends RunState>(conversation: Conversation, deps: RoleDeps): RoleStateIo<T> {
+async function readDescriptor(runtime: ChatRuntime, conversation: Conversation): Promise<RunDescriptor> {
+	const run = (await runtime.harness.snapshot(BackgroundRunDoc, conversation.id, BACKGROUND_CONTEXT)) as
+		| RunDescriptor
+		| undefined;
+	if (!run) throw new Error(`background run: descriptor missing on conversation ${conversation.id}`);
+	return run;
+}
+
+/** The persisted role state as a read/modify handle; an appended user
+ *  message lands in the same commit as the state change. */
+function roleState<S extends RunState>(runtime: ChatRuntime, conversation: Conversation): RoleStateIo<S> {
 	return {
-		read: async () => {
-			const run = await deps.readRun(conversation.id);
-			if (!run) throw new Error(`background run: descriptor missing on conversation ${conversation.id}`);
-			return run.state as T;
-		},
-		update: async (mutate) => {
+		read: async () => (await readDescriptor(runtime, conversation)).state as S,
+		update: async (mutate, append) => {
 			await conversation.commit(async (tx) => {
 				const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-				mutate(run.state as T);
+				mutate(run.state as S);
+				if (append !== undefined) {
+					await tx.appendEntry(conversation.id, {
+						kind: "lh.bg-image",
+						model: [{ role: "user", content: append as never, timestamp: Date.now() }],
+					});
+				}
 			}, BACKGROUND_CONTEXT);
 		},
 	};
 }
 
-/** Persist role state BEFORE the tool result becomes visible: the wrapper
- *  returns the tool's result only after the state commit landed, so a crash
- *  cannot leave a committed deliverable missing its recovery state. */
-function withRunState(
-	registration: ToolRegistration,
-	kind: BackgroundKind,
-	onActivity: ((line: string) => void) | undefined,
-): ToolRegistration {
+function roleRun(
+	runtime: ChatRuntime,
+	conversation: Conversation,
+	descriptor: RunDescriptor,
+	host: RoleHost,
+): RoleRun<RunState> {
 	return {
-		...registration,
-		execute: async (args, api, context) => {
-			const result = await registration.execute(args as never, api, context);
-			let activity = "";
-			await api.commit(async (tx) => {
-				const run = (await tx.doc(BackgroundRunDoc, api.conversationId)) as unknown as RunDescriptor;
-				recordToolState(kind, run, registration.name, args, result);
-				activity = run.activity;
-			}, context);
-			if (activity) onActivity?.(activity);
-			return result;
-		},
+		input: descriptor.input,
+		maxTurns: descriptor.maxTurns,
+		state: roleState(runtime, conversation),
+		host,
+		turnsTaken: () => countAssistantEntries(conversation),
+		markCapped: () => markCapped(conversation),
+		hasUserMessage: async (text) =>
+			(await readRunEntries(conversation)).some((entry) => {
+				const message = entry.model?.[0] as { role?: string; content?: unknown } | undefined;
+				return message?.role === "user" && message.content === text;
+			}),
 	};
 }
 
-function recordToolState(
-	kind: BackgroundKind,
-	run: RunDescriptor,
-	toolName: string,
-	args: unknown,
-	result: Pick<AppToolResult, "isError">,
-): void {
-	if (kind !== "research") return;
-	const state = run.state as { kind: "research"; fetchedUrls: string[] };
-	const url = (args as { url?: unknown } | undefined)?.url;
-	if (
-		typeof url === "string" &&
-		(toolName === "web_fetch" || toolName === "web_fetch_pdf") &&
-		!result.isError &&
-		!state.fetchedUrls.includes(url)
-	) {
-		state.fetchedUrls.push(url);
-	}
-	run.activity = activityLine(toolName, args);
-}
-
-function activityLine(toolName: string, args: unknown): string {
-	const input = args as { query?: string; url?: string } | undefined;
-	if (toolName === "web_search") return `web_search: "${input?.query ?? ""}"`;
-	if (toolName === "web_fetch" || toolName === "web_fetch_pdf") {
-		try {
-			return `${toolName}: ${new URL(String(input?.url)).hostname}`;
-		} catch {
-			return toolName;
-		}
-	}
-	return toolName;
-}
-
-/** The role's tool registrations, rebuilt from the persisted descriptor. */
-function roleTools(
-	conversation: Conversation,
-	descriptor: RunDescriptor,
-	deps: RoleDeps,
-): ToolRegistration[] {
-	switch (descriptor.kind) {
-		case "research": {
-			const tools: Record<string, AppTool<any>> = { ...createWebTools(deps.search) };
-			const pdfDir = (descriptor.input as { pdfDir?: string }).pdfDir;
-			if (typeof pdfDir === "string" && pdfDir.length > 0) {
-				Object.assign(tools, createPdfReadTools(pdfDir));
-			}
-			return toRegistrations(tools).map((registration) =>
-				withRunState(registration, descriptor.kind, deps.onActivity),
-			);
-		}
-		case "demo":
-			return toRegistrations(
-				demoRoleTools(roleState<DemoRunState>(conversation, deps), deps.headless(), deps.onActivity),
-			);
-		case "visual":
-			return toRegistrations(
-				visualRoleTools(roleState<VisualRunState>(conversation, deps), deps.headless(), deps.onActivity),
-			);
-		case "pdf": {
-			const path = String((descriptor.input as { path?: unknown }).path ?? "");
-			return toRegistrations(
-				pdfRoleTools(roleState<PdfRunState>(conversation, deps), path, deps.headless(), deps.onActivity),
-			);
-		}
-		case "extract":
-		case "audit": {
-			const input = descriptor.input as unknown as SubmitRunInput;
-			const submit = submitRoleTool(input, roleState<SubmitRunState>(conversation, deps));
-			if (descriptor.kind === "extract") return toRegistrations({ [submit.name]: submit });
-			return toRegistrations({ ...auditorGraphTools(deps.graph()), [submit.name]: submit });
-		}
-		case "compact":
-			return [];
-	}
-}
-
-/** The role extension: the tools plus the durable turn cap and the role's
- *  hook behavior (image-in-the-loop messages, the PDF doctrine nudge, the
- *  clean-submit stop). The cap counts committed assistant entries, so it
- *  survives a restart without a closure counter. */
+/** The role extension: the role's tools, the durable turn cap and the
+ *  role's hooks. The cap counts committed assistant entries, so it survives
+ *  a restart without a closure counter. */
 function roleExtension(
+	runtime: ChatRuntime,
 	conversation: Conversation,
 	descriptor: RunDescriptor,
-	deps: RoleDeps,
+	host: RoleHost,
 ): Extension {
+	const role = DURABLE_ROLES[descriptor.kind];
+	const run = roleRun(runtime, conversation, descriptor, host);
 	return defineExtension({
 		name: `lh-bg-${descriptor.runId}`,
-		tools: roleTools(conversation, descriptor, deps),
+		tools: toRegistrations(role.tools(run)),
 		hooks: [
 			hook(GenerationTask, {
 				afterTools: async (_assistant, results, api, context) => {
-					// Flush the round's render first, or a last-iteration image
-					// goes unseen.
-					await flushPendingRender(conversation, descriptor, deps);
-					if (await cleanSubmitInRound(descriptor, results, api, context)) return { terminate: true };
-					const assistant = await countAssistantEntries(conversation);
-					if (assistant >= descriptor.maxTurns) {
+					await role.afterTools?.(run);
+					if (role.submitTool && (await cleanResultInRound(role.submitTool, results, api, context))) {
+						return { terminate: true };
+					}
+					if ((await countAssistantEntries(conversation)) >= descriptor.maxTurns) {
 						await markCapped(conversation);
 						return { terminate: true };
 					}
 					return undefined;
 				},
-				onYield: async () => roleYield(conversation, descriptor, deps),
+				onYield: async () => {
+					const next: RoleMessageContent | undefined = await role.onYield?.(run);
+					return next === undefined ? undefined : { continue: next };
+				},
 			}),
 		],
 	});
 }
 
-function submitToolName(kind: BackgroundKind): string | null {
-	if (kind === "audit") return AUDIT_TOOL;
-	if (kind === "extract") return FINDINGS_TOOL;
-	return null;
-}
-
 /** A round that carries a schema-valid, accepted submit ends the run even
  *  when the model batched other calls beside it. */
-async function cleanSubmitInRound(
-	descriptor: RunDescriptor,
+async function cleanResultInRound(
+	toolName: string,
 	results: readonly EntryId[],
 	api: HookApi,
 	context: Context,
 ): Promise<boolean> {
-	const toolName = submitToolName(descriptor.kind);
-	if (!toolName) return false;
 	for (const id of results) {
 		const entry = await api.entry(id, context);
 		const message = entry?.model?.[0] as { role?: string; toolName?: string; isError?: boolean } | undefined;
@@ -383,165 +262,6 @@ async function markCapped(conversation: Conversation): Promise<void> {
 		const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
 		run.capped = true;
 	}, BACKGROUND_CONTEXT);
-}
-
-/** The image-in-the-loop flush: the render tool committed a pending render;
- *  render it, then commit the pages/SVG as seen and append the user message
- *  AFTER the round's tool results, in one transaction. */
-async function flushPendingRender(
-	conversation: Conversation,
-	descriptor: RunDescriptor,
-	deps: RoleDeps,
-): Promise<void> {
-	if (descriptor.kind !== "visual" && descriptor.kind !== "pdf") return;
-	const state = (await roleState<VisualRunState | PdfRunState>(conversation, deps).read());
-	if (descriptor.kind === "visual") {
-		const visual = state as VisualRunState;
-		if (!visual.pendingRender || !visual.currentSvg) return;
-		const svg = visual.currentSvg;
-		let png: Buffer;
-		try {
-			png = await deps.headless().renderSvg(svg);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			await conversation.commit(async (tx) => {
-				const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-				(run.state as VisualRunState).pendingRender = false;
-				await tx.appendEntry(conversation.id, {
-					kind: "lh.bg-image",
-					model: [
-						{
-							role: "user",
-							content: `RENDER ERROR (the SVG may be malformed): ${msg}. Fix it with write_svg and render again.`,
-							timestamp: Date.now(),
-						},
-					],
-				});
-			}, BACKGROUND_CONTEXT);
-			return;
-		}
-		await conversation.commit(async (tx) => {
-			const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-			const next = run.state as VisualRunState;
-			next.pendingRender = false;
-			next.renderedSvg = svg;
-			await tx.appendEntry(conversation.id, {
-				kind: "lh.bg-image",
-				model: [{ role: "user", content: visualImageContent(png), timestamp: Date.now() } as never],
-			});
-		}, BACKGROUND_CONTEXT);
-		return;
-	}
-	if (descriptor.kind === "pdf") {
-		const pdf = state as PdfRunState;
-		if (!pdf.pendingRender) return;
-		const { pages, dpi } = pdf.pendingRender;
-		const path = String((descriptor.input as { path?: unknown }).path ?? "");
-		let rendered: Awaited<ReturnType<HeadlessApi["renderPdfPages"]>> | undefined;
-		try {
-			rendered = await deps.headless().renderPdfPages(path, pages, { dpi });
-			if (rendered.length === 0) throw new Error("no pages rendered (spec matched nothing?)");
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			await conversation.commit(async (tx) => {
-				const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-				(run.state as PdfRunState).pendingRender = null;
-				await tx.appendEntry(conversation.id, {
-					kind: "lh.bg-image",
-					model: [
-						{
-							role: "user",
-							content: `RENDER ERROR (the page spec may be wrong): ${msg}. Narrow the spec and render again.`,
-							timestamp: Date.now(),
-						},
-					],
-				});
-			}, BACKGROUND_CONTEXT);
-			return;
-		}
-		await conversation.commit(async (tx) => {
-			const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-			const next = run.state as PdfRunState;
-			next.pendingRender = null;
-			for (const page of rendered) {
-				if (!next.consulted.includes(page.page)) next.consulted.push(page.page);
-				if (!next.read.includes(page.page)) next.read.push(page.page);
-			}
-			await tx.appendEntry(conversation.id, {
-				kind: "lh.bg-image",
-				model: [{ role: "user", content: pdfImageContent(rendered), timestamp: Date.now() } as never],
-			});
-		}, BACKGROUND_CONTEXT);
-	}
-}
-
-/** The role's answer boundary: the PDF doctrine's single nudge and the
- *  visual-maker's verify-by-looking gate. */
-async function roleYield(
-	conversation: Conversation,
-	descriptor: RunDescriptor,
-	deps: RoleDeps,
-): Promise<
-	| {
-			continue: string | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
-	  }
-	| undefined
-> {
-	if (descriptor.kind !== "visual" && descriptor.kind !== "pdf") return undefined;
-	const state = await roleState<VisualRunState | PdfRunState>(conversation, deps).read();
-	if (descriptor.kind === "pdf") {
-		const pdf = state as PdfRunState;
-		if (pdf.consulted.length > 0) return undefined;
-		if (await nudgeAlreadySent(conversation)) return undefined;
-		if ((await countAssistantEntries(conversation)) + 1 >= descriptor.maxTurns) {
-			await markCapped(conversation);
-			await conversation.commit(async (tx) => {
-				const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-				(run.state as PdfRunState).blockedAtCap = true;
-			}, BACKGROUND_CONTEXT);
-			return undefined;
-		}
-		return { continue: PDF_UNREAD_MESSAGE };
-	}
-	if (descriptor.kind === "visual") {
-		const visual = state as VisualRunState;
-		if (!visual.currentSvg || visual.renderedSvg === visual.currentSvg) return undefined;
-		if ((await countAssistantEntries(conversation)) + 1 >= descriptor.maxTurns) {
-			await markCapped(conversation);
-			return undefined;
-		}
-		const svg = visual.currentSvg;
-		let png: Buffer;
-		try {
-			png = await deps.headless().renderSvg(svg);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			await conversation.commit(async (tx) => {
-				const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-				(run.state as VisualRunState).renderError = msg;
-			}, BACKGROUND_CONTEXT);
-			return undefined;
-		}
-		await conversation.commit(async (tx) => {
-			const run = (await tx.doc(BackgroundRunDoc, conversation.id)) as unknown as RunDescriptor;
-			(run.state as VisualRunState).renderedSvg = svg;
-		}, BACKGROUND_CONTEXT);
-		return {
-			continue: [
-				{ type: "text", text: VISUAL_UNLOOKED_MESSAGE },
-				{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
-			],
-		};
-	}
-	return undefined;
-}
-
-async function nudgeAlreadySent(conversation: Conversation): Promise<boolean> {
-	for (const entry of await readRunEntries(conversation)) {
-		const message = entry.model?.[0] as { role?: string; content?: unknown } | undefined;
-		if (message?.role === "user" && message.content === PDF_UNREAD_MESSAGE) return true;
-	}
-	return false;
 }
 
 async function countAssistantEntries(conversation: Conversation): Promise<number> {
@@ -607,20 +327,14 @@ async function foldUsage(
 }
 
 /** A settled-submission stand-in for an abort that lands around admission. */
-function abortedSettlement(signals: readonly (AbortSignal | undefined)[]): Promise<{
+function abortedSettlement(signal: AbortSignal | undefined): Promise<{
 	status: "unanswered";
 	reason: "aborted";
 }> {
 	return new Promise((resolve) => {
 		const done = () => resolve({ status: "unanswered", reason: "aborted" });
-		for (const signal of signals) {
-			if (!signal) continue;
-			if (signal.aborted) {
-				done();
-				return;
-			}
-			signal.addEventListener("abort", done, { once: true });
-		}
+		if (signal?.aborted) done();
+		else signal?.addEventListener("abort", done, { once: true });
 	});
 }
 
@@ -710,8 +424,7 @@ function descriptorOf(
 			...(request.input ?? {}),
 			...(pdfDir ? { pdfDir } : {}),
 		} as JsonObject,
-		state: initialState(request.kind),
-		activity: "starting",
+		state: DURABLE_ROLES[request.kind].initialState(),
 	};
 }
 
@@ -801,7 +514,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 	const { conversationId, ref, descriptor } = await ensureRun(runtime, request, request.engine);
 	const conversation = await runtime.harness.conversation(conversationId, BACKGROUND_CONTEXT);
 	if (!conversation) throw new Error(`background run ${descriptor.runId}: conversation missing`);
-	const host = backgroundHost().services;
+	const services = backgroundServices();
 	const requestedModel = request.engine.model;
 	const sameEndpoint =
 		!descriptor.model.baseUrl || requestedModel.baseUrl === descriptor.model.baseUrl;
@@ -810,28 +523,19 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		requestedModel.id === descriptor.model.modelId &&
 		sameEndpoint
 			? request.engine
-			: host?.resolveEngine(descriptor);
+			: services.resolveEngine?.(descriptor);
 	if (!engine) throw new Error(`no model available for background run ${descriptor.runId}`);
 	bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-	const deps = roleDeps(runtime, request, host);
-	const extension = roleExtension(conversation, descriptor, deps);
+	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request));
 	runtime.registry.install(extension);
-	const abort = request.abort ?? new AbortController();
+	const signal = request.signal;
 	const abortConversation = () => {
-		void conversation.abort(BACKGROUND_CONTEXT).catch(() => undefined);
-	};
-	abort.signal.addEventListener("abort", abortConversation, { once: true });
-	if (request.signal) {
-		if (request.signal.aborted) abortConversation();
-		else request.signal.addEventListener("abort", abortConversation, { once: true });
-	}
-	if (request.abort) {
-		registerJobAbort(request.jobId, abort, () => {
-			void conversation.abort(BACKGROUND_CONTEXT).catch((error) => {
-				console.error(`[job ${request.jobId}] durable abort failed:`, error);
-			});
+		void conversation.abort(BACKGROUND_CONTEXT).catch((error) => {
+			console.error(`[run ${request.jobId}] durable abort failed:`, error);
 		});
-	}
+	};
+	if (signal?.aborted) abortConversation();
+	else signal?.addEventListener("abort", abortConversation, { once: true });
 	let usageWatch: Awaited<ReturnType<ChatRuntime["harness"]["watchDoc"]>> | undefined;
 	try {
 		await conversation.configure(agentChange(descriptor, extension), BACKGROUND_CONTEXT);
@@ -862,11 +566,11 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		// submission never settles): race the wait so the run still unwinds.
 		const settled = await Promise.race([
 			submission.wait(BACKGROUND_CONTEXT),
-			abortedSettlement([abort.signal, request.signal]),
+			abortedSettlement(signal),
 		]);
 		await reportProgress();
 		if (settled.status !== "done") {
-			if (abort.signal.aborted || request.signal?.aborted) {
+			if (signal?.aborted) {
 				const stopped = new Error("aborted");
 				stopped.name = "AbortError";
 				throw stopped;
@@ -903,24 +607,20 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 			throw closed;
 		}
 		await updateIndex(runtime, request.jobId, { status: "failed" }).catch(() => undefined);
-		if ((abort.signal.aborted || request.signal?.aborted) && !(error instanceof Error && error.name === "AbortError")) {
+		if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
 			const stopped = new Error(error instanceof Error ? error.message : String(error));
 			stopped.name = "AbortError";
 			throw stopped;
 		}
-		if (error instanceof Error) {
-			// The caller's failure shape may quote what the run had honestly
-			// reached (the PDF brief's page sets).
-			const stored = (await runtime.harness
-				.snapshot(BackgroundRunDoc, conversation.id, BACKGROUND_CONTEXT)
-				.catch(() => undefined)) as RunDescriptor | undefined;
-			if (stored) (error as Error & { runState?: RunState }).runState = stored.state;
-		}
-		throw error;
+		// The caller's failure result may quote what the run had reached (the
+		// PDF brief's page sets).
+		const stored = (await runtime.harness
+			.snapshot(BackgroundRunDoc, conversation.id, BACKGROUND_CONTEXT)
+			.catch(() => undefined)) as RunDescriptor | undefined;
+		throw new RunFailure(error instanceof Error ? error.message : String(error), stored?.state);
 	} finally {
 		await usageWatch?.stop().catch(() => undefined);
-		abort.signal.removeEventListener("abort", abortConversation);
-		request.signal?.removeEventListener("abort", abortConversation);
+		signal?.removeEventListener("abort", abortConversation);
 		runtime.registry.uninstall(extension);
 		unbindRunEngine(descriptor.sessionId);
 	}
@@ -975,7 +675,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 			await updateIndex(runtime, jobId, { status: "failed" });
 			continue;
 		}
-		const engine = backgroundHost().services?.resolveEngine(descriptor);
+		const engine = backgroundServices().resolveEngine?.(descriptor);
 		if (!engine) {
 			// FAIL CLOSED: `harness.resume()` below would execute the pending
 			// generation without its model binding (or with a redirected
@@ -986,7 +686,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 			);
 		}
 		bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-		const extension = roleExtension(conversation, descriptor, roleDeps(runtime, undefined, backgroundHost().services));
+		const extension = roleExtension(runtime, conversation, descriptor, roleHost(undefined));
 		runtime.registry.install(extension);
 		await conversation.configure(agentChange(descriptor, extension), BACKGROUND_CONTEXT);
 	}

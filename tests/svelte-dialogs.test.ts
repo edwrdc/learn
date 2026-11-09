@@ -164,8 +164,8 @@ describe("activity feed pure folds", () => {
 		const blob = toBlobs({ jobs: [priced], extractions: [] })[0]!;
 		assert.ok(blob.cost !== null && blob.cost > 0.0013 && blob.cost < 0.0015);
 		assert.equal(toBlobs({ jobs: [job()], extractions: [] })[0]!.cost, null);
-		assert.equal(toBlobs({ jobs: [job({ status: "error", error: "No OpenRouter key is set — add one in Settings → Keys" })], extractions: [] })[0]!.activity, "needs a provider key");
-		assert.equal(toBlobs({ jobs: [job({ status: "error", error: "No model configured — set up your models first (missing: vision)" })], extractions: [] })[0]!.activity, "needs model setup");
+		assert.equal(toBlobs({ jobs: [job({ status: "error", error: "No OpenRouter key is set — add one in Settings → Keys", refusal: "provider_key_missing" })], extractions: [] })[0]!.activity, "needs a provider key");
+		assert.equal(toBlobs({ jobs: [job({ status: "error", error: "No model configured — set up your models first (missing: vision)", refusal: "models_not_configured" })], extractions: [] })[0]!.activity, "needs model setup");
 		assert.equal(toBlobs({ jobs: [job({ status: "error", error: "FAILED: headless crashed" })], extractions: [] })[0]!.activity, 'web_search: "sigma.js v3"');
 	});
 

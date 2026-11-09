@@ -354,7 +354,7 @@ function conversationDeps(turn?: ChatTurnInjection): ConversationDeps {
 		graphStore: stores.graphStore,
 		jobStore: stores.jobStore,
 		spawn: (job, jobInput) => void services().jobRunner.runJob(job.id, jobInput),
-		deliver: (steer) => void deliverJobResult(steer as SteerMessage),
+		deliver: (chatId, steer) => void deliverJobResult(chatId, steer as SteerMessage),
 		searchAvailable,
 		graphNodes: () => firstLineById(stores.graphStore.readNodes()).map((node) => ({ id: node.id, name: node.name })),
 		...turn?.deps,

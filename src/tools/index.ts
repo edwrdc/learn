@@ -7,7 +7,7 @@ export { lsTool } from "./fs/ls.ts";
 export { readTool } from "./fs/read.ts";
 export { resolveSourcePath } from "./fs/shared.ts";
 export { healEncodedArguments } from "./heal.ts";
-export { pdfExtract, pdfInfo, pdfProbe, pdfSearch, standardFontsDir } from "./pdf-ops.ts";
+export { parsePageSpec, pdfExtract, pdfInfo, pdfPageCount, pdfProbe, pdfSearch, standardFontsDir } from "./pdf-ops.ts";
 export { createPdfReadTools } from "./pdf-read.ts";
 export { searchAvailable, searchProvider, searchStatus } from "./web/search.ts";
 export { createWebTools } from "./web/web.ts";
