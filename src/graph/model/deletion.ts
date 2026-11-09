@@ -55,6 +55,7 @@
  * together close every corrupt/resurrect path.
  */
 
+import { isArgumentId, prunePositions } from "./rules.ts";
 import type { CoverageEntry, GraphChain, GraphNode, SessionCheckpoint } from "./types.ts";
 import type { GraphStore } from "./ports.ts";
 
@@ -209,23 +210,23 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 	//    implication node carries the chain's arg_ id — stale resting spots
 	//    would pin nothing; pruning keeps the ledger honest and the
 	//    revision moving for exactly the right reason).
-	const deadChainIds = new Set(
-		chainLines
-			.filter((line) => !outChains.includes(line))
-			.map((line) => line.id),
-	);
-	const positions = graphStore.readPositions();
-	const knownNodeIds = new Set(nodeLines.map((line) => line.id));
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(
-			([id]) => (live.has(id) || !knownNodeIds.has(id)) && !deadChainIds.has(id),
-		),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
-	}
+	pruneRemovedPositions(graphStore, new Set([...deadNodes, ...removedIds(chainLines, outChains)]));
 
 	return stats;
+}
+
+/** Ids with a line before and none after (a chain id survives while any of
+ *  its lines does, however its provenance changed). */
+function removedIds(before: readonly { id: string }[], after: readonly { id: string }[]): string[] {
+	const kept = new Set(after.map((line) => line.id));
+	return before.map((line) => line.id).filter((id) => !kept.has(id));
+}
+
+/** Drop removed ids' resting positions; writes only when something dropped. */
+function pruneRemovedPositions(graphStore: GraphStore, removed: ReadonlySet<string>): void {
+	const positions = graphStore.readPositions();
+	const pruned = prunePositions(positions, removed);
+	if (Object.keys(pruned).length !== Object.keys(positions).length) graphStore.writePositions(pruned);
 }
 
 // ─── single-node deletion (node interlude, owner-locked full-death) ───────────
@@ -282,15 +283,11 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 	// The argument branch: an arg_ id names a CHAIN, not a proposition —
 	// its lines die, and that is the whole death (the member propositions
 	// survive: deleting an argument spares its premises/conclusion).
-	if (nodeId.startsWith("arg_")) {
+	if (isArgumentId(nodeId)) {
 		const outChains = chainLines.filter((line) => line.id !== nodeId);
 		if (outChains.length === chainLines.length) return null; // unknown argument
 		graphStore.rewriteLedgers({ chains: outChains });
-		const positions = graphStore.readPositions();
-		if (positions[nodeId] !== undefined) {
-			const { [nodeId]: _dead, ...rest } = positions;
-			graphStore.writePositions(rest);
-		}
+		pruneRemovedPositions(graphStore, new Set([nodeId]));
 		return { chainsRemoved: chainLines.length - outChains.length };
 	}
 
@@ -310,14 +307,7 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 	});
 
 	// The resting positions die with the node and every dead chain.
-	const deadChainIds = new Set(chainLines.filter((line) => !outChains.includes(line)).map((line) => line.id));
-	const positions = graphStore.readPositions();
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(([id]) => id !== nodeId && !deadChainIds.has(id)),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
-	}
+	pruneRemovedPositions(graphStore, new Set([nodeId, ...removedIds(chainLines, outChains)]));
 
 	return {
 		chainsRemoved: chainLines.length - outChains.length,

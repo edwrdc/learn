@@ -415,8 +415,9 @@ export interface RunningExtraction {
 interface ExtractionRuns {
 	/** In-flight pipeline runs, keyed chatId (chat) / src id (notes). */
 	running: Map<string, RunningExtraction>;
-	/** The single-flight guard, shared by every pipeline instance. */
-	inFlight: Set<string>;
+	/** The single-flight guard, shared by every pipeline instance: each
+	 *  admitted run's settle promise, by chat/source id. */
+	inFlight: Map<string, Promise<unknown>>;
 	/** Last minted startedAt — kept monotonic so two runs starting in the
 	 *  same millisecond never collide on the usage idempotency key. */
 	lastStartedAt: number;
@@ -427,7 +428,7 @@ interface ExtractionRuns {
 }
 
 function runs(): ExtractionRuns {
-	return processState<ExtractionRuns>("extractionRuns", () => ({ running: new Map(), inFlight: new Set(), lastStartedAt: 0 }));
+	return processState<ExtractionRuns>("extractionRuns", () => ({ running: new Map(), inFlight: new Map(), lastStartedAt: 0 }));
 }
 
 /** In-flight pipeline runs (oldest first) — the /api/graph/status payload. */
@@ -456,6 +457,13 @@ export function abortExtraction(chatId: string): boolean {
 		found = true;
 	}
 	return found;
+}
+
+/** Abort the chat's run and wait until it has wound down (nothing merges
+ *  after this settles). Resolves at once when nothing runs. */
+export async function stopExtraction(chatId: string): Promise<void> {
+	abortExtraction(chatId);
+	await runs().inFlight.get(chatId)?.catch(() => undefined);
 }
 // ─── the pipeline ───────────────────────────────────────────────────────────
 
@@ -854,9 +862,14 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return controller;
 	}
 
-	async function runExtraction(chatId: string): Promise<EmissionStats> {
-		if (inFlight.has(chatId)) return { nodes: 0, chains: 0 };
-		inFlight.add(chatId);
+	function runExtraction(chatId: string): Promise<EmissionStats> {
+		if (inFlight.has(chatId)) return Promise.resolve({ nodes: 0, chains: 0 });
+		const run = extractChat(chatId).finally(() => inFlight.delete(chatId));
+		inFlight.set(chatId, run);
+		return run;
+	}
+
+	async function extractChat(chatId: string): Promise<EmissionStats> {
 		// Admitted-but-unphased: the record read below is awaited, so an abort
 		// arriving in that window must still land (the dock's abort button and
 		// the deletion wind-down both fire immediately after dispatch).
@@ -992,7 +1005,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			throw err;
 		} finally {
 			earlyMap.delete(chatId);
-			inFlight.delete(chatId);
 			finishExtraction(chatId); // done or failed — no longer running
 		}
 	}
@@ -1184,7 +1196,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const id = `src_${crypto.createHash("sha256").update(input.filePath).digest("hex").slice(0, 12)}`;
 		// Acquire BEFORE source upsert: overlapping contents must not alter metadata.
 		if (inFlight.has(id)) throw new NotesImportError("busy", { nodes: 0, chains: 0 }, "This file is already being imported. Try again when it finishes.");
-		inFlight.add(id);
+		let settle!: () => void;
+		inFlight.set(id, new Promise<void>((resolve) => (settle = resolve)));
 		try {
 			const importedAt = new Date().toISOString();
 			graphStore.upsertSource({ id, filePath: input.filePath, importedAt });
@@ -1194,6 +1207,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			throw new NotesImportError("failed", { nodes: 0, chains: 0 }, err instanceof Error ? err.message : String(err), { cause: err });
 		} finally {
 			inFlight.delete(id);
+			settle();
 		}
 	}
 

@@ -53,7 +53,8 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export const LEDGER_FILES = {
 	nodes: path.join(PATHS.graph, "nodes.jsonl"),
 	chains: path.join(PATHS.graph, "chains.jsonl"),
-	sessions: path.join(PATHS.graph, "sessions.jsonl"),
+	/** Session checkpoints. */
+	checkpoints: path.join(PATHS.graph, "sessions.jsonl"),
 	/** Per-message extraction coverage (contracts/graph.ts CoverageEntry;
 	 *  the checkpoint's replacement for chat extractions — notes keep
 	 *  sessions.jsonl, whole-file as they are). */

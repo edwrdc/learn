@@ -14,6 +14,7 @@
  * untouched until a catalog entry adopts them).
  */
 
+import { writeFileAtomic } from "../platform/index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTH_FILE } from "../platform/index.ts";
@@ -37,12 +38,7 @@ function readMap(): Record<string, string> {
  *  tmp-in-same-dir + rename keeps the swap atomic; chmod BEFORE the
  *  rename so the mode never exists relaxed on the final path. */
 function writeMap(map: Record<string, string>): void {
-	const dir = path.dirname(AUTH_FILE);
-	fs.mkdirSync(dir, { recursive: true });
-	const tmp = path.join(dir, `.auth.json.tmp-${process.pid}`);
-	fs.writeFileSync(tmp, `${JSON.stringify(map, null, "\t")}\n`, { mode: 0o600 });
-	fs.chmodSync(tmp, 0o600); // umask may have relaxed the create mode
-	fs.renameSync(tmp, AUTH_FILE);
+	writeFileAtomic(AUTH_FILE, `${JSON.stringify(map, null, "\t")}\n`, { mode: 0o600 });
 }
 
 export const authStore: AuthStore = {

@@ -1,9 +1,9 @@
 import { chainsForSelection, formatChainLine } from "@/src/graph/model";
-import { newGraphContextMessage, type GraphContextPick } from "@/src/session/model";
+import { newGraphContextMessage, titleFromPrompt, type GraphContextPick } from "@/src/session/model";
 import { compactionInFlight, createChat, isTurnRunning, listChats } from "@/src/session";
+import { getGraph } from "@/src/graph";
 import { readSettings } from "@/src/settings";
 import { stores } from "@/src/stores";
-import { titleFromPrompt } from "@/src/graph/model";
 import type { ChatListItem } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
 
@@ -66,11 +66,10 @@ export async function POST({ request: req }: RequestEvent) {
 					.slice(0, 64)
 			: [];
 	if (picks.length > 0) {
-		const byId = new Map(stores.graphStore.readNodes().map((n) => [n.id, n]));
+		const graph = getGraph(stores.graphStore);
+		const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 		const pickedNodes = picks.map((p) => byId.get(p.id)).filter((n) => n !== undefined);
-		const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
-			formatChainLine(c, Object.fromEntries(byId)),
-		);
+		const chainLines = chainsForSelection(pickedNodes, graph.chains).map((c) => formatChainLine(c, Object.fromEntries(byId)));
 		await stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(picks, chainLines)]);
 	}
 	return Response.json({ id: chat.id, title: chat.title });

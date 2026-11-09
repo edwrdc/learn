@@ -3,3 +3,4 @@ export { APP_IDENTITY, bindRunEngine, piEngineForSpec, piModels, routedModels, s
 export type { PiEngine, ResolvedModelSpec } from "./engines.ts";
 export { eventsResponse } from "./events-stream.ts";
 export { providerEventNote, providerEventObserver } from "./provider-events.ts";
+export { writeFileAtomic, writeJsonAtomic } from "./fs.ts";

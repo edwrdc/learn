@@ -24,3 +24,4 @@ export { CONCLUDE_ACK_TEXT } from "./types.ts";
 export type { ArtifactPartProps, CallUsage, ChatListItem, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ExtractionStageUsage, PlanBlockData, SessionCoverage, TurnUsage } from "./types.ts";
 export { projectView } from "./view.ts";
 export type { LhViewMessage, LiveExecution } from "./view.ts";
+export { titleFromPrompt } from "./title.ts";

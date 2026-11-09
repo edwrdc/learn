@@ -54,7 +54,7 @@ import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
-import { CHARGE_STRENGTH, CLUSTER_PULL_STRENGTH, createGraphSimulation, DEFAULT_PHYSICS_TUNING, DEFAULT_REGION_TUNING, sanitizePhysicsTuning, sanitizeRegionTuning, type PhysicsTuning, type RegionTuning, INCREMENTAL_GRAVITY, LINK_DISTANCE, type DepthAnchorMode, type GraphRenderSettings, type LayoutNode, type Position } from "@/src/graph/model";
+import { CHARGE_STRENGTH, CLUSTER_PULL_STRENGTH, createGraphSimulation, isArgumentId, DEFAULT_PHYSICS_TUNING, DEFAULT_REGION_TUNING, sanitizePhysicsTuning, sanitizeRegionTuning, type PhysicsTuning, type RegionTuning, INCREMENTAL_GRAVITY, LINK_DISTANCE, type DepthAnchorMode, type GraphRenderSettings, type LayoutNode, type Position } from "@/src/graph/model";
 
 export type { GraphRenderSettings };
 
@@ -80,11 +80,9 @@ export interface CanvasEdge {
 	to: string;
 }
 
-/** Implication-node ids (the mint law: newGraphChainId in core/graph.ts).
- *  On the canvas an imp node is PURE GEOMETRY (owner, rendering arc
- *  2026-09-30): invisible — no disc, no label — and UNPICKABLE,
- *  excluded from every hit-test path. Exported for the test pin. */
-export const isImpNodeId = (id: string): boolean => id.startsWith("arg_");
+// On the canvas an implication node (isArgumentId) is PURE GEOMETRY (owner,
+// rendering arc 2026-09-30): invisible — no disc, no label — and UNPICKABLE,
+// excluded from every hit-test path.
 
 /** One cluster region: member node ids + the LLM-coined label (or null). */
 export interface CanvasCluster {
@@ -1048,7 +1046,7 @@ export class GraphCanvasRenderer {
 		const projected: { id: string; x: number; y: number }[] = [];
 		for (const n of this.data.nodes) {
 			if (this.visible && !this.visible.has(n.id)) continue;
-			if (isImpNodeId(n.id)) continue; // pure geometry — never picked
+			if (isArgumentId(n.id)) continue; // pure geometry — never picked
 			projected.push({ id: n.id, x: n.x * k + tx, y: n.y * k + ty });
 		}
 		const hit = pickNearest(projected, px, py, maxDist);
@@ -1223,7 +1221,7 @@ export class GraphCanvasRenderer {
 		// are pure geometry — never a disc, never a label, never picked.
 		const nodesPath = new Path2D();
 		for (const n of data.nodes) {
-			if (!isVisible(n.id) || isImpNodeId(n.id)) continue;
+			if (!isVisible(n.id) || isArgumentId(n.id)) continue;
 			nodesPath.moveTo(n.x + nodeR, n.y);
 			nodesPath.arc(n.x, n.y, nodeR, 0, Math.PI * 2);
 		}
@@ -1245,8 +1243,8 @@ export class GraphCanvasRenderer {
 			const a = this.nodeById.get(e.from);
 			const b = this.nodeById.get(e.to);
 			if (!a || !b) continue;
-			const intoImp = isImpNodeId(e.to);
-			const outOfImp = isImpNodeId(e.from);
+			const intoImp = isArgumentId(e.to);
+			const outOfImp = isArgumentId(e.from);
 			const g = arrowGeometry(a, b, outOfImp ? 0 : nodeR, intoImp ? 0 : nodeR, arrowLen);
 			if (!g) continue;
 			shafts.moveTo(g.shaftFrom.x, g.shaftFrom.y);
@@ -1278,7 +1276,7 @@ export class GraphCanvasRenderer {
 		ctx.font = this.worldLabelFont;
 		const maxW = LABEL_MAX_WIDTH * (settings.labelSize / LABEL_SIZE);
 		for (const n of data.nodes) {
-			if (isVisible(n.id) && !isImpNodeId(n.id)) this.labelLines.set(n.id, wrapLabel(ctx, n.label, maxW));
+			if (isVisible(n.id) && !isArgumentId(n.id)) this.labelLines.set(n.id, wrapLabel(ctx, n.label, maxW));
 		}
 		ctx.font = prevFont;
 	}

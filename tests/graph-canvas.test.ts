@@ -14,7 +14,6 @@ import { describe, it, it as test } from "node:test";
 import {
 	applyClusterLabels,
 	arrowGeometry,
-	isImpNodeId,
 	boxBlurRound,
 	fitTransform,
 	labelAlpha,
@@ -31,6 +30,7 @@ import {
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
 } from "../src/graph/model/render-settings.ts";
+import { isArgumentId } from "../src/graph/model/rules.ts";
 
 describe("zoomRatioOf (the sigma-compatible camera ratio)", () => {
 	test("1 at fit zoom, smaller when zoomed in, larger when zoomed out", () => {
@@ -164,10 +164,10 @@ describe("arrowGeometry", () => {
 	});
 });
 
-describe("isImpNodeId (the pure-geometry law, rendering arc 2026-09-30)", () => {
+describe("isArgumentId (the pure-geometry law, rendering arc 2026-09-30)", () => {
 	test("arg_-prefixed ids are geometry; proposition ids are citizens", () => {
-		assert.equal(isImpNodeId("arg_123af5a046ba"), true);
-		assert.equal(isImpNodeId("n_abc123"), false);
+		assert.equal(isArgumentId("arg_123af5a046ba"), true);
+		assert.equal(isArgumentId("n_abc123"), false);
 	});
 });
 

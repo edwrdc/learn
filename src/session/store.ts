@@ -21,6 +21,7 @@
  * constructs it.
  */
 
+import { writeJsonAtomic } from "../platform/index.ts";
 import { keyedLock } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -90,12 +91,7 @@ function readRecord(id: string): ParsedRecord | null {
  *  carries the CURRENT version stamp (lazy migration: existing files are
  *  stamped on their next write). */
 function writeMeta(meta: ChatMeta): void {
-	fs.mkdirSync(PATHS.chats, { recursive: true });
-	fs.writeFileSync(
-		chatFile(meta.id),
-		JSON.stringify({ ...meta, version: CURRENT_CHAT_VERSION }, null, "\t"),
-		"utf-8",
-	);
+	writeJsonAtomic(chatFile(meta.id), { ...meta, version: CURRENT_CHAT_VERSION });
 }
 
 /** Import a pre-migration record: back up the original verbatim inside the

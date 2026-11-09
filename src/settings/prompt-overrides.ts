@@ -28,6 +28,7 @@
  * layout is rejected (null / no-op), never written.
  */
 
+import { writeFileAtomic } from "../platform/index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { PROMPTS_OVERRIDE_DIR } from "../platform/index.ts";
@@ -72,8 +73,7 @@ export const promptOverrides: PromptOverrideStore = {
 	writeOverride(segmentPath: string, text: string): void {
 		if (!isValidSegmentPath(segmentPath)) return;
 		const file = overrideFileFor(segmentPath);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(file, text, "utf-8");
+		writeFileAtomic(file, text);
 	},
 
 	deleteOverride(segmentPath: string): void {

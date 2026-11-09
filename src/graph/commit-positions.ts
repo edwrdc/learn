@@ -55,18 +55,10 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	}
 	if (Object.keys(positions).length === 0) return {};
 
-	stores.graphStore.writePositions(positions);
-
 	// The graph grew past what the client knew (a merge landed mid-drag):
-	// absorb the new nodes with the client's rest state as anchors. The
-	// honest test: some node of the CURRENT view is absent from the
-	// client's payload — proposition or arg_ alike (the old count
-	// comparison broke once args counted as persistable).
-	for (const id of known) {
-		if (!(id in positions)) {
-			settleGraphLayout(stores.graphStore);
-			break;
-		}
-	}
+	// some node of the CURRENT view is absent from the client's payload —
+	// settle the new nodes with the client's rest state as anchors.
+	if ([...known].some((id) => !(id in positions))) settleGraphLayout(stores.graphStore, positions);
+	else stores.graphStore.writePositions(positions);
 	return positions;
 }

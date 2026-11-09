@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { TITLE_MAX_CHARS, titleFromPrompt } from "../src/graph/model/types.ts";
+import { TITLE_MAX_CHARS, titleFromPrompt } from "../src/session/model/title.ts";
 
 describe("titleFromPrompt (smart truncation)", () => {
 	it("short prompts pass through untouched — no ellipsis, whitespace collapsed", () => {

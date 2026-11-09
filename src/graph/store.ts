@@ -32,6 +32,7 @@
  * sync fs, no framework.
  */
 
+import { writeFileAtomic, writeJsonAtomic } from "../platform/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../platform/index.ts";
@@ -141,10 +142,10 @@ export const graphStore: GraphStore = {
 	},
 
 	appendCheckpoint(checkpoint: SessionCheckpoint): void {
-		appendLine(LEDGER_FILES.sessions, checkpoint);
+		appendLine(LEDGER_FILES.checkpoints, checkpoint);
 	},
 	readCheckpoints(): SessionCheckpoint[] {
-		return readValid(LEDGER_FILES.sessions, isCheckpoint);
+		return readValid(LEDGER_FILES.checkpoints, isCheckpoint);
 	},
 
 	appendCoverage(entry: CoverageEntry): void {
@@ -197,30 +198,11 @@ export const graphStore: GraphStore = {
 		coverage?: CoverageEntry[];
 		checkpoints?: SessionCheckpoint[];
 	}): void {
-		const files = {
-			nodes: LEDGER_FILES.nodes,
-			chains: LEDGER_FILES.chains,
-			coverage: LEDGER_FILES.coverage,
-			checkpoints: LEDGER_FILES.sessions,
-		} as const;
-		for (const [key, records] of Object.entries(next) as [keyof typeof files, unknown[]][]) {
-			const file = files[key];
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			const tmp = `${file}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-			try {
-				// JSONL: one record per line, trailing newline — a reader
-				// must see exactly what appendLine would have written.
-				const body = records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : "");
-				fs.writeFileSync(tmp, body, "utf-8");
-				fs.renameSync(tmp, file);
-			} catch (err) {
-				try {
-					fs.unlinkSync(tmp);
-				} catch {
-					/* the rename either already happened or the tmp never existed */
-				}
-				throw err;
-			}
+		for (const [key, records] of Object.entries(next) as [keyof typeof LEDGER_FILES, unknown[]][]) {
+			// JSONL: one record per line, trailing newline — a reader must
+			// see exactly what appendLine would have written.
+			const body = records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : "");
+			writeFileAtomic(LEDGER_FILES[key], body);
 		}
 	},
 };
@@ -251,22 +233,7 @@ function readPositionMap(): Record<string, Position> {
 }
 
 function writePositionMap(positions: Record<string, Position>): void {
-	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
-	// Tmp + rename — the same crash-safety rewriteLedgers uses two blocks
-	// up (a9339b3 UI flag): a torn write must never replace the ledger
-	// with a half-written file the reader parses as empty.
-	const tmp = `${POSITIONS_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-	try {
-		fs.writeFileSync(tmp, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), "utf-8");
-		fs.renameSync(tmp, POSITIONS_FILE);
-	} catch (err) {
-		try {
-			fs.unlinkSync(tmp);
-		} catch {
-			/* the rename either already happened or the tmp never existed */
-		}
-		throw err;
-	}
+	writeJsonAtomic(POSITIONS_FILE, { positions, updatedAt: new Date().toISOString() });
 }
 
 const isPosition = (v: unknown): v is Position =>
@@ -298,7 +265,7 @@ function readSourceMap(): Record<string, NotesSource> {
 function writeSourceMap(map: Record<string, NotesSource>): void {
 	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	fs.writeFileSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), "utf-8");
+	writeJsonAtomic(SOURCES_FILE, map);
 }
 
 // ─── one-way purges at adapter load: dead ledgers are exactly the confusion

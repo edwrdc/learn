@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
-	import { chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
+	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
 import { fuzzyScore } from "@/src/platform/model";
 	import TopBar from "$lib/chat/TopBar.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
@@ -77,7 +77,7 @@ import { fuzzyScore } from "@/src/platform/model";
 		const map = new Map<string, { key: string; birth: string | null; label: string | null; kind: "chat" | "notes" | null; chains: ReasoningChain[]; nodeIds: string[]; newest: string }>();
 		for (const chain of visibleChains) {
 			const conclusion = byId.get(chain.conclusion);
-			const birth = conclusion?.provenance[0]?.chatId ?? null;
+			const birth = conclusion ? birthSessionOf(conclusion) : null;
 			const key = birth ?? "\0unlabeled";
 			let group = map.get(key);
 			if (!group) {

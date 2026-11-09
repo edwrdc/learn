@@ -1,9 +1,6 @@
-import { abortExtraction, extractionStatuses } from "../graph/index.ts";
-import { coverageOf } from "../graph/index.ts";
+import { coverageOf, extractionStatuses, graphRevision, stopExtraction } from "../graph/index.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../graph/model/index.ts";
-import { titleFromPrompt } from "../graph/model/index.ts";
 import { type SessionCoverage } from "./model/types.ts";
-import { graphRevision } from "../graph/index.ts";
 import { stores } from "../stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
@@ -21,7 +18,6 @@ import { withChatOperation } from "./chat-operations.ts";
  */
 
 export const { createChat, getChat, listChats } = stores.chatStore;
-export { titleFromPrompt };
 export type { ChatDeleteMode, ChatDeletionStats } from "../graph/model/index.ts";
 
 /** How long the wind-down wait may take before the caller gets a retryable
@@ -29,7 +25,6 @@ export type { ChatDeleteMode, ChatDeletionStats } from "../graph/model/index.ts"
  *  provider cancellation is normally sub-second, but a wedged provider
  *  must never wedge deletion). */
 const WIND_DOWN_TIMEOUT_MS = 10_000;
-const WIND_DOWN_POLL_MS = 50;
 
 /** What deleteChatSession did — the route maps it straight to HTTP. */
 export type ChatDeleteOutcome =
@@ -87,20 +82,17 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 				jobIds: runningJobs.map((job) => job.id),
 			};
 		}
-		if (extractionStatuses().some((run) => run.chatId === chatId)) {
-			abortExtraction(chatId); // true cancellation — spend stops, nothing merges
-			const deadline = Date.now() + WIND_DOWN_TIMEOUT_MS;
-			while (extractionStatuses().some((run) => run.chatId === chatId)) {
-				if (Date.now() > deadline) {
-					return {
-						ok: false,
-						status: 503,
-						code: "extraction_winding_down",
-						error: "The session's extraction is still winding down — try again in a moment",
-					};
-				}
-				await new Promise((resolve) => setTimeout(resolve, WIND_DOWN_POLL_MS));
-			}
+		const woundDown = await Promise.race([
+			stopExtraction(chatId).then(() => true),
+			new Promise<false>((resolve) => setTimeout(() => resolve(false), WIND_DOWN_TIMEOUT_MS).unref()),
+		]);
+		if (!woundDown) {
+			return {
+				ok: false,
+				status: 503,
+				code: "extraction_winding_down",
+				error: "The session's extraction is still winding down — try again in a moment",
+			};
 		}
 
 		const stats = deleteChatTraces(stores.graphStore, chatId, mode);

@@ -50,8 +50,8 @@ export interface GraphStore {
 
 	/** THE DESTRUCTIVE SEAM (session-deletion wave 6, owner 2026-09-22 —
 	 *  the first non-append operation on these ledgers): atomically
-	 *  replace the full contents of any subset of the six rewritable
-	 *  ledgers. Each provided array is written to a temp file and renamed
+	 *  replace the full contents of any subset of the four ledgers
+	 *  (config.ts LEDGER_FILES). Each provided array is written to a temp file and renamed
 	 *  over the ledger (crash-safe: a torn write never replaces the
 	 *  original); absent keys leave their ledger untouched. The pure
 	 *  computation is core/graph-deletion.ts — the store only makes the

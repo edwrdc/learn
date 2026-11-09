@@ -32,6 +32,7 @@
  * core barrel — the shell reads clusters from the snapshot; only the
  * server-side derivations (snapshot, settle) and tests import this.
  */
+import { chainIsLive } from "./rules.ts";
 import type { GraphChain, GraphNode } from "./types.ts";
 
 /** One birth-session cluster: the session id + the SORTED member node
@@ -91,7 +92,7 @@ export function impClusterKey(
 		const birth = birthOf(premise);
 		if (birth !== null) counts.set(birth, (counts.get(birth) ?? 0) + 1);
 	}
-	const own = chain.provenance[0]?.chatId ?? null;
+	const own = birthSessionOf(chain);
 	if (counts.size === 0) return own;
 	let max = 0;
 	for (const n of counts.values()) if (n > max) max = n;
@@ -120,7 +121,7 @@ export function attachImpToCommunities(
 	const live = new Set(propositions.map((node) => node.id));
 	for (const chain of chains) {
 		if (chain.premises.length < 2) continue;
-		if (!live.has(chain.conclusion) || !chain.premises.every((p) => live.has(p))) continue;
+		if (!chainIsLive(chain, live)) continue;
 		const key = impClusterKey(chain, (id) => birthById.get(id) ?? null);
 		const community = key === null ? undefined : communities.find((c) => c.id === key);
 		if (!community) continue;

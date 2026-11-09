@@ -49,6 +49,7 @@
  * the composition root (src/server/stores.ts) wires the fs adapters in.
  */
 
+import { ARG_ID_PREFIX, chainIsLive, chainKey } from "./model/rules.ts";
 import { randomBytes } from "node:crypto";
 import type { CoverageEntry,
 } from "./model/types.ts";
@@ -70,16 +71,8 @@ function newGraphNodeId(): string {
 	return `n_${randomBytes(6).toString("hex")}`;
 }
 
-/** "arg_" + 12 hex chars — the implication-node namespace (a chain's id
- *  IS its derived node's id; collision-free with n_ by construction). */
 function newGraphChainId(): string {
-	return `arg_${randomBytes(6).toString("hex")}`;
-}
-
-/** A chain's merge key: sorted premises + conclusion — the identity an
- *  assertion re-stating the same argument merges under. */
-function chainKey(premises: ReadonlyArray<string>, conclusion: string): string {
-	return `${[...premises].sort().join("+")}>${conclusion}`;
+	return `${ARG_ID_PREFIX}${randomBytes(6).toString("hex")}`;
 }
 
 /** What one merge run merges FROM (the caller supplies it — the merger never
@@ -468,7 +461,7 @@ export function deriveView(graph: DerivedGraph): {
 		logicalEdges.push({ from, to });
 	};
 	for (const chain of graph.chains) {
-		if (!live.has(chain.conclusion) || !chain.premises.every((premise) => live.has(premise))) continue;
+		if (!chainIsLive(chain, live)) continue;
 		for (const premise of chain.premises) emitLogical(premise, chain.conclusion);
 		// Single premise: the argument IS a plain arrow — no geometry
 		// point needed (the 1-in/1-out collapse; rendering arc, owner).
@@ -527,6 +520,7 @@ export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
 	const ids = [...sourceIds];
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
+	const sources = new Map(deps.graphStore.readSources().map((source) => [source.id, source.filePath]));
 	for (let i = 0; i < ids.length; i += 3) {
 		const batch = ids.slice(i, i + 3);
 		const records = await Promise.all(batch.map((id) => deps.chatStore.getChat(id)));
@@ -536,8 +530,8 @@ export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
 				sessions[id] = chat.title;
 				return;
 			}
-			const source = deps.graphStore.readSources().find((s) => s.id === id);
-			if (source) fileSources[id] = source.filePath;
+			const filePath = sources.get(id);
+			if (filePath) fileSources[id] = filePath;
 		});
 	}
 

@@ -19,6 +19,7 @@
  * server-side steers (src/server/jobs.ts).
  */
 
+import { firstLineById } from "../graph/model/index.ts";
 import { processState } from "../platform/model/index.ts";
 import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -354,7 +355,7 @@ function conversationDeps(turn?: ChatTurnInjection): ConversationDeps {
 		spawn: (job, jobInput) => void services().jobRunner.runJob(job.id, jobInput),
 		deliver: (steer) => void deliverJobResult(steer as SteerMessage),
 		searchAvailable,
-		graphNodes: () => stores.graphStore.readNodes().map((node) => ({ id: node.id, name: node.name })),
+		graphNodes: () => firstLineById(stores.graphStore.readNodes()).map((node) => ({ id: node.id, name: node.name })),
 		...turn?.deps,
 	};
 }

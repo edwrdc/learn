@@ -8,6 +8,7 @@
  * awaits, so they are atomic within the single-threaded event loop.
  */
 
+import { writeJsonAtomic } from "../platform/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../platform/index.ts";
@@ -40,8 +41,7 @@ function createJob(init: CreateJobInit): JobRecord {
 		createdAt: now,
 		updatedAt: now,
 	};
-	fs.mkdirSync(JOBS_DIR, { recursive: true });
-	fs.writeFileSync(jobFile(record.id), JSON.stringify(record, null, "\t"), "utf-8");
+	writeJsonAtomic(jobFile(record.id), record);
 	emit("jobs-changed", { chatId: init.chatId });
 	return record;
 }
@@ -61,7 +61,7 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	const record = getJob(id);
 	if (!record) return null;
 	const next: JobRecord = { ...record, ...patch, updatedAt: patch.updatedAt ?? new Date().toISOString() };
-	fs.writeFileSync(jobFile(id), JSON.stringify(next, null, "\t"), "utf-8");
+	writeJsonAtomic(jobFile(id), next);
 	// EVERY write, not just status flips: progress-line updates must reach
 	// the dispatch cards (the view debounces the fetch bursts). A missing id
 	// wrote nothing and stays silent.

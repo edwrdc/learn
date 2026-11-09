@@ -22,6 +22,7 @@
  *    deterministic — same inputs, same layout.
  */
 
+import { isArgumentId } from "./rules.ts";
 import {
 	forceSimulation,
 	forceLink,
@@ -218,12 +219,10 @@ export interface ImpLink {
 }
 
 export const LINK_DISTANCE = 40;
-/** Implication-node id prefix (the mint law lives in core/graph.ts's
- *  newGraphChainId). Layout-side: links TOUCHING an imp node get HALF
- *  the base rest length — the argument's geometry (a converging point)
- *  sits tight against its premises/conclusion instead of spread like a
- *  real proposition citizen (owner ruling, rendering arc 2026-09-30). */
-const IMP_ID_PREFIX = "arg_";
+/* Links TOUCHING an imp node get HALF the base rest length — the
+ * argument's geometry (a converging point) sits tight against its
+ * premises/conclusion instead of spread like a real proposition citizen
+ * (owner ruling, rendering arc 2026-09-30). */
 const impLinkId = (v: string | number | { id: string }): string =>
 	typeof v === "object" ? v.id : String(v);
 export const CHARGE_STRENGTH = -240; // 2026-09-17: −120 → −240 (user: repulsion default too weak); the default is shared with render-settings (gm-centered in CHARGE_RANGE).
@@ -283,7 +282,7 @@ export function createGraphSimulation(
 				// base distance, default or user-tuned alike.
 				.distance(
 					(l) =>
-						impLinkId(l.source).startsWith(IMP_ID_PREFIX) || impLinkId(l.target).startsWith(IMP_ID_PREFIX)
+						isArgumentId(impLinkId(l.source)) || isArgumentId(impLinkId(l.target))
 							? linkDistance / 2
 							: linkDistance,
 				)
@@ -337,7 +336,7 @@ export function createGraphSimulation(
 		// vertical, a ring in radial. Imp ids WITHOUT a supplied link
 		// keep the legacy exemption.
 		depthsComputed = inferenceDepths(
-			nodes.filter((n) => !n.id.startsWith(IMP_ID_PREFIX)),
+			nodes.filter((n) => !isArgumentId(n.id)),
 			depthEdges,
 		);
 		const anchored = new Set<string>();
@@ -364,7 +363,7 @@ export function createGraphSimulation(
 		nodes.forEach((n, i) => {
 			// IMP nodes with a midpoint anchor are STRUCTURED (they sit on
 			// their half-row); unlinked arg_ ids keep the orphan exemption.
-			if (!connected.has(n.id) && !(n.id.startsWith(IMP_ID_PREFIX) && anchored.has(n.id))) orphan![i] = 1;
+			if (!connected.has(n.id) && !(isArgumentId(n.id) && anchored.has(n.id))) orphan![i] = 1;
 		});
 	}
 	const g = options.gravity;
