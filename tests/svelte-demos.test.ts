@@ -192,6 +192,13 @@ describe("artifact part job wiring", () => {
 			assert.ok(!models.includes("failed"), `${type} rendered the model refusal as a failure`);
 		}
 	});
+
+	it("every job tool shows its card at dispatch, before the tool returns", async () => {
+		for (const type of ["tool-research", "tool-pdf", "tool-demo", "tool-visual"]) {
+			const body = await html("/src/lib/chat/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "input-available" }, jobs: [] });
+			assert.ok(body.includes("Dispatched…"), `${type} rendered nothing while dispatching`);
+		}
+	});
 });
 
 describe("steer cards", () => {

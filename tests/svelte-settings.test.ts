@@ -144,11 +144,8 @@ describe("keys and appearance sections", () => {
 		assert.ok((await html("/src/lib/settings/KeysSection.svelte")).includes("Loading keys…"));
 	});
 
-	it("mode is disabled with Coming soon; hex inputs/font trigger/size resolve", async () => {
+	it("hex inputs/font trigger/size resolve", async () => {
 		const body = await html("/src/lib/settings/AppearanceSection.svelte", { appearance: undefined, onSectionChange: () => {} });
-		assert.ok(tagOf(body, "select-mode").includes("disabled"));
-		assert.ok(body.includes("Coming soon"));
-		assert.ok(tagOf(body, "row-mode").includes("opacity-40"));
 		assert.ok(body.includes('placeholder="#141414"'));
 		assert.ok(body.includes('data-testid="font-trigger"'));
 		assert.equal((body.match(/Empty = same as text/g) ?? []).length, 2);

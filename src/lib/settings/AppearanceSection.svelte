@@ -6,7 +6,6 @@
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
 	import CommitInput from "./CommitInput.svelte";
-	import ThinSelect from "./ThinSelect.svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import FontMenuList from "./FontMenuList.svelte";
 	import { composeFontFamily, CURATED_FALLBACK_FONTS, DEFAULT_READING_FONT } from "./fonts";
@@ -52,11 +51,6 @@
 	});
 </script>
 
-<Controls kind="row" label="Mode" hint="Coming soon" testid="row-mode" dimmed>
-	<ThinSelect value="dark" ariaLabel="mode" onChange={() => {}} testid="select-mode" disabled>
-		<option value="dark">Dark</option>
-	</ThinSelect>
-</Controls>
 <Controls kind="row" label="Background" hint={`Empty = ${resolved.background ?? "#141414"}`} testid="row-background">
 	<CommitInput value={delta?.background ?? ""} placeholder="#141414" ariaLabel="background hex" testid="input-background" onCommit={(value) => onSectionChange({ ...delta, background: value === "" ? null : value })} />
 </Controls>
