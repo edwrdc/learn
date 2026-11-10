@@ -1,6 +1,5 @@
 /**
- * TOOL-CALL ID UNIQUIFICATION (owner-approved fix, 2026-10-04 — the Lacan
- * incident): some providers (DeepSeek via OpenRouter, observed live) return
+ * TOOL-CALL ID UNIQUIFICATION: some providers (DeepSeek via OpenRouter, observed live) return
  * tool-call ids that reset every response — `call_0`, `call_1`, … — so a
  * one-call-per-turn session names EVERY call `call_0`. Everything in this
  * app keys on toolCallId (the view fold's call↔result join, the pending-
@@ -17,7 +16,7 @@
  * OpenAI-compatible APIs accept — pi itself synthesizes ids for providers
  * that return none, so arbitrary-but-paired ids are already protocol-legal.
  * History is NEVER rewritten: record messages pass through untouched, and
- * pre-fix duplicate records heal at the fold (view.ts pairs results
+ * older duplicate records heal at the fold (view.ts pairs results
  * newest-first).
  *
  * SCHEME: a per-chat seen-set (seeded from the record at turn start);

@@ -1,6 +1,6 @@
 /**
  * GET/PUT/DELETE /api/custom-endpoint — the ONE optional custom OpenAI
- * Responses endpoint (custom-endpoint wave).
+ * Responses endpoint.
  *
  * GET    → {endpoint, keyPresent} (the API key itself NEVER leaves the
  *          server; only its presence is reported).

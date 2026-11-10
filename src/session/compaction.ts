@@ -1,6 +1,6 @@
 /**
- * THE COMPACTION SERVICE (owner round 14, 2026-10-05): the trigger
- * plumbing around core/compaction's pure cuts and markers.
+ * THE COMPACTION SERVICE: the trigger plumbing around model/compaction.ts's
+ * pure cuts and markers.
  *
  * TOPOLOGY (why this is simple): question and problem poses TERMINATE
  * their runs, so the "user is thinking" pause is always a BETWEEN-RUNS
@@ -15,14 +15,14 @@
  *     if the record is STILL over threshold (cold sessions, kicks that
  *     lost their engine), compaction runs synchronously inside the
  *     request. Structurally gated: nothing model-facing for the chat
- *     interleaves with a running compaction (owner ruling — minimal
- *     surface for anything to go wrong).
+ *     interleaves with a running compaction (minimal surface for
+ *     anything to go wrong).
  *   - OVERFLOW RECOVERY — a run that dies on context length needs no
  *     special path: the next turn's gate compacts and the fresh run
  *     starts small.
  *
- * The summary is written by the session's OWN conversation model (owner
- * ruling) via the zero-tool one-shot sub-agent seam; its usage lands in
+ * The summary is written by the session's OWN conversation model via the
+ * zero-tool one-shot sub-agent seam; its usage lands in
  * the chat's append-only turns log (the money channel) keyed by the
  * marker's id.
  */
@@ -48,8 +48,7 @@ const SUMMARIZER_SYSTEM_PROMPT =
 	"You are the session-compaction summarizer for a tutoring agent. You receive the transcript span to summarize and write exactly the summary the instructions demand — nothing else, no preamble, no meta-commentary.";
 
 /** The one-shot summary call: zero tools, one turn, text out. The engine
- *  is the chat's own conversation engine (owner ruling: the session's
- *  model writes its own summary). Injectable for tests. */
+ *  is the chat's own conversation engine. Injectable for tests. */
 type Summarizer = (
 	prompt: string,
 	engine: PiEngine,
@@ -66,8 +65,7 @@ export async function subagentSummarizer(
 	chatId: string,
 ): Promise<{ summary: string; usage: Usage | undefined }> {
 	const outcome = await backgroundRun({
-		// The engine is always the chat's own conversation engine (owner
-		// ruling); the compact role resolves no settings.
+		// The compact role resolves no settings.
 		jobId: `compact:${chatId}:${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`,
 		chatId,
 		kind: "compact",
@@ -80,7 +78,7 @@ export async function subagentSummarizer(
 	return { summary: outcome.text, usage: outcome.steps.at(-1)?.usage };
 }
 
-/** Everything the service needs from its host (chat-handler wires the
+/** Everything the service needs from its host (turn.ts wires the
  *  production versions; tests inject). */
 export interface CompactionDeps {
 	chatStore: ChatStore;
@@ -91,9 +89,8 @@ export interface CompactionDeps {
 	/** The session kind (summarizer wording: tutor vs practice). */
 	kind: ChatPhase;
 	/** The effective trigger threshold, RESOLVED by the caller:
-	 *  min(settings threshold, contextWindow − reserve) — the owner's
-	 *  effective-trigger ruling. The catalog window lookup is the
-	 *  caller's (chat-handler has the model id at hand). */
+	 *  min(settings threshold, contextWindow − reserve). The catalog window
+	 *  lookup is the caller's. */
 	thresholdTokens: number;
 	/** The composed system prompt's token estimate (chars/4) — the
 	 *  projection the provider actually receives starts with it. */
@@ -122,10 +119,10 @@ export async function awaitCompaction(chatId: string): Promise<void> {
 	if (running) await running;
 }
 
-// ─── the effective threshold (owner ruling: min(setting, window − reserve)) ─
+// ─── the effective threshold: min(setting, window − reserve) ────────────────
 
 /** Resolve the effective trigger. Unknown window → the setting alone
- *  (honest: no fake window — the catalog-index precedent). */
+ *  (no fake window). */
 export function effectiveThresholdTokens(settingTokens: number, contextWindowTokens: number | undefined): number {
 	if (contextWindowTokens === undefined) return settingTokens;
 	return Math.min(settingTokens, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
@@ -134,7 +131,7 @@ export function effectiveThresholdTokens(settingTokens: number, contextWindowTok
 // ─── the estimate over the ACTIVE projection ────────────────────────────────
 
 /** The projected context estimate: what the next LLM call would carry.
- *  THE TRIGGER LAW (pi's, verified 2026-10-05): anchor on the last
+ *  THE TRIGGER LAW (pi's): anchor on the last
  *  assistant message's provider-reported usage — it already counted
  *  the system prompt, tool declarations, and the provider's own
  *  tokenizer — and chars/4-estimate ONLY messages appended after it.
@@ -165,8 +162,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	const cut = compactionCutIndex(messages);
 	if (cut >= messages.length) return; // nothing to drop (defensive)
 
-	// The previous compaction's kept boundary (chained compactions
-	// summarize the old summary + what rode after it).
+	// Chained compactions summarize the old summary + what rode after it.
 	const previous = activeCompactionOf(messages);
 	const prevKept = previous ? messages.findIndex((m) => m.id === previous.details.firstKeptMessageId) : -1;
 	// ANTI-CHURN GUARD: when the cut cannot advance past the previous
@@ -181,7 +177,6 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		return;
 	}
 
-	// The span: from the PREVIOUS kept boundary through the cut.
 	let spanStart = 0;
 	let priorSummary: string | null = null;
 	if (previous && prevKept > 0) {
@@ -230,8 +225,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 		emit("record-changed", { chatId });
 	} catch (err) {
 		// A failed compaction leaves the record untouched — the next
-		// turn-start gate retries (the same self-healing law as the
-		// extraction trigger).
+		// turn-start gate retries.
 		console.error(`[chat ${chatId}] compaction failed:`, err);
 	} finally {
 		emit("compaction-changed", { chatId, running: false });
@@ -248,7 +242,7 @@ function startCompaction(chatId: string, run: () => Promise<void>): Promise<void
 /**
  * The gate + trigger in one: await any in-flight compaction, then — if
  * the record is STILL over threshold — run one synchronously (the
- * caller's request waits; the owner's structural-gate ruling). Idempotent
+ * caller's request waits — the structural gate). Idempotent
  * under concurrency through the registry mutex.
  */
 export async function ensureCompacted(deps: CompactionDeps, chatId: string): Promise<void> {

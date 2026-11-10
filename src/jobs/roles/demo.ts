@@ -7,8 +7,8 @@ import type { DemoRunResult } from "../headless.ts";
 import type { JobRole } from "./role.ts";
 
 /**
- * The demo-builder sub-agent (vision §2 interactive demos + §2.5 "sub-agents
- * verify; they never one-shot"): given a brief it writes a self-contained
+ * The demo-builder sub-agent ("sub-agents verify; they never one-shot"):
+ * given a brief it writes a self-contained
  * single-file HTML/JS demo, TESTS IT HEADLESSLY (run_demo), and iterates
  * fix → re-run until clean — before anything reaches the lesson.
  *

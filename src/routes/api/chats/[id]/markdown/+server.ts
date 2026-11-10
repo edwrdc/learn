@@ -1,20 +1,15 @@
 /**
- * THE SESSION MARKDOWN EXPORT (owner, release polish 2026-10-06): the
- * user-facing export the session-markdown engine was built for — the
- * same document the extractor reads, minted anchorless (anchors are
- * extraction provenance; a learner's export carries no message ids).
- *
  * GET /api/chats/:id/markdown → the whole session as one markdown file
- * (Content-Disposition attachment; filename from the slugified title).
- * 404 unknown chat. Both session kinds export — practice sessions ride
- * the same engine (problem/conclude results render as tool blocks,
- * markers are invisible by the engine's law).
+ * (Content-Disposition attachment; filename from the slugified title); 404
+ * unknown chat. The same document the extractor reads, minted anchorless
+ * (anchors are extraction provenance; a learner's export carries no message
+ * ids). Practice sessions export through the same engine.
  */
 import { sessionMarkdown } from "@/src/session/model";
 import { requireChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
-/** Filename-safe title (own module scope on purpose: tiny + pure). */
+/** Filename-safe title. */
 function slugify(title: string): string {
 	const slug = title
 		.toLowerCase()

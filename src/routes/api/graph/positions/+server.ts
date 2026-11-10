@@ -3,8 +3,7 @@
  * anneals a drag to rest and sends the new positions; the server
  * sanitizes (finite coords, known ids only), writes the ledger, and if
  * the graph grew mid-drag runs one incremental settle to absorb the new
- * nodes with the client's arrangement as anchors. See
- * src/server/commit-positions.ts.
+ * nodes with the client's arrangement as anchors.
  *
  *   PUT → 200 {positions: {...}} with whatever survived sanitizing
  *         (empty object = nothing written).

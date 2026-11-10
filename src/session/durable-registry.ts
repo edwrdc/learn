@@ -1,7 +1,7 @@
 /**
  * THE CHAT CONVERSATION SETUP (pi-durable foreground runtime).
  *
- * One chat runtime (src/store/durable.ts) owns a registry. This module
+ * One chat runtime (durable.ts) owns a registry. This module
  * installs the app's extension into it — the tool set for the transcript's
  * phase (prober / teacher / practice), the question-stop hook, and the
  * request filter (the hidden continuation input and the app's compaction
@@ -33,7 +33,7 @@ import { CONTINUATION_KIND, projectTranscript, type ChatRuntime } from "./durabl
 import type { SpawnJob } from "../jobs/index.ts";
 
 /** What the composition root hands the setup: the stores and the seams the
- *  tools close over (the same wiring the old per-request construction used). */
+ *  tools close over. */
 export interface ConversationDeps {
 	chatStore: ChatStore;
 	graphStore: GraphStore;

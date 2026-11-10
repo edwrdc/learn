@@ -1,17 +1,11 @@
 /**
- * ONE user-configured OpenAI Responses endpoint (custom-endpoint wave).
- * Pure, browser-safe: the settings UI renders the form from these shapes,
- * the server validates writes with the same functions, and the agent's
- * model factory projects the stored models into pi-ai's catalog.
+ * One user-configured OpenAI Responses endpoint.
  *
- * THE BOUNDARY: custom endpoints speak openai-responses ONLY. There is no
- * protocol selector, no per-model price entry, and no ambient defaults —
- * every model's limits/capabilities are explicit user input, because none
- * of it can be discovered from /models (the endpoint lists ids, not
- * context windows or modalities). Prices stay UNKNOWN by construction
- * (ModelCost is numeric inside pi-ai, but the app never displays those
- * placeholder zeros — core/prices.ts has no entry for the provider, so the
- * money channel reads unpriced).
+ * Custom endpoints speak openai-responses only. There is no protocol
+ * selector, no per-model price entry, and no ambient defaults — every
+ * model's limits/capabilities are explicit user input, because /models
+ * lists ids, not context windows or modalities. Prices stay unknown: the
+ * price table (src/session/model/prices.ts) has no entry for the provider.
  */
 
 /** The fixed provider id every custom model carries. Stored pins survive
@@ -78,9 +72,8 @@ function text(value: unknown, field: string, max: number): CustomEndpointResult<
 	return { ok: true, value: trimmed };
 }
 
-/** Is this host literally loopback? HTTP is allowed ONLY here; HTTPS is
- *  allowed anywhere. Plain names/IPs only — a DNS name that happens to
- *  resolve to 127.0.0.1 still requires HTTPS (we do not resolve names). */
+/** HTTP is allowed only for a literal loopback host; a DNS name that
+ *  resolves to 127.0.0.1 still requires HTTPS (names are not resolved). */
 function isLoopbackHost(hostname: string): boolean {
 	const host = hostname.toLowerCase();
 	return (
@@ -124,7 +117,6 @@ export function normalizeCustomEndpointBaseUrl(raw: unknown): CustomEndpointResu
 	return { ok: true, value: `${url.origin}${path}` };
 }
 
-/** The absolute /models URL for a normalized base URL (discovery seam). */
 export function customEndpointModelsUrl(baseUrl: string): string {
 	return `${baseUrl.replace(/\/+$/, "")}/models`;
 }
@@ -194,9 +186,8 @@ export function validateCustomEndpointConfig(raw: unknown): CustomEndpointResult
 	return { ok: true, value: { displayName: displayName.value, baseUrl: baseUrl.value, models } };
 }
 
-/** LENIENT disk-side sanitizer: the display name/base URL gate the whole
- *  entry; an individually invalid model is dropped (the strict write side
- *  is where those become 400s). Never throws. */
+/** Lenient disk-side sanitizer: the display name/base URL gate the whole
+ *  entry; an individually invalid model is dropped. Never throws. */
 export function sanitizeCustomEndpoint(raw: unknown): CustomEndpointConfig | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const r = raw as Record<string, unknown>;
@@ -219,8 +210,7 @@ export function sanitizeCustomEndpoint(raw: unknown): CustomEndpointConfig | und
 /**
  * Parse a /models response into deduped {id,name} rows. The OpenAI
  * convention ({data:[...]}) is the contract; a bare array is accepted
- * because several compatible servers return one. Anything else is an
- * honest failure — never a guessed model list.
+ * because several compatible servers return one.
  */
 export function parseCustomModelsDiscovery(raw: unknown): CustomEndpointResult<DiscoveredCustomModel[]> {
 	const list = Array.isArray(raw)

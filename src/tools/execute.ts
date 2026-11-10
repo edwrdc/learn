@@ -2,51 +2,28 @@ import type { AppTool, AppToolResult } from "./adapter.ts";
 import type { Static, TSchema } from "typebox";
 
 /**
- * tool-execute — the execution machinery every server-side lh tool shares,
- * expressed natively (Wave A of the pi-native migration, 2026-09-26): tools
- * are authored as AppTools (TypeBox parameters, native
- * execute), and this module owns the semantics the old LhTool wrapper
- * (lh-tool.ts, deleted) used to add around every execute:
+ * The execution machinery every server-side tool shares: the per-call
+ * timeout + abort cascade, the input-refinement failure shape, the result
+ * mapping, and the question-tool placeholder.
  *
- * - the system-level per-call timeout + abort cascade (runWithAbortGuard),
- * - the authoring-refinement failure shape (invalidInputResult —
- *   returned from execute as an isError result; pi 1.0's convention, the
- *   model sees the same retryable problem list it always did, and
- *   `details` keeps the problems as data),
- * - the result mapping (string verbatim / object JSON / image results to
- *   native content parts; details carries the record-facing value),
- * - the question-tool placeholder (quiz / ask_user_question): a synthetic
- *   "question posed" result that is NEVER persisted — the record keeps the
- *   tool part output-less until the client answers; the learner's answer
- *   re-enters the next turn as this call's result. terminate: true (owner
- *   Option A, 2026-09-25) ends single-question batches natively; the slim
- *   shouldStopAfterTurn stopper (teacher-agent.ts) holds the belt-and-
- *   suspenders rule for mixed batches.
- *
- * Structural validation is NOT here: pi's loop validates arguments against
- * the tool's TypeBox parameters before execute ever runs (pi-ai's
- * validateToolArguments — the fast TypeBox path). Refinements that no
- * schema can carry (quizInputProblems, the live-tree nodeId check) run at
- * the top of the tool's own execute and throw ToolInputError.
+ * Structural validation is not here: pi's loop validates arguments against
+ * the tool's TypeBox parameters before execute runs. Refinements no schema
+ * can carry run at the top of the tool's own execute and return
+ * invalidInputResult.
  */
 
 /**
- * System-level per-call timeout (2026-09-19, the abort-cascade fix): pi
- * passes every run's AbortSignal to tool execute, but the signal only
- * lands at a step boundary — so a long-running local tool (the grep that
- * outlived its turn by minutes) could hold the turn hostage until the dev
- * server's memory restart killed the run mid-tool, freezing the record at
- * its write-ahead state (the "went back in time" rollback). The guard
- * races every execute against (a) the run's signal and (b) this timeout,
- * rejecting with pi's own wording ("Operation aborted") on abort and a
- * clear timeout message otherwise — pi turns the throw into an error tool
- * result the model can see.
+ * Per-call timeout. pi's run AbortSignal only lands at a step boundary, so
+ * a long-running local tool could otherwise hold a turn hostage. The guard
+ * races every execute against the run's signal and this timeout, rejecting
+ * with pi's own wording ("Operation aborted") on abort and a timeout message
+ * otherwise — pi turns the throw into an error tool result the model sees.
  */
 const TOOL_TIMEOUT_MS = 30_000;
 
 /** How long an aborted/timed-out call may take to settle on its own before
- *  the hard reject lands — cooperative tools poll the signal and return
- *  partial results within a tick or two (the fs tools check per file). */
+ *  the hard reject lands — cooperative tools (the fs tools) poll the signal
+ *  and return partial results within a tick or two. */
 const TOOL_ABORT_GRACE_MS = 250;
 
 function runWithAbortGuard<T>(
@@ -74,11 +51,6 @@ function runWithAbortGuard<T>(
 			fn();
 		};
 		const onAbort = () => {
-			// Cooperative tools poll the signal and settle with partial
-			// results within a tick or two (the fs tools check per file) —
-			// give them a brief grace to deliver those before the hard
-			// reject, so abort KILLS a stuck tool without racing away a
-			// graceful one's partial result.
 			graceTimer = setTimeout(
 				() =>
 					reject(
@@ -103,12 +75,9 @@ function runWithAbortGuard<T>(
 		.finally(cleanup);
 }
 
-/** The 1.0-native authoring-failure result (pi convention, agent-core
- *  1.0): return an isError result instead of throwing — the model sees the
- *  same retryable problem list it always did (pi minted exactly this shape
- *  from a thrown ToolInputError), but `details` now keeps the problems as
- *  DATA for the record and the UI instead of the throw path's empty {}.
- *  Content text is byte-identical to the old thrown message. */
+/** The input-refinement failure: an isError result (pi's convention) the
+ *  model can retry from, with the problems kept in `details` as data for
+ *  the record and the UI. */
 export function invalidInputResult(
 	toolName: string,
 	problems: string[],
@@ -125,15 +94,9 @@ export function invalidInputResult(
 	};
 }
 
-/**
- * Rich tool-result escape hatch (2026-09 sources v0): a tool whose result
- * includes IMAGES (the read tool reading an image file) returns this shape
- * instead of a plain value — toToolResult maps it to pi's native
- * tool-result content parts (TextContent | ImageContent)[] so the
- * vision-capable model actually SEES the image. `images` carries base64
- * data + mimeType, exactly as pi's ImageContent wants. `details` rides
- * through to the record untouched.
- */
+/** A tool result that includes images (e.g. read on an image file);
+ *  toToolResult maps it to pi's native text + image content parts.
+ *  `images` carries base64 data + mimeType, as pi's ImageContent wants. */
 export interface ImageFileResult {
 	text: string;
 	images?: { data: string; mimeType: string }[];
@@ -147,13 +110,8 @@ function isImageResult(v: unknown): v is ImageFileResult {
 	);
 }
 
-/**
- * Map a tool body's return to the native AppToolResult — the parity the
- * old toPiTool tail owned: string results pass verbatim to the model,
- * objects as JSON; `details` carries the RAW value (the record's tool part
- * output reads it, the turn view), and image results become native content
- * parts with details ?? null.
- */
+/** Strings pass verbatim to the model, objects as JSON; `details` carries
+ *  the raw value the record's tool part reads. */
 export function toToolResult(result: unknown): AppToolResult<unknown> {
 	if (isImageResult(result)) {
 		return {
@@ -181,25 +139,16 @@ export interface ToolExecuteContext {
 	signal?: AbortSignal;
 }
 
-/**
- * Build a native AppTool execute from a tool body — the guard (timeout +
- * abort cascade) plus the shared result mapping, byte-identical to the old
- * toPiTool pipeline for every server-side tool. Question tools do NOT use
- * this: their placeholder is instant (questionResult below) and their
- * refinement checks run before it.
- */
+/** Build an AppTool execute from a tool body: the abort guard plus the
+ *  shared result mapping. Question tools use questionResult instead. */
 export function serverExecute<P extends TSchema>(
 	toolName: string,
 	schema: P,
 	run: (input: Static<P>, ctx: ToolExecuteContext) => unknown,
 ): AppTool<any>["execute"] {
-	// The returned execute is deliberately typed loose (params: unknown) so
-	// it satisfies every AppTool slot — heterogeneous registries type
-	// AppTool<any>, whose Static is unknown, and strictFunctionTypes
-	// rejects a params-narrower function against it. The loop has already
-	// validated arguments against `schema` (runtime) and `run` keeps the
-	// precise Static<P> input; `schema` exists in the signature precisely so
-	// P infers from the call site, not the loose surface.
+	// Typed loose (input: unknown) so it fits AppTool<any> under
+	// strictFunctionTypes; `schema` is in the signature only so P infers at
+	// the call site. The loop has already validated arguments against it.
 	return async (toolCallId, input: unknown, signal) =>
 		toToolResult(
 			await runWithAbortGuard(toolName, (toolSignal) => run(input as Static<P>, { toolCallId, signal: toolSignal }), signal),
@@ -207,12 +156,10 @@ export function serverExecute<P extends TSchema>(
 }
 
 /**
- * The synthetic question-tool result (in-memory only; the record's tool
- * part keeps no output until the learner answers). terminate: true ends
- * the batch natively — pi stops the loop when every finalized result in
- * the batch terminates; the shouldStopAfterTurn stopper covers the mixed
- * batch (question + other calls in one message) that terminate-only
- * semantics would let run on (owner Option A, 2026-09-25).
+ * The synthetic question-tool result, never persisted: the record's tool
+ * part keeps no output until the learner answers, and the answer re-enters
+ * the next turn as this call's result. terminate: true ends the batch — pi
+ * stops the loop only when every finalized result in the batch terminates.
  */
 export function questionResult(): AppToolResult<null> {
 	return {

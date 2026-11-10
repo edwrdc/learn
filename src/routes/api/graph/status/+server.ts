@@ -1,11 +1,8 @@
 /**
- * GET /api/graph/status — the in-flight background extraction runs
- * (vision §1: the pipeline status must be visible on the home graph).
- * Thin transport over the pipeline's module-level registry: phase
+ * GET /api/graph/status — the in-flight background extraction runs: phase
  * (queued / extracting / waiting / auditing / merging) per job, oldest
- * first — a multi-chunk source shows one row PER CHUNK ("· i/N" suffix,
- * per-chunk jobs, owner 2026-09-28). A missing chat record still
- * reports the run.
+ * first — a multi-chunk source shows one row PER CHUNK ("· i/N" suffix). A
+ * missing chat record still reports the run.
  */
 import { extractionRuns } from "@/src/graph";
 

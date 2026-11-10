@@ -1,9 +1,9 @@
 /**
- * POST /api/custom-endpoint/models — the explicit "Fetch models" action
- * (custom-endpoint wave). Reads {baseUrl, apiKey?} from the form, calls the
- * endpoint's /models with the provided key or — only for the STORED base
- * URL — the stored key, and returns normalized {id,name} rows. Redirects
- * are refused so a credential is never replayed to another origin.
+ * POST /api/custom-endpoint/models — the explicit "Fetch models" action.
+ * Reads {baseUrl, apiKey?} from the form, calls the endpoint's /models with
+ * the provided key or — only for the STORED base URL — the stored key, and
+ * returns normalized {id,name} rows. Redirects are refused so a credential
+ * is never replayed to another origin.
  */
 
 import { discoverCustomEndpointModels } from "@/src/settings";

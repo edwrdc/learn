@@ -1,14 +1,13 @@
 /**
- * THE PRACTICE TOOLS (practice sessions, owner design 2026-10-04): the
+ * THE PRACTICE TOOLS: the
  * practice agent's ENTIRE toolset — `problem` (pose: terminates the turn;
  * the commitment rides the call's arguments, hidden from the learner UI)
  * and `conclude` (end the problem: normal result, the turn continues so
- * the same reply can reveal + pose the next). The gating law (owner
- * ruling): an agent cannot pose while a problem is active and cannot
+ * the same reply can reveal + pose the next). The gating law: an agent cannot pose while a problem is active and cannot
  * conclude with nothing active — activeProblemOf is the single fold both
  * gates read.
  *
- * Mechanics-only descriptions (the doctrine ruling, 2026-10-04): the tool
+ * Mechanics-only descriptions: the tool
  * descriptions carry WHAT to pass and WHAT happens — the theory, the
  * commit-before-pose law, the hint ladder all live in the system prompt
  * (prompts/practice/10-doctrine.md).
@@ -27,12 +26,12 @@ import { CONCLUDE_ACK_TEXT } from "../model/types.ts";
 interface PracticeToolContext {
 	chatId: string;
 	chatStore: { getChat(id: string): Promise<{ messages: LhMessage[]; kind?: string } | null> };
-	/** The WHOLE-graph node list, read fresh per pose (owner round 9 — the
-	 *  mastery-trace contract): targets validate against every proposition,
+	/** The WHOLE-graph node list, read fresh per pose (the mastery-trace
+	 *  contract): targets validate against every proposition,
 	 *  not just the session's picks, so pickless sessions and future
 	 *  graph-tools poses stay valid. Absent (tests) = no validation. */
 	graphNodes?: () => ReadonlyArray<Pick<import("../../graph/model/types.ts").GraphNode, "id" | "name">>;
-	/** THE RARELY-NEEDED SET (owner round 10, 2026-10-05): the map readers
+	/** THE RARELY-NEEDED SET: the map readers
 	 *  behind the SAME settings gate as the prober's (graphToolsEnabled at
 	 *  the composition root); the research + pdf jobs (both keyless).
 	 *  Each absent context (tests) = absent from the registry. */
@@ -40,23 +39,17 @@ interface PracticeToolContext {
 	jobs?: JobToolContext;
 }
 
-/** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used
- *  to read the STORED record — but the record freezes at the turn's
- *  write-ahead (persistTurn lands only at turn END), so a mid-turn
- *  conclude → pose pair could never see each other: every conclude
- *  succeeded against the stale record and every following pose died on
- *  "a problem is already active" until the model gave up ("the problem
- *  slot is stuck"). The gate seeds ONCE from the record at construction
- *  (one practiceTools per turn — chat-handler builds the agent per
- *  request, so there is no cross-turn leakage), and the executes flip
- *  this closure — the intra-turn truth the record cannot hold yet. */
+/** TURN-SCOPED GATE STATE: the gates do not re-read the stored record per
+ *  call — a mid-turn conclude → pose pair must see each other. The gate
+ *  seeds ONCE from the record (one practiceTools per turn, so there is no
+ *  cross-turn leakage), and the executes flip this closure — the
+ *  intra-turn truth. */
 export interface PracticeGate {
 	problemActive: boolean;
 }
 
 /** The registry's lazy seed: the record read happens at the first tool call,
- *  once per turn (the toolset itself stays synchronous — the agent factory
- *  is built synchronously per request). */
+ *  once per turn (the toolset itself is built synchronously). */
 function lazyGate(ctx: PracticeToolContext): { gate: PracticeGate; seed: () => Promise<void> } {
 	const gate: PracticeGate = { problemActive: false };
 	let seeding: Promise<void> | undefined;
@@ -111,10 +104,10 @@ export function problemTool(
 		executionMode: "sequential",
 		prepareArguments: (args: unknown) => {
 			const healed = healEncodedArguments(args, problemInputObject);
-			// TARGET NORMALIZATION (owner round 9): names silently become ids —
-			// the RECORD carries canonical ids (the mastery trace groups on
-			// them); unresolvable strings pass through for execute to reject.
-			// UNTAGGED PROBLEMS (owner round 12): an explicit empty list is
+			// TARGET NORMALIZATION: names silently become ids — the RECORD
+			// carries canonical ids (the mastery trace groups on them);
+			// unresolvable strings pass through for execute to reject.
+			// UNTAGGED PROBLEMS: an explicit empty list is
 			// the model saying "no targets" — healed AWAY, so the record's
 			// canonical form is tagged-or-absent, never [].
 			if (!graphNodes) {
@@ -141,11 +134,10 @@ export function problemTool(
 					"a problem is already active — call conclude on it before posing the next one",
 				]);
 			}
-			// TARGET VALIDATION (owner round 9, round 12): against the WHOLE
-			// graph, and ONLY when targets are present — absent means an
-			// untagged problem (topic sessions, owner round 12), which poses
-			// freely. A one-line rejection — the proposition list already
-			// sits in the agent's context (the [id] marker); no re-listing.
+			// TARGET VALIDATION: against the WHOLE graph, and ONLY when targets
+			// are present — absent means an untagged problem (topic sessions),
+			// which poses freely. A one-line rejection — the proposition list
+			// already sits in the agent's context (the [id] marker).
 			// The message teaches the exit: omitting always works.
 			if (graphNodes && input.target && input.target.length > 0) {
 				const list = graphNodes();
@@ -221,9 +213,8 @@ export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): Ap
 
 /** The practice toolset (the practice agent's whole registry). */
 export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<any>> {
-	// ONE gate per turn, shared by both tools — the intra-turn truth.
 	const { gate, seed } = lazyGate(ctx);
-	// THE RARELY-NEEDED SET (owner round 10): read/ls/find/grep over the
+	// THE RARELY-NEEDED SET: read/ls/find/grep over the
 	// learner's files (always — the same read-only set the teacher and
 	// prober carry), the research + pdf jobs (available without search
 	// keys; demo/visual stay teach-only), and
@@ -244,11 +235,10 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AppTool<
 	};
 }
 
-/** The practice pose's ack (practice sessions, owner 2026-10-04): unlike
- *  a question, this result is FINAL — it persists (persistTurn filters
- *  only QUESTION_TOOLS placeholders), because the learner's submissions
- *  arrive as MESSAGES, never as this call's result. terminate: true ends
- *  the turn at the pose; the commitment rides the call's arguments. */
+/** The practice pose's ack: unlike a question, this result is FINAL,
+ *  because the learner's submissions arrive as MESSAGES, never as this
+ *  call's result. terminate: true ends the turn at the pose; the
+ *  commitment rides the call's arguments. */
 function problemResult(): AppToolResult<null> {
 	return {
 		content: [
@@ -262,9 +252,8 @@ function problemResult(): AppToolResult<null> {
 	};
 }
 
-/** The conclude ack: NOT terminate — the turn continues so the same reply
- *  can reveal + pose the next problem. Text single-sourced in contracts
- *  (CONCLUDE_ACK_TEXT — shared with the dismissal-synthesized pair). */
+/** The conclude ack: NOT terminate — the turn continues. Text shared with
+ *  the dismissal-synthesized pair (CONCLUDE_ACK_TEXT). */
 function concludeResult(): AppToolResult<null> {
 	return {
 		content: [{ type: "text", text: CONCLUDE_ACK_TEXT }],

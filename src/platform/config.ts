@@ -7,14 +7,11 @@ export const ROOT = process.env.LH_ROOT
 	: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /**
- * THE data-location seam (the Electron contract, 2026-09-17): LH_DATA_DIR
- * relocates every MUTABLE record — chat sessions, graph ledgers, the
- * embedding model cache — when set. The desktop shell points it at
- * userData so nothing is written inside the read-only .app bundle
- * (macOS translocation guarantees the bundle is read-only anyway).
- * Unset (plain web dev / repo work) it resolves to the repo's data/,
- * byte-for-byte as before. Read-only assets (prompts) stay ROOT-anchored
- * on purpose: they ship inside the app bundle by design.
+ * LH_DATA_DIR relocates every mutable record when set. The desktop shell
+ * points it at userData so nothing is written inside the read-only .app
+ * bundle (macOS translocation makes the bundle read-only anyway). Unset, it
+ * resolves to the repo's data/. Read-only assets (prompts) stay ROOT-anchored:
+ * they ship inside the app bundle.
  */
 const DATA_ROOT = process.env.LH_DATA_DIR
 	? path.resolve(process.env.LH_DATA_DIR)
@@ -22,65 +19,48 @@ const DATA_ROOT = process.env.LH_DATA_DIR
 
 export const PATHS = {
 	root: ROOT,
-	/** Teacher system prompt — the agent's instructions (src/agent/). */
 	/** The agents' prompt tree (shipped as a runtime asset). */
 	prompts: path.join(ROOT, "src", "session", "prompts"),
 	data: DATA_ROOT,
-	/** Chat session METADATA (one JSON file per chat; the transcript lives
-	 *  in the durable store — see src/store/chats.ts). */
+	/** Chat session metadata (one JSON file per chat; the transcript lives
+	 *  in the durable store). */
 	chats: path.join(DATA_ROOT, "chats"),
 	graph: path.join(DATA_ROOT, "graph"),
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
-	 * raw provider stream recordings (src/agent/provider-events.ts). */
+	 * raw provider stream recordings (src/platform/provider-events.ts). */
 	debug: path.join(DATA_ROOT, "debug"),
 } as const;
 
 /**
- * THE USER SETTINGS RECORD (settings-storage wave, 2026-09-19): one
- * versioned, DELTA-shaped JSON blob at the data-dir seam holding every
- * non-secret product preference — general, agent (background
- * model/thinking overrides + tool toggles + prompt-override switches),
- * appearance, graph. Explicit user choices only: ABSENT keys resolve to the
- * factory defaults compiled into src/core/settings.ts (FACTORY_SETTINGS), so
- * a software update that adds a knob (new tool, new role, new appearance
- * field) needs no migration — old records simply lack the new keys. The
- * version field is a PRIVATE schema counter for breaking shape changes
- * only (field renamed/meaning changed), unrelated to the app release
- * version. Secrets (API keys, login tokens) NEVER live here — auth.json /
- * .env.local keep that role. (The `chat` default-settings section died
- * with per-session models, owner 2026-09-28 — sessions own their model
- * from birth, stamped from the strong slot.)
+ * The user settings record: one versioned, delta-shaped JSON blob holding
+ * every non-secret product preference. Explicit user choices only: absent
+ * keys resolve to FACTORY_SETTINGS (src/settings/model/settings.ts), so an
+ * update that adds a knob needs no migration. The version field is a private
+ * schema counter for breaking shape changes only, unrelated to the app
+ * release version. Secrets never live here — auth.json / .env.local keep
+ * that role.
  */
 export const SETTINGS_FILE = path.join(DATA_ROOT, "settings.json");
 
 /**
- * User prompt-override files (settings-storage wave, 2026-09-19): the
- * per-segment system-prompt overrides mirroring the SOURCE layout
- * (src/agent/prompts/) — the shared base as prompts/system-prompt.md,
- * fragments as prompts/teacher/<file> / prompts/prober/<file>. File
- * PRESENCE alone is not the override: settings.json's agent.prompts map
- * (segmentPath → boolean) is the explicit switch, so a user can keep a
- * customized file on disk but run the source default to compare. The
- * segment list itself is ALWAYS derived from source at runtime (the
- * loader in src/store/prompt-overrides.ts) — code updates that add,
- * remove, or reorder fragments adapt automatically; an override keyed to
- * a vanished segment stops composing but stays on disk.
+ * User prompt-override files, mirroring the source layout
+ * (src/session/prompts/). File presence alone is not the override:
+ * settings.json's agent.prompts map (segmentPath → boolean) is the explicit
+ * switch, so a user can keep a customized file on disk but run the source
+ * default to compare. The segment list is always derived from source at
+ * runtime (src/session/prompts.ts); an override keyed to a vanished segment
+ * stops composing but stays on disk.
  */
 export const PROMPTS_OVERRIDE_DIR = path.join(DATA_ROOT, "prompts");
 
 /**
- * THE AUTH/KEY STORE (auth-keys wave, 2026-09-19): BYOK provider keys in a
- * flat {VAR: value} JSON map — the SAME file the Electron app has always
- * hand-edited (owner decision: option A, zero migration). Desktop main.cjs
- * passes LH_AUTH_FILE pointing at userData/auth.json (mode 0600); in dev
- * (no Electron) the default is the repo-root auth.json (gitignored, same
- * pattern as .env.local — a worktree may symlink it to the master copy).
- * The SERVER reads/writes this file directly at call time (no restart to
- * change a key); it reflects the values into process.env at boot with
- * FILL-GAP precedence — real environment variables (incl. .env.local in
- * dev) always win (src/server/keys.ts). Hand-edits still work: the file is
- * re-read from disk on every API access. Secrets NEVER go in settings.json
- * — this file keeps that role, alongside .env.local.
+ * The BYOK key store: a flat {VAR: value} JSON map. Desktop main.cjs passes
+ * LH_AUTH_FILE pointing at userData/auth.json (mode 0600); in dev the default
+ * is the repo-root auth.json (gitignored; a worktree may symlink it). The
+ * server re-reads it on every access, so hand-edits and key changes need no
+ * restart. Values reach process.env at boot with fill-gap precedence — real
+ * environment variables (incl. .env.local in dev) always win
+ * (src/settings/keys.ts).
  */
 export const AUTH_FILE = process.env.LH_AUTH_FILE
 	? path.resolve(process.env.LH_AUTH_FILE)

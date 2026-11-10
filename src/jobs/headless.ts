@@ -100,13 +100,13 @@ const NO_CHROME_MESSAGE =
 	"Install Google Chrome or set CHROME_PATH to a Chrome executable. " +
 	"(Verification is mandatory — demos are never delivered untested.)";
 
-// ─── The app's own Chromium as a browser service (Wave E stage 3) ────────────
+// ─── The app's own Chromium as a browser service ─────────────────────────────
 // Demos execute JS and need a browser. PRIMARY: this very app's binary
 // spawned with --browser-service (main.cjs boots a hidden window with a CDP
 // port and prints "BROWSER_SERVICE_CDP <port>"). FALLBACK: system Chrome.
 // A Node IPC channel owns its lifetime: parent death/disconnect quits the
 // helper on every OS (Windows Electron stdin is synthetic EOF). No orphans.
-// PDFs and SVGs never come here (native now).
+// SVGs come here only as resvg's fallback; PDFs never do.
 
 /** Handshake line parser (pure; exported for tests). */
 export function parseBrowserServiceLine(line: string): number | null {
@@ -223,8 +223,8 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 const withHelperPage = keyedLock("helperPage");
 
 async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
-	// Helper first (owner ruling 2026-10-10: the app's own Chromium primary,
-	// system Chrome fallback) — deterministic across users, zero install.
+	// Helper first (owner decision: the app's own Chromium primary, system
+	// Chrome fallback) — deterministic across users, zero install.
 	const helper = await connectBrowserService();
 	if (helper) {
 		const run = async (): Promise<T> => {
@@ -241,7 +241,7 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		return withHelperPage("page", run);
 	}
 
-	// Chrome fallback: per-job launch, close on the way out (old semantics).
+	// Chrome fallback: per-job launch, close on the way out.
 	const puppeteer = (await import("puppeteer-core")).default;
 	const executablePath = resolveChromeExecutablePath();
 	const browser = await puppeteer.launch({
@@ -331,12 +331,12 @@ function svgViewport(svg: string, opts: RenderSvgOptions): { width: number; heig
 	};
 }
 
-/** Canonicalize a raw Chrome screenshot for the model's eyes (2026-09-19 fix).
+/** Canonicalize a raw Chrome screenshot for the model's eyes.
  *
  *  WHY: Chrome writes PNGs with a SPLIT IDAT stream (4KB chunks) — and
- *  Alibaba's vision decoder (behind OpenRouter's qwen3.8-flash, the
- *  visual-maker's look-model) rejected those outright during the
- *  2026-09-18/19 window: "The image format is illegal and cannot be opened",
+ *  Alibaba's vision decoder (behind OpenRouter's qwen3.8-flash, then the
+ *  visual-maker's look-model) rejected those outright for a time:
+ *  "The image format is illegal and cannot be opened",
  *  deterministically, at every size (50–800px) — while every single-IDAT
  *  form passed (a handcrafted 1×1, and sharp re-encodes). On a later re-test
  *  raw Chrome PNGs passed too (the upstream decoder was fixed or is flaky
@@ -344,13 +344,9 @@ function svgViewport(svg: string, opts: RenderSvgOptions): { width: number; heig
  *  are an arbitrary SPLIT of one zlib stream, so merging them is the more
  *  standard shape, byte-identical stream, zero re-encoding.
  *
- *  Pure Node on purpose (no sharp): historically the process already carried
- *  a native image lib via @huggingface/transformers' nested sharp + libvips,
- *  and importing the root sharp (Next's optional dependency) put a SECOND
- *  libvips into the process — macOS's ObjC runtime warns (duplicate
- *  GNotificationCenterDelegate, "mysterious crashes"). The transformers
- *  embedder died with wave 6 (2026-09-23) but the rule lives on: one native
- *  image lib per process; app code carries none. */
+ *  Pure Node on purpose (no sharp): two libvips copies in one process make
+ *  macOS's ObjC runtime warn (duplicate GNotificationCenterDelegate,
+ *  "mysterious crashes") — sharp stays out of app code. */
 export function providerSafePng(png: Buffer): Buffer {
 	const SIG_LEN = 8;
 	if (png.length < SIG_LEN + 12 || png.subarray(0, SIG_LEN).toString("hex") !== "89504e470d0a1a0a") return png;
@@ -400,14 +396,13 @@ function crc32(buf: Buffer): number {
 }
 
 async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buffer> {
-	// NATIVE FIRST (Wave E stage 2, owner 2026-10-10): resvg rasterizes
-	// static SVG in-process — visual-maker SVGs never execute script, so a
-	// browser adds nothing but a process. White background mirrors the old
-	// Chrome page (html,body{background:#fff}); fitTo width mirrors
-	// svgViewport semantics (attrs win, viewBox-only gets the 900 default,
-	// opts override). The browser path below stays as the fallback for
-	// exotic-SVG features resvg cannot parse — failures there used to be
-	// the ONLY path, so nothing regresses.
+	// NATIVE FIRST (owner decision): resvg rasterizes static SVG in-process —
+	// visual-maker SVGs never execute script, so a browser adds nothing but a
+	// process. White background mirrors the browser fallback's page
+	// (html,body{background:#fff}); fitTo width mirrors svgViewport semantics
+	// (attrs win, viewBox-only gets the 900 default, opts override). The
+	// browser path below is the fallback for exotic-SVG features resvg cannot
+	// parse.
 	const { width } = svgViewport(svg, opts);
 	try {
 		const { Resvg } = await import("@resvg/resvg-js");
@@ -448,34 +443,24 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 
 // ─── PDF page rasterization (pdfjs paints, Skia hosts) ─────────────────
 
-/** Render PDF pages to PNGs — the sources-v0 pdf-reader's eyes.
- *
- *  History: pdfjs ALWAYS painted the pages (scale = dpi/72, the skill's
- *  zoom arithmetic) — first inside a headless Chrome tab (canvas shim,
- *  toDataURL, 2026-09-19), now into @napi-rs/canvas in this process (Wave
- *  E, 2026-10-10). The paint engine never changed; only the canvas host:
- *  Skia in-process via pdfjs-dist v6's own Node integration. No browser,
- *  no temp files, no base64 hop. */
+/** Render PDF pages to PNGs — the pdf-reader's eyes. pdfjs paints the
+ *  pages (scale = dpi/72, the skill's zoom arithmetic) into @napi-rs/canvas
+ *  in this process. No browser, no temp files. */
 async function renderPdfPages(
 	pdfPath: string,
 	pages: number[],
 	opts: RenderPdfOptions = {},
 ): Promise<RenderedPdfPage[]> {
 	const dpi = opts.dpi ?? 150;
-	// NATIVE CANVAS (Wave E, owner 2026-10-10): pdfjs paints into
-	// @napi-rs/canvas in this process — no browser involved. pdfjs-dist v6's
-	// own Node integration IS @napi-rs/canvas (its optionalDependency: the
-	// NodeCanvasFactory requires it), so the paint engine is the exact code
-	// that used to run in the Chrome shim tab; only the canvas host changed
-	// (Skia in-process instead of a DOM canvas). Text-side pdf tools never
-	// needed a browser; now renders don't either.
+	// pdfjs-dist v6's own Node integration IS @napi-rs/canvas (its
+	// optionalDependency: the NodeCanvasFactory requires it).
 	const [pdfjs, { createCanvas }] = await Promise.all([
 		import("pdfjs-dist/legacy/build/pdf.mjs"),
 		import("@napi-rs/canvas"),
 	]);
 	const data = new Uint8Array(fs.readFileSync(path.resolve(pdfPath)));
-	// Standard-font data as a directory path (live-smoke finding 2026-09-19:
-	// without it pdfjs renders non-embedded standard fonts via fallback);
+	// Standard-font data as a directory path (without it pdfjs renders
+	// non-embedded standard fonts via fallback);
 	// verbosity 0 = errors only (JBIG2 noise on scanned PDFs).
 	const loadingTask = pdfjs.getDocument({ data, standardFontDataUrl: standardFontsDir(), verbosity: 0 });
 	const doc = await loadingTask.promise;

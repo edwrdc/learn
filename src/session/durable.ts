@@ -75,13 +75,12 @@ export interface ChatRuntime {
 	closing: boolean;
 }
 
-/** Harness settings: the app's current behavior, not pi-durable's defaults.
- *  Provider retries are OFF — today a provider error rides its message
- *  verbatim to the banner, and silent re-spend is not a behavior change we
- *  are making. Steering drains everything handed over at one boundary (the
- *  app's old steeringMode "all"). Automatic compaction is OFF: the app owns
- *  the threshold, summary, and cut (src/server/compaction.ts, backed by the
- *  durable compact child). pi-durable's default (enabled, background at
+/** Harness settings: the app's behavior, not pi-durable's defaults.
+ *  Provider retries are OFF — a provider error rides its message verbatim
+ *  to the banner, never a silent re-spend. Steering drains everything
+ *  handed over at one boundary. Automatic compaction is OFF: the app owns
+ *  the threshold, summary, and cut (compaction.ts, backed by the durable
+ *  compact child). pi-durable's default (enabled, background at
  *  32k below the window) would be a second owner and a second bill. */
 function harnessSettings() {
 	return {
@@ -170,7 +169,7 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 	const root = await harness.root(BACKGROUND_CONTEXT, {
 		init: async (tx, id) => {
 			// Provider session affinity: the public chat id IS the provider
-			// session id (the app has always sent it that way).
+			// session id.
 			(await tx.doc(ProviderDoc, id)).sessionId = chatId;
 		},
 	});
@@ -407,8 +406,8 @@ export async function appendEntries(chatId: string, drafts: readonly EntryDraft[
 
 /** Append the record messages the transcript does not hold yet, keyed by
  *  app message id; a message whose content changed is written as a
- *  ContextEdit over the entry that owns it (entries are immutable). The old
- *  store's saveMessages contract leaves omitted messages unchanged. */
+ *  ContextEdit over the entry that owns it (entries are immutable).
+ *  Omitted messages stay unchanged (ChatStore.saveMessages' contract). */
 export async function appendMessages(chatId: string, messages: readonly LhMessage[]): Promise<void> {
 	const runtime = await openChatRuntime(chatId);
 	const { messages: current, entryOf } = projectTranscript(await readEntries(runtime));

@@ -3,21 +3,14 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 
 /**
- * PDF plumbing for the pdf-reader sub-agent — sources v0 (2026-09): Node
- * ports of the four pdf-reader skill scripts (pdf_info / pdf_extract /
- * pdf_search / pdf_render), on the user-chosen hybrid stack:
+ * PDF plumbing for the pdf-reader sub-agent: Node ports of the pdf-reader
+ * skill scripts (pdf_info / pdf_extract / pdf_search; rendering lives in
+ * src/jobs/headless.ts on the same pdfjs engine with @napi-rs/canvas).
+ * pdfjs-dist is pure JS, no native deps.
  *
- * - TEXT (info / extract / search): pdfjs-dist — pure JS, no native deps.
- * - RENDER: subagents/headless.ts uses the same pdfjs engine with
- *   @napi-rs/canvas (Skia), in-process — no browser needed.
- *
- * Doctrine (the skill's reading strategy, mirrored in the sub-agent's system
- * prompt): triage with pdf_info FIRST, then size-based strategy — short PDFs
- * render all pages, medium render flagged (math/image-heavy) pages, long
- * ones search for targeted lookups before reading anything at length.
- *
- * These are pure library functions — no model in sight. The pdf-reader
- * agent (pdf-reader.ts) drives them through its own tool loop.
+ * Reading strategy (mirrored in the sub-agent's prompt): triage with
+ * pdf_info first, then by size — short PDFs render all pages, medium ones
+ * render flagged (math/image-heavy) pages, long ones search first.
  */
 
 interface PdfPageInfo {
@@ -43,14 +36,11 @@ async function loadPdfjs() {
 	return pdfjs;
 }
 
-/** Standard-font data dir (live-smoke finding 2026-09-19: without it pdfjs
- *  warns and falls back on non-embedded standard fonts — Helvetica, Times…).
- *  The node side takes a plain filesystem path, shared by text and rendering.
- *  pdfjs checks endsWith("/") even on Windows: use a literal trailing slash,
- *  NOT path.sep ("\\" on Windows). Node fs accepts this path on every OS.
- *  Resolved through Node's own lookup, not a relative walk from this file:
- *  the packaged chunk depth differs per platform and a walk escaped the
- *  payload on Windows (found 2026-11-02 by the packaged carrier smoke). */
+/** Standard-font data dir: without it pdfjs warns and falls back on
+ *  non-embedded standard fonts (Helvetica, Times…). pdfjs checks
+ *  endsWith("/") even on Windows, so the trailing slash is literal, not
+ *  path.sep. Resolved through Node's module lookup, not a relative walk:
+ *  the packaged chunk depth differs per platform. */
 export function standardFontsDir(): string {
 	const manifest = createRequire(import.meta.url).resolve("pdfjs-dist/package.json");
 	return path.join(path.dirname(manifest), "standard_fonts") + "/";
@@ -62,7 +52,7 @@ async function openDocument(filePath: string) {
 	// The legacy build in plain node runs on a main-thread fake worker (no
 	// workerSrc needed); teardown is the loading task's destroy().
 	// verbosity 0 = errors only — scanned PDFs (JBIG2 XObjects) otherwise
-	// flood the log with per-page warnings (live-smoke finding 2026-09-19).
+	// flood the log with per-page warnings.
 	const task = pdfjs.getDocument({ data, standardFontDataUrl: standardFontsDir(), verbosity: 0 });
 	return { doc: await task.promise, task };
 }

@@ -1,20 +1,17 @@
 /**
- * Graph-pipeline cost summary (2026-09 graph cost metrics wave) — the pure
- * fold behind the graph view's cost pill. Two usage channels in: chat
- * extraction runs (ChatRecord.extractions) and notes-source runs
- * (NotesSource.extractions). Out: per-stage totals (extraction / audit)
- * + a capped recent-runs list. (The cluster-naming channel died with the
- * extraction-UX close-out, 2026-09-24 — UI's displayCostTotals had already
- * dropped it; historical naming-runs.jsonl spend is simply not displayed,
- * the same ruling as wave 7's stages.embedding.)
+ * Graph-pipeline cost summary — the pure fold behind the graph view's cost
+ * pill. Two usage channels in: chat extraction runs
+ * (ChatRecord.extractions) and notes-source runs (NotesSource.extractions).
+ * Out: per-stage totals (extraction / audit) + a capped recent-runs list.
+ * Historical naming-runs.jsonl spend is not displayed.
  *
  * MONEY CHANNEL LAW: dollars are INFERRED here at read time via
- * core/prices.ts — never stored anywhere. An unpriced model contributes
+ * prices.ts — never stored anywhere. An unpriced model contributes
  * ZERO dollars but is counted in `unpricedRuns` so the UI can render
  * "— unpriced" honestly, never a silent zero. Tokens always sum.
  *
- * Client-safe: pure types + math, no node imports; exposed via the core
- * barrel so the pill/panel components carry no cost math.
+ * Client-safe: pure types + math, no node imports, so the pill/panel
+ * components carry no cost math.
  */
 
 import type { CallUsage, ExtractionRunUsage } from "./types.ts";
@@ -33,7 +30,7 @@ interface StageCost {
 	tokens: CallUsage;
 }
 
-/** One run in the recent-runs list (extraction or naming). */
+/** One run in the recent-runs list. */
 interface RecentRun {
 	startedAt: number;
 	/** ISO wall-clock. */
@@ -41,7 +38,7 @@ interface RecentRun {
 	durationMs: number;
 	/** "extraction" covers both front doors (chat + notes). */
 	kind: "extraction";
-	/** Chat title / source file path / fixed label for naming runs. */
+	/** Chat title / source file path. */
 	title: string;
 	/** Whole-run inferred USD; null only when EVERY stage is unpriced. */
 	dollars: number | null;
@@ -56,10 +53,8 @@ export interface GraphCostSummary {
 	totalDollars: number;
 	/** Runs where EVERY stage was unpriced (totalDollars excludes them). */
 	unpricedRuns: number;
-	/** The billable pipeline stages. (Wave 7, owner ruling 2026-09-23:
-	 *  the embedding stage is gone with the provider embedder; the
-	 *  2026-09-24 close-out culled cluster naming the same way —
-	 *  historical spend on either is simply not displayed.) */
+	/** The billable pipeline stages (historical embedding and cluster-naming
+	 *  spend is not displayed). */
 	stages: {
 		extraction: StageCost;
 		audit: StageCost;
@@ -118,7 +113,6 @@ export function graphCostSummary(input: CostSummaryInput): GraphCostSummary {
 
 	const foldExtractionRun = (run: ExtractionRunUsage, title: string) => {
 		const stages = run.stages ?? { extractor: { model: "unknown", steps: [] }, auditor: { model: "unknown", steps: [] } };
-		// Per-stage: tokens always count; dollars only when priced.
 		extraction.runs++;
 		mergeTokens(extraction.tokens, stages.extractor.steps);
 		const extDollars = stageDollars(stages.extractor.model, stages.extractor.steps);

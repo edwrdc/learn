@@ -1,19 +1,12 @@
-// ─── AuthStore — BYOK provider keys (auth-keys wave, 2026-09-19) ────────────
-
 /**
- * The long-standing flat {VAR: value} auth.json map (config.AUTH_FILE) —
- * the same file the Electron app has always hand-edited, now first-class
- * server-managed. Values are opaque strings: shape validation is a
- * server-band concern (core/auth-keys.ts validateKeyShape — the store
- * persists what it is given); env precedence is a server-band concern
- * too (src/server/keys.ts). Unknown vars ride along verbatim.
+ * The flat {VAR: value} auth.json map (AUTH_FILE). Values are opaque: shape
+ * validation and env precedence live in keys.ts. Unknown vars are preserved.
  */
 export interface AuthStore {
-	/** The whole map — absent or corrupt file = {} ("no keys yet", the
-	 *  documented first-boot state). Never throws. */
+	/** The whole map — {} for an absent or corrupt file. Never throws. */
 	authVars(): Record<string, string>;
-	/** Set one VAR (atomic write, mode 0600 always, other vars preserved). */
+	/** Set one var (atomic write, mode 0600, other vars preserved). */
 	setAuthVar(name: string, value: string): void;
-	/** Remove one VAR if present (absent = no-op, still a silent success). */
+	/** Remove one var if present. */
 	deleteAuthVar(name: string): void;
 }

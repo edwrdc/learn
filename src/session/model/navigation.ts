@@ -6,8 +6,8 @@ export function chatHref(chatId: string): string {
 	return `/chat/${encodeURIComponent(chatId)}`;
 }
 
-/** Message-granular graph links (owner, 2026-10-13). Persisted provenance and
- * native IDs already carry everything needed; only the render seam is new. */
+/** Message-granular graph links: persisted provenance and native IDs
+ * already carry everything needed. */
 export function messageAnchorId(messageId: string): string {
 	return `message-${messageId}`;
 }

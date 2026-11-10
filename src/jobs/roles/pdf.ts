@@ -8,10 +8,10 @@ import type { RenderedPdfPage } from "../headless.ts";
 import type { JobRole } from "./role.ts";
 
 /**
- * The pdf-reader sub-agent (sources v0, 2026-09): reads a learner-provided
- * PDF on the teacher's behalf. Consulted/read page sets and the pending
- * render live in the run state; `afterTools` shows rendered pages after the
- * round's tool results (image-in-the-loop, user-decided), and `onYield` is
+ * The pdf-reader sub-agent: reads a learner-provided PDF on the teacher's
+ * behalf. Consulted/read page sets and the pending render live in the run
+ * state; `afterTools` shows rendered pages after the round's tool results
+ * (image-in-the-loop, owner decision), and `onYield` is
  * the one-nudge "you read nothing" doctrine gate.
  *
  * System prompt = the pdf-reader skill's reading doctrine, verbatim in

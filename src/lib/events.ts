@@ -30,7 +30,7 @@ export function onAppEvent<K extends keyof AppEvents>(type: K, handler: (detail:
 type KeyEvent = KeyAction | "abort-turn";
 
 /** The one spelling of a key event's name, shared by the dispatcher and
- *  every listener (a mismatched name once left ⌘B doing nothing). */
+ *  every listener. */
 export function kbdEventForAction(action: KeyEvent): string {
 	return `lh:kbd-${action}`;
 }

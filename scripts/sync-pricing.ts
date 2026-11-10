@@ -1,5 +1,5 @@
 /**
- * Regenerate src/core/prices.ts tables from pi-ai's shipped per-provider
+ * Regenerate src/session/model/prices.ts tables from pi-ai's shipped per-provider
  * catalogs (providers/data/*.json).
  *
  * Usage: npx tsx scripts/sync-pricing.ts

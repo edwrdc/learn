@@ -1,7 +1,5 @@
 /**
- * Mermaid → PlanTree authoring format (the author-once protocol, 2026-09-03;
- * free-form pass 2026-09-11 — the muscle-protein session post-mortem: four
- * failed plan_init calls over ids the parser silently hated).
+ * Mermaid → PlanTree authoring format (the author-once protocol).
  *
  * The teacher writes the session map as a mermaid block — the format models
  * are most fluent in — and plan_init canonicalizes it into the structured
@@ -49,9 +47,7 @@ const ARROW_RE = /-->|==>|-\.->/;
 // The id CANDIDATE class is deliberately broad — anything but whitespace,
 // brackets, parens — so EVERY bad id (UPPER, dots, underscores…) reaches
 // register()'s SPECIFIC slug message instead of dying at the regex layer
-// with a generic parse error. The muscle-protein post-mortem: underscores
-// failed HERE, the actionable message never fired, and the teacher spent
-// four attempts hunting punctuation the parser didn't care about.
+// with a generic parse error the teacher cannot act on.
 const ENDPOINT_RE = /^([^\s()\[\]]+)\s*(?:\[([^\[\]]*)\]|\(\s*"([^"]*)"\s*\)|\(([^()]*)\))?$/;
 
 interface Endpoint {
@@ -78,7 +74,6 @@ export function parseMermaidPlan(mermaid: string): PlanParseResult {
 	const problems: string[] = [];
 	const lines = mermaid.split(/\r?\n/);
 
-	// Header: required, first non-empty non-comment line.
 	const first = lines.findIndex((l) => l.trim().length > 0 && !l.trim().startsWith("%%"));
 	if (first === -1) {
 		return { ok: false, problems: ["The plan is empty — expected a `graph TD` block with nodes and `-->` requires-edges."] };

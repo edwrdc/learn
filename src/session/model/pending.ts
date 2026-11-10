@@ -1,9 +1,8 @@
 /**
- * Wave D: these scans read VIEW messages (core/view.ts LhViewMessage — the
- * client's grouped transcript). The part shapes are the same vocabulary the
- * pre-Wave-D client dialect used; a tool part is structural: `tool-` prefix +
- * toolCallId. The server-side record scans (danglingQuestionOf over native
- * LhMessage[]) live in native-messages.ts.
+ * These scans read VIEW messages (view.ts LhViewMessage — the client's
+ * grouped transcript); a tool part is structural: `tool-` prefix +
+ * toolCallId. The server-side record scan (danglingQuestionOf over native
+ * LhMessage[]) lives in transcript.ts.
  */
 import { QUESTION_TOOLS } from "../../tools/model/index.ts";
 
@@ -25,13 +24,11 @@ function isToolUIPart(part: UIMessage["parts"][number]): boolean {
  * an older dangling one), but PARTS forward within a message — the model's
  * FIRST unanswered question is the dock subject. Parallel question calls
  * (pi executes them in one batch) are thus answered in the same order they
- * were asked, saved, and rendered as cards; a backward part scan reversed
- * that order (the live modal-realism observation).
+ * were asked, saved, and rendered as cards.
  *
  * Job tool parts (research/demo/visual) never pend client-side — the async
- * protocol resolves them server-side with an immediate ack (see
- * contracts/jobs.ts "THE ASYNC PROTOCOL"), so job tools are NOT returned
- * here. This file carries only the question gate and the shared scan helper.
+ * protocol resolves them server-side with an immediate ack, so job tools
+ * are NOT returned here.
  */
 interface PendingToolCall {
 	toolCallId: string;

@@ -1,6 +1,5 @@
 /**
- * GET /api/search — the search engines' status (search wave, 2026-09-20):
- * the honest availability signal the settings UI explains from (the
+ * GET /api/search — the search engines' status: the honest availability signal the settings UI explains from (the
  * gray-out affordance) and any client surface can read.
  *
  * { available, engine, reason } — never a key, never a secret: `engine` is

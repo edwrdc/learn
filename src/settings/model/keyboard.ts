@@ -1,17 +1,14 @@
 /**
- * Keyboard shortcuts (shortcut wave, 2026-09-17) — the single source of truth
- * for every app action that has a binding. This module is PURE (no React, no
- * window access at module scope beyond the guarded helpers) so it can render
- * a cheat sheet, match events, and — at the settings milestone — drive a
- * user-editable key map without touching any component.
+ * Keyboard shortcuts — the single source of truth for every app action that
+ * has a binding.
  *
- * Design (owner-approved plan):
- * - Tab is DEAD: browser tab-focus navigation is abandoned entirely. Tab
- *   does nothing; Shift+Tab alone cycles the thinking level.
- * - Esc is a layered dismiss: topmost popover (each popover stopPropagation's
- *   its own Esc) → dictation stop → abort in-flight turn.
- * - The key map persists overrides in localStorage (`lh:keymap`, overrides
- *   only) merged over DEFAULT_BINDINGS — the settings wave adds the editor.
+ * Design (owner decisions):
+ * - Tab is dead: browser tab-focus navigation is abandoned. Tab does
+ *   nothing; Shift+Tab alone cycles the thinking level.
+ * - Esc is a layered dismiss: topmost popover → dictation stop → abort
+ *   in-flight turn.
+ * - User overrides persist in localStorage (`lh:keymap`, overrides only),
+ *   merged over each action's default binding.
  *
  * Binding strings are normalized, cross-platform:
  *   "mod+d"    — mod = ⌘ on macOS, Ctrl elsewhere (both are accepted live)
@@ -39,7 +36,7 @@ export type KeyAction =
 	| "toggle-user-thinking";
 
 /** Where the cheat sheet groups an action (display only — dispatch is
- *  global; a seam that isn't mounted simply no-ops). */
+ *  global; a surface that isn't mounted simply no-ops). */
 export type KeyScope = "global" | "chat" | "graph";
 
 interface KeyActionDef {
@@ -48,9 +45,8 @@ interface KeyActionDef {
 	label: string;
 	scope: KeyScope;
 	binding: string;
-	/** Display-only (cheat sheet) — contextual keys a SURFACE owns (the
-	 *  question dock's row machine); never dispatched from the registry,
-	 *  so they can't leak to pages where the surface isn't mounted. */
+	/** Contextual keys a surface owns (the question dock), listed in the
+	 *  cheat sheet but never dispatched from the registry. */
 	displayOnly?: boolean;
 }
 
@@ -61,10 +57,6 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
 	{ id: "toggle-sidebar", label: "Toggle sessions sidebar", scope: "global", binding: "mod+b" },
 	{ id: "sessions-search", label: "Search sessions", scope: "global", binding: "mod+shift+f" },
-	// (The Alt+↑/↓/↵ session cycle was RETIRED, owner 2026-10-10: barely
-	// used, felt laggy. Session navigation lives IN the search now — ↑/↓
-	// walk the filtered list, Enter opens (first match when nothing
-	// walked) — see sidebar.tsx's search input.)
 	{ id: "jump-graph", label: "Graph view", scope: "global", binding: "mod+g" },
 	{ id: "new-session", label: "New session", scope: "global", binding: "mod+n" },
 	{ id: "rename-session", label: "Rename session", scope: "chat", binding: "f2" },
@@ -73,14 +65,8 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	// one action/binding. Only the currently mounted surface listens.
 	{ id: "find", label: "Find", scope: "global", binding: "mod+f" },
 	{ id: "cheat-sheet", label: "Shortcut cheat sheet", scope: "global", binding: "?" },
-	// The question dock's row machine (wave B) — displayOnly: the dock owns
-	// the keys while a question is expanded; the registry never dispatches
-	// them, so bare arrows stay free everywhere else.
+	// The question dock owns these while a question is expanded.
 	{ id: "question-focus", label: "Question · focus thinking ↔ rows", scope: "chat", binding: "tab", displayOnly: true },
-	// (The model-menu entries — "walk results" ↑/↓, "pick result" ↵ — were
-	// REMOVED, owner 2026-10-10: obvious in-field menu navigation, never
-	// dispatched, never rebindable — not settings material. The menu's own
-	// arrow machine (menu-shell.tsx) is unchanged.)
 	{ id: "question-next-row", label: "Question · next row", scope: "chat", binding: "arrowdown", displayOnly: true },
 	{ id: "question-prev-row", label: "Question · previous row", scope: "chat", binding: "arrowup", displayOnly: true },
 	{ id: "question-pick-row", label: "Question · pick row", scope: "chat", binding: "space", displayOnly: true },
@@ -89,9 +75,8 @@ export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 
 const STORAGE_KEY = "lh:keymap";
 
-/** localStorage overrides ({actionId: binding}) — read once per module
- *  instance; the settings editor will write this key. Guarded: SSR and a
- *  corrupt/absent store both fall back to defaults. */
+/** localStorage overrides ({actionId: binding}); SSR and a corrupt/absent
+ *  store both fall back to defaults. */
 export function loadOverrides(): Partial<Record<KeyAction, string>> {
 	if (typeof window === "undefined") return {};
 	try {
@@ -100,30 +85,25 @@ export function loadOverrides(): Partial<Record<KeyAction, string>> {
 		const parsed = JSON.parse(raw) as Partial<Record<KeyAction, string>>;
 		if (parsed && typeof parsed === "object") return parsed;
 	} catch {
-		/* corrupt store = defaults */
 	}
 	return {};
 }
 
-/** Write the full overrides map ({actionId: binding}) — the settings
- *  editor's rebind/reset persistence. Guarded: SSR no-ops. An empty
- *  map clears the store entirely (all-defaults). */
+/** Write the full overrides map; an empty map clears the store. */
 export function saveOverrides(overrides: Partial<Record<KeyAction, string>>): void {
 	if (typeof window === "undefined") return;
 	try {
 		if (Object.keys(overrides).length) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
 		else window.localStorage.removeItem(STORAGE_KEY);
 	} catch {
-		/* storage unavailable = overrides don't persist, defaults keep working */
 	}
 }
 
-/** The live key map: defaults with user overrides applied. */
 function effectiveKeymap(): Map<string, KeyAction> {
 	const overrides = loadOverrides();
 	const map = new Map<string, KeyAction>();
 	for (const def of KEYBOARD_ACTIONS) {
-		if (def.displayOnly) continue; // surface-owned, never dispatched
+		if (def.displayOnly) continue;
 		const binding = overrides[def.id] ?? def.binding;
 		if (typeof binding === "string" && binding) map.set(binding, def.id);
 	}
@@ -143,17 +123,13 @@ export function bindingForAction(id: KeyAction): string {
 	return overrides[id] ?? def.binding;
 }
 
-/**
- * Normalize a KeyboardEvent to a canonical binding string. Rules:
- * - mod matches BOTH meta (⌘) and ctrl — Ctrl+K works on a Mac keyboard too.
- * - a printable key ("?") bakes its shift in: "shift+/?" collapses to "?".
- */
+/** Normalize a KeyboardEvent to a canonical binding string. mod matches
+ *  both meta (⌘) and ctrl. */
 export function eventBinding(e: KeyboardEvent): string {
 	const mod = e.metaKey || e.ctrlKey;
 	// A bare printable key bakes its shift into the character ("?" not
-	// "shift+/"), so it returns alone. With a real modifier riding along,
-	// shift is explicit (⌘⇧F = "mod+shift+f"); non-printable keys (Tab,
-	// arrows) always keep their shift (Shift+Tab = "shift+tab").
+	// "shift+/"). With a real modifier, or on a non-printable key, shift is
+	// explicit ("mod+shift+f", "shift+tab").
 	if (e.key.length === 1 && !mod && !e.altKey) return e.key.toLowerCase();
 	const mods: string[] = [];
 	if (mod) mods.push("mod");
@@ -195,7 +171,7 @@ const KEY_GLYPH: Record<string, string> = {
 /** Format a binding for display: "mod+shift+f" → "⌘⇧F". */
 export function formatBinding(binding: string): string {
 	const parts = binding.split("+");
-	const key = parts.pop()!; // last part is always the key
+	const key = parts.pop()!;
 	const glyphs: string[] = [];
 	for (const part of parts) {
 		if (part === "mod") glyphs.push(MOD_GLYPH);

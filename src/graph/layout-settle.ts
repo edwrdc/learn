@@ -11,17 +11,11 @@ import { deriveView, getGraph } from "./snapshot.ts";
  * commit (client positions become the anchor set). Synchronous — it must
  * finish before the next /api/graph fetch reflects the change.
  *
- * CHAINS-PRIMARY (owner, 2026-09-30): the settle lays out the DERIVED
+ * CHAINS-PRIMARY: the settle lays out the DERIVED
  * view — propositions AND the derived implication nodes (one per chain,
  * arg_ ids) over the derived untyped arrows — so positions exist for
  * every node the canvas renders. Implication nodes participate in the
- * physics as regular nodes (rendering specialization comes later).
- *
- * SPLIT FROM layout.ts deliberately (2026-09-13): layout.ts is in the
- * browser barrel, and the settle needs the cluster partition for the
- * cluster centroid pull — this module must not ship in the client bundle.
- * Server code imports it DIRECTLY; it is never re-exported through
- * src/core/index.ts.
+ * physics as regular nodes.
  *
  * `anchors` are the resting positions to settle around (default: the
  * stored ones); the result replaces the stored map in one write.
@@ -37,13 +31,11 @@ export function settleGraphLayout(graphStore: {
 	const view = deriveView(graph);
 	const previous = new Map(Object.entries(anchors ?? graphStore.readPositions()));
 	// The cluster partition for the centroid pull: the SAME birth-session
-	// partition the snapshot renders (derived from provenance on read —
-	// core/session-clusters.ts, wave 7) — one cluster concept everywhere.
-	// PROPOSITIONS ONLY (owner, 2026-09-30): implication nodes never
-	// partition; the stored world clusters, its image follows.
+	// partition the snapshot renders — one cluster concept everywhere.
+	// PROPOSITIONS ONLY: implication nodes never partition; the stored
+	// world clusters, its image follows.
 	const communities = birthSessionPartition(graph.nodes);
-	// The SAME imp-node assignment the snapshot renders (majority among
-	// premises' births — core/session-clusters.ts): the resting ledger and
+	// The SAME imp-node assignment the snapshot renders: the resting ledger and
 	// the live sim must agree on where bundles belong, or the first live
 	// tick would fight the settle. Unfiltered here (settle pulls every
 	// community, hulls are a canvas-only concern).

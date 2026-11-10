@@ -31,20 +31,19 @@ export async function extractionRuns(): Promise<ExtractionRunView[]> {
 
 /**
  * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
- * the extraction pipeline (the sole graph writer) is triggered by quiz
- * answers in sessions (turn-service), never from here — the home view
- * reflects whatever the pipeline has merged so far.
+ * the extraction pipeline (the sole graph writer) is never triggered from
+ * here — the home view reflects whatever the pipeline has merged so far.
  */
 export async function graphView(): Promise<GraphSnapshot> {
 	return graphSnapshot(stores);
 }
 
-/** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost
- *  pill): fold every usage channel into stage totals + recent runs. A pure
- *  read over the chat records (chat-front-door runs), the notes sources
- *  (notes-front-door runs), and the naming ledger (graph-global runs);
- *  dollars are inferred by the pure core fold (core/cost-summary.ts +
- *  prices.ts) — nothing here stores or caches money. */
+/** The graph view's cost surface (GET /api/graph/costs): fold every usage
+ *  channel into stage totals + recent runs. A pure read over the chat
+ *  records (chat-front-door runs) and the notes sources (notes-front-door
+ *  runs); dollars are inferred by the pure fold
+ *  (session/model/cost-summary.ts + prices.ts) — nothing here stores or
+ *  caches money. */
 export async function graphCosts(): Promise<GraphCostSummary> {
 	const summaries = await stores.chatStore.listChats();
 	const chats: Array<{ title: string; extractions: NonNullable<ChatRecord["extractions"]> }> = [];
@@ -60,7 +59,7 @@ export async function graphCosts(): Promise<GraphCostSummary> {
 	return graphCostSummary({ chats, sources });
 }
 
-/** The graph's version stamp (session-deletion wave 6): the max mtime
+/** The graph's version stamp: the max mtime
  * across every graph data file — ledgers, positions. Moves on ANY
  * graph write (merge append, settle, or a deletion's atomic rewrite),
  * never moves on reads, and needs no bookkeeping of its own: the fs
@@ -79,7 +78,7 @@ export function graphRevision(): number {
 	return revision;
 }
 
-// ─── single-node deletion (node interlude, owner-locked full-death) ──────────
+// ─── single-node deletion ────────────────────────────────────────────────────
 
 /** What deleteGraphNode did — the route maps it straight to HTTP. */
 type NodeDeleteOutcome =
@@ -88,7 +87,7 @@ type NodeDeleteOutcome =
 	| { ok: true; stats: NodeDeletionStats; graphRevision: number };
 
 /**
- * Delete one node by id — FULL DEATH (core/graph-deletion.ts for the
+ * Delete one node by id — FULL DEATH (model/deletion.ts for the
  * ledger semantics). The guard family is deliberately NOT the chat
  * one, and the reasoning is worth writing down:
  *
@@ -100,8 +99,7 @@ type NodeDeleteOutcome =
  *   - THE EXTRACTION GATE — 409 while ANY pipeline run is registered,
  *     anywhere. A mid-flight run holds findings extracted from
  *     transcripts that predate the deletion; its merges could re-add
- *     aliases, provenance, or events to the dying node (the
- *     re-reference risk the dispatch flags). Unlike chat deletion we
+ *     aliases or provenance to the dying node. Unlike chat deletion we
  *     do NOT abort the run: it belongs to some session, and killing
  *     that session's spend is outside this deletion's blast radius —
  *     the UI retries once the dock drains. A run that starts AFTER
@@ -119,8 +117,8 @@ export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
 			error: "An extraction is running — try again when it finishes",
 		};
 	}
-	// THE SYNC BLOCK — no awaits below (the doc above): the gate and the
-	// rewrite are one atomic stretch of the event loop.
+	// THE SYNC BLOCK — no awaits below: the gate and the rewrite are one
+	// atomic stretch of the event loop.
 	const stats = deleteNodeTraces(stores.graphStore, nodeId);
 	if (stats === null) {
 		return { ok: false, status: 404, code: "not_found", error: "No such node" };

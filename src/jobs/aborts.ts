@@ -2,32 +2,25 @@
  * Job abort registry — WHO can actually kill a running sub-agent.
  *
  * The runner creates one AbortController per running job and registers it
- * here; the abort path (src/server/jobs.ts abortJob, driven by the dock's
- * END button via POST /api/jobs/[jobId]/abort) fires it through fireJobAbort.
+ * here; the abort path (wake.ts abortJob, driven by the dock's END button
+ * via POST /api/activity/abort) fires it through fireJobAbort.
  *
- * 2026-09 abort semantics (user-decided): REAL KILL, not mark-and-abandon —
- * the controller aborts the in-flight model call (agent.generate /
- * generateText abortSignal); headless tool runs are best-effort (the next
- * model call is where a hung one dies). The route owns the bookkeeping
- * (status error "Aborted by learner" + the abort steer); the runner only unwinds.
+ * Abort semantics (owner decision): REAL KILL, not mark-and-abandon — the
+ * controller aborts the in-flight model call; headless tool runs are
+ * best-effort (the next model call is where a hung one dies). abortJob owns
+ * the bookkeeping (status error "Aborted by learner" + the abort steer); the
+ * runner only unwinds.
  */
 
 import { processState } from "../platform/model/index.ts";
 
-/** One live job's kill switch: the controller the old loops ride, plus the
- *  durable run's own abort (a conversation abort marks and joins its tasks). */
-interface JobAbort {
-	controller: AbortController;
-	abort?: () => void;
-}
-
-function registry(): Map<string, JobAbort> {
-	return processState("jobAborts", () => new Map<string, JobAbort>());
+function registry(): Map<string, AbortController> {
+	return processState("jobAborts", () => new Map<string, AbortController>());
 }
 
 /** The runner registers its controller at job start (idempotent overwrite). */
-export function registerJobAbort(jobId: string, controller: AbortController, abort?: () => void): void {
-	registry().set(jobId, { controller, abort });
+export function registerJobAbort(jobId: string, controller: AbortController): void {
+	registry().set(jobId, controller);
 }
 
 /** The runner unregisters in its finally block (job settled or unwound). */
@@ -52,10 +45,9 @@ export function isJobLive(jobId: string): boolean {
  * phase where the runner has already returned); the caller then owns the
  * whole abort on the record side. */
 export function fireJobAbort(jobId: string): boolean {
-	const entry = registry().get(jobId);
-	if (!entry) return false;
+	const controller = registry().get(jobId);
+	if (!controller) return false;
 	registry().delete(jobId);
-	entry.abort?.();
-	entry.controller.abort();
+	controller.abort();
 	return true;
 }

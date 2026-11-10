@@ -8,8 +8,8 @@
 
 	let { answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown } = $props();
 
-	// Page/record data can arrive wrapped in Svelte state proxies; core's
-	// zod parsing clones its input with structuredClone. Normalize the JSON
+	// Page/record data can arrive wrapped in Svelte state proxies; the session
+	// model's zod parsing clones its input with structuredClone. Normalize the JSON
 	// wire shape at this boundary (the schema rejects functions anyway).
 	const plainAnswer = $derived(JSON.parse(JSON.stringify(savedAnswer)));
 	const plainInput = $derived(input === undefined ? undefined : JSON.parse(JSON.stringify(input)));

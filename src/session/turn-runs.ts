@@ -1,6 +1,5 @@
 /**
- * The running-turn registry (background-turn runner wave, owner ruling
- * 2026-09-25): chatId → the live PiTurnHandle. THE reattach surface —
+ * The running-turn registry: chatId → the live PiTurnHandle. THE reattach surface —
  * GET /api/chats/[id]/stream resolves here, and the remote abort
  * (/api/activity/abort, kind "turn") kills through here.
  *
@@ -15,9 +14,9 @@
  * collected — no unbounded leak beyond the same pathology turn-liveness
  * already accepts.
  *
- * App-quit mid-turn (the process dying with an un-persisted turn) is the
- * SAME residual as before the wave: the registry is memory-only, the
- * write-ahead record + liveness TTL recovery cover the next mount.
+ * App-quit mid-turn (the process dying with an un-persisted turn): the
+ * registry is memory-only; the write-ahead record + durable turn recovery (resumeForegroundTurn)
+ * cover the next mount.
  */
 
 import { SSE_DONE, SSE_HEADERS, sseFrame } from "../platform/index.ts";

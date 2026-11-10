@@ -1,10 +1,8 @@
 /**
- * THE ARTIFACT-UI ROUTE (owner, 2026-10-07): persists the learner's invert
- * switch onto a demo/figure steer message (details.ui.inverted) so it
- * survives session navigation and restarts. Modeled on the dismissal
- * route's SILENCE: no wake, no agent, no tokens, no SSE — the record is
- * the only state that moves, and the client already holds the toggled
- * state optimistically (no refetch churn).
+ * Persists the learner's invert switch onto a demo/figure steer message
+ * (details.ui.inverted) so it survives session navigation and restarts.
+ * Silent like the dismissal route: no wake, no agent, no tokens, no SSE —
+ * the client already holds the toggled state optimistically (no refetch).
  *
  * Guards: 404 unknown chat, 400 for a body that isn't
  * { input: { messageId, inverted } } or targets no demo/visual steer.

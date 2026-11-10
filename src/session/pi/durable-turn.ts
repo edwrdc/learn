@@ -1,5 +1,5 @@
 /**
- * THE DURABLE TURN RUNNER (pi-durable migration, foreground unit).
+ * THE DURABLE TURN RUNNER.
  *
  * A turn is a durable run: `submit()` admits the input in one commit, the
  * Harness runs generation + tools on the chat's SQLite database, and every
@@ -10,7 +10,7 @@
  * `turn_end.toolResults`, `agent_start`/`agent_end`), so the browser keeps
  * one protocol and one replace-by-slot rule.
  *
- * The wire contract is unchanged on purpose: the client replaces a streaming
+ * The wire contract: the client replaces a streaming
  * assistant with `event.message`, ignores question placeholders, and appends
  * a round's tool results on `turn_end`. Assistant `message_end` events carry
  * NO app id — the streaming slot keeps the id it minted; the settle refetch

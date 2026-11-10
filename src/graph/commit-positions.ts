@@ -10,13 +10,12 @@
  * Every body is sanitized: garbage coordinates clamp or drop, unknown
  * ids are discarded, nothing throws.
  *
- * KNOWN IDS = THE CANVAS'S WORLD (owner fix, 2026-10-06 — the splatter
- * bug): the derived view's nodes — stored propositions AND the derived
- * arg_ implication nodes. The canvas persists all of them; stripping
- * the args here purged their ledger entries on every drag-commit, so
- * each mount re-seeded them on a giant ring (the "splattered from the
- * middle" report) until a drag annealed them back. arg_ ids are stable
- * (minted from the chain ledger), so persisting them is sound.
+ * KNOWN IDS = THE CANVAS'S WORLD: the derived view's nodes — stored
+ * propositions AND the derived arg_ implication nodes. The canvas persists
+ * all of them; stripping the args here would purge their ledger entries on
+ * every drag-commit, so each mount would re-seed them on a giant ring.
+ * arg_ ids are stable (minted from the chain ledger), so persisting them
+ * is sound.
  */
 import type { Position } from "./model/types.ts";
 import { deriveView, getGraph } from "./snapshot.ts";
@@ -35,10 +34,7 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	if (typeof input !== "object" || input === null) return {};
 	const raw = input as Record<string, unknown>;
 
-	// Only ids the canvas's world actually has: stored propositions plus
-	// the DERIVED arg_ implication nodes (deriveView of the current graph
-	// — the same derivation the snapshot serves, so ids agree by
-	// construction).
+	// The same derivation the snapshot serves, so ids agree by construction.
 	const known = new Set(deriveView(getGraph(stores.graphStore)).nodes.map((n) => n.id));
 
 	const positions: Record<string, Position> = {};
@@ -56,7 +52,6 @@ export function commitPositions(input: unknown): Record<string, Position> {
 	if (Object.keys(positions).length === 0) return {};
 
 	// The graph grew past what the client knew (a merge landed mid-drag):
-	// some node of the CURRENT view is absent from the client's payload —
 	// settle the new nodes with the client's rest state as anchors.
 	if ([...known].some((id) => !(id in positions))) settleGraphLayout(stores.graphStore, positions);
 	else stores.graphStore.writePositions(positions);

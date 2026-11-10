@@ -1,9 +1,7 @@
 /**
  * JobStore — the fs JSON adapter: one file per background sub-agent job in
- * data/jobs/ (contracts.ts "THE ASYNC PROTOCOL"). Keyed by toolCallId for
- * dedup: the chat-handler spawn hook never creates two jobs for the same
- * tool part. Implements core/ports.ts JobStore. Idioms: sync fs, id-guarded
- * filenames, JSON with tab indentation. Writes are small and rare (activity
+ * data/jobs/. Keyed by toolCallId for dedup: the spawn hook never creates
+ * two jobs for the same tool part. Writes are small and rare (activity
  * line updates); the read-modify-write sections in the runner contain no
  * awaits, so they are atomic within the single-threaded event loop.
  */
@@ -18,7 +16,7 @@ import type { JobStore } from "./model/ports.ts";
 import type { CreateJobInit, JobPatch } from "./model/ports.ts";
 import type { JobRecord } from "./model/types.ts";
 
-/** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
+/** Background jobs (data/jobs). Not in config.ts PATHS (jobs-owned). */
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 
 function jobFile(id: string): string {
@@ -26,10 +24,9 @@ function jobFile(id: string): string {
 	return path.join(JOBS_DIR, `${id}.json`);
 }
 
-/** Writes announce on the events channel AFTER the write lands (the
- *  notify-after-write law, beginTurn precedent) — jobs-changed is what
- *  retires the view's interval poll (push S4, 2026-10-02): dispatch cards,
- *  progress lines, settles, and aborts all surface as one fetch. */
+/** Writes announce on the events channel AFTER the write lands —
+ *  jobs-changed is the view's refetch signal: dispatch cards, progress
+ *  lines, settles, and aborts all surface as one fetch. */
 function createJob(init: CreateJobInit): JobRecord {
 	const now = new Date().toISOString();
 	const record: JobRecord = {
@@ -87,7 +84,7 @@ function findJobByToolCallId(chatId: string, toolCallId: string): JobRecord | nu
 	return listJobs(chatId).find((j) => j.toolCallId === toolCallId) ?? null;
 }
 
-/** Delete every job record file for a chat (session-deletion wave 6) —
+/** Delete every job record file for a chat —
  *  running or finished, they are the chat's records and die with it.
  *  Returns how many files were removed. The deletion route refuses while
  *  jobs are still running, so every record here is terminal. */
@@ -101,8 +98,7 @@ function deleteJobsForChat(chatId: string): number {
 			/* already gone — the count is best-effort truth */
 		}
 	}
-	// Only when something actually died — a zero-file delete wrote nothing
-	// (the endTurn present-entry law).
+	// Only when something actually died — a zero-file delete wrote nothing.
 	if (removed > 0) emit("jobs-changed", { chatId });
 	return removed;
 }

@@ -1,6 +1,5 @@
 /**
- * POST /api/graph/import — the format-agnostic front door's transport
- * (vision §1, 2026-09-13): raw personal-notes files in, one extraction run
+ * POST /api/graph/import — raw personal-notes files in, one extraction run
  * per file through the SAME pipeline the sessions use. Multipart form data
  * (field "files", any text format — the extractor is format-agnostic); the
  * pipeline mints a deterministic source id per file path, persists the
@@ -8,8 +7,7 @@
  * extractor → auditor → merger over the raw text.
  *
  * Files run as wide as the background LLM pool: a burst of simultaneous
- * runs would trip provider rate limits. The dock's chips + graph refetch track progress live through
- * /api/graph/status, as with session runs.
+ * runs would trip provider rate limits. The dock tracks progress live.
  */
 import { services } from "@/src/boot";
 import { NotesImportError } from "@/src/graph";

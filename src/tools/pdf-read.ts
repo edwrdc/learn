@@ -7,20 +7,17 @@ import { serverExecute } from "./execute.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "./pdf-ops.ts";
 
 /**
- * PDF reading tools for the RESEARCHER sub-agent (owner design B,
- * 2026-10-07): PDFs from the web, with the pdf-reader agent's TEXT
- * capabilities — triage (pdf_info), page-level extraction (pdf_extract),
- * targeted lookup (pdf_search) — woven into the researcher's own loop so
- * page-cited content lands in the brief directly.
+ * PDF reading tools for the researcher sub-agent (owner decision): web
+ * PDFs with the pdf-reader's text capabilities (pdf_info / pdf_extract /
+ * pdf_search) in the researcher's own loop, so page-cited content lands in
+ * the brief directly.
  *
- * web_fetch_pdf acquires the file (download, size-capped, probe-validated)
- * into a per-job temp dir; every path-taking tool is SCOPED to that dir
- * (the researcher can never read outside it). pdf_render is deliberately
- * absent: the researcher's model slot has no vision — visual reading of
- * math-heavy pages stays the pdf job's job.
+ * web_fetch_pdf downloads the file (size-capped, probe-validated) into a
+ * per-job temp dir; every path-taking tool is scoped to that dir. pdf_render
+ * is deliberately absent: the researcher's model slot has no vision.
  *
- * Tool contract (the web.ts law): NEVER throw into the agent loop — every
- * failure path returns a clear error STRING the researcher can adapt to.
+ * Like web.ts, every failure path returns an error string instead of
+ * throwing.
  */
 
 const FETCH_TIMEOUT_MS = 60_000;

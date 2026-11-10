@@ -1,21 +1,17 @@
 import type { PlanEdge, PlanNode, PlanTree } from "./plan-types.ts";
 
 /**
- * Pure, validated plan-tree operations (vision §2 "the formal plan tree").
+ * Pure, validated plan-tree construction (vision §2 "the formal plan tree").
  *
- * Every function takes a tree and returns a NEW tree — never mutates its
- * input. All validation throws PlanTreeError with a message written for the
- * agent (it flows straight back as a tool-result error), stating exactly what
- * is wrong and which id/edge is at fault.
+ * Never mutates its input. All validation throws PlanTreeError with a
+ * message written for the agent (it flows straight back as a tool-result
+ * error), stating exactly what is wrong and which id/edge is at fault.
  *
- * Invariants enforced everywhere:
+ * Invariants:
  * - Node ids are unique and non-empty; every edge endpoint references an
  *   existing node.
  * - The structure is a DAG: no self-loops, no duplicate edges, no cycles.
- * - `version` increments on every successful STATE-CHANGING op. True no-ops
- *   (setCurrent to the already-current node, markDone of an already-done
- *   node) return the input tree unchanged — version drives UI re-animation,
- *   so a non-change must not tick it. createTree always starts at version 1.
+ * - createTree always starts at version 1.
  */
 
 /** Error thrown by every op on invalid input. Message is agent-readable. */
@@ -116,8 +112,5 @@ export function createTree(nodes: PlanNode[], edges: PlanEdge[]): PlanTree {
 	return { nodes: nodes.map((n) => ({ ...n })), edges: accepted, version: 1 };
 }
 
-// The per-node mutation ops (addNode/updateNode/removeNode/addEdge/removeEdge/
-// setCurrent/markDone) were deleted with the author-once protocol
-// (2026-09-03) and their dead exports removed with the 2026-09-11 pivot: the
-// tree carries structure ONLY — no progress fields exist to mutate
+// The tree carries structure ONLY — no progress fields exist to mutate
 // (docs/probe-teach-split.md §3). Restructuring is a plan_init rewrite.

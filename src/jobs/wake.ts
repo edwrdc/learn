@@ -1,6 +1,5 @@
 /**
- * THE WAKE PIPELINE (contracts.ts "THE ASYNC PROTOCOL" §4) — server-side
- * steer delivery for finished sub-agent jobs. One registry, two vehicles:
+ * THE WAKE PIPELINE — server-side steer delivery for finished sub-agent jobs. One registry, two vehicles:
  *
  *   deliverJobResult(chatId, steer) — the runner calls this on job completion. The
  *     steer joins a per-chat serialized registry and the pump drives it:
@@ -45,9 +44,9 @@ import { sessionHook } from "./durable-run.ts";
 import { abortBackgroundRun } from "./runtime.ts";
 
 /** Fires one server-side teacher turn: (chatId, input) → HTTP-ish status.
- *  Wave C: the input is the IDLE WAKE — every queued marker as the turn's
- *  input appends (the handler appends them natively under the wake's own
- *  turn claim; one composition for every turn). */
+ *  The input is the IDLE WAKE — every queued marker as the turn's input
+ *  appends (the handler appends them natively under the wake's own turn
+ *  claim; one composition for every turn). */
 type TurnRunner = (chatId: string, input: TurnInput) => Promise<number>;
 
 /** Re-runs a job's sub-agent loop (crash recovery for orphaned jobs). */
@@ -69,8 +68,8 @@ interface WakeState {
 	turnRunner?: TurnRunner;
 	respawn?: JobRespawn;
 	/** chatId → steers awaiting delivery, in arrival order. The single
-	 *  delivery registry (Wave C: the agent's own follow-up queue is a
-	 *  per-run VEHICLE, not the registry — settlement reconciles here). */
+	 *  delivery registry (a live run's inbox is a per-run VEHICLE, not the
+	 *  registry — settlement reconciles here). */
 	queues: Map<string, QueuedSteer[]>;
 	/** Chats whose pump loop is currently active (serialization per chat). */
 	pumping: Set<string>;
@@ -80,12 +79,12 @@ function state(): WakeState {
 	return processState<WakeState>("wakePipeline", () => ({ queues: new Map(), pumping: new Set() }));
 }
 
-/** chat-handler wires this at module init: its adapter around handleChatRequest. */
+/** boot() wires this: an adapter around handleChatInput. */
 export function setTurnRunner(run: TurnRunner): void {
 	state().turnRunner = run;
 }
 
-/** chat-handler wires this at module init: its job runner's runJob. */
+/** boot() wires this: the job runner's runJob. */
 export function setJobRespawn(respawn: JobRespawn): void {
 	state().respawn = respawn;
 }
@@ -95,16 +94,14 @@ const POLL_MS = 400;
  *  answered a question is about to send its continuation; don't 409 it.
  *
  *  Evidence for 750: the race window is exactly the learner's answer→POST
- *  flight — sendAutomaticallyWhen dispatches synchronously on addToolOutput,
- *  the answer hits the record only at the write-ahead persist, and beginTurn
- *  flips the turn registry immediately after, all before the grace can fire
- *  (measured localhost RTT ~10ms; typical LAN/production RTT <300ms). 750ms
- *  is 2.5× the worst realistic flight. A miss self-heals: the pump rechecks
- *  the gates after the grace AND the wake pipeline retries 409s with a
- *  backoff ramp — and since the transport's merge-retry (chat-transport.ts)
- *  made client 409s non-fatal, even a pathological RTT degrades gracefully.
- *  (Was 1500 — pure guess; 750 claws back 750ms of post-answer delivery
- *  latency without weakening the guard.) */
+ *  flight — the answer hits the record only at the write-ahead persist, and
+ *  beginTurn flips the turn registry immediately after, all before the
+ *  grace can fire (measured localhost RTT ~10ms; typical LAN/production RTT
+ *  <300ms). 750ms is 2.5× the worst realistic flight. A miss self-heals: the
+ *  pump rechecks the gates after the grace AND the wake pipeline retries
+ *  409s with a backoff ramp — and the client's 409 retry
+ *  (src/lib/chat/session-core.ts) makes client 409s non-fatal, so even a
+ *  pathological RTT degrades gracefully. */
 const GRACE_MS = 750;
 /** 409 backoff: capped ramp so a busy client can't spin the pump. */
 const RETRY_BACKOFF_MS = [500, 1000, 2000, 5000] as const;
@@ -127,7 +124,7 @@ function jobIdOf(steer: SteerMessage): string | null {
  *  the write-ahead persist in handleChatInput (the wake's input appends —
  *  the card is durable in the record). The registry's delivery promise
  *  still settles via settleSteers / the runner-200 path; finalizeJob is
- *  idempotent, so the later flip is a no-op. Owner ruling (2026-09-26): a
+ *  idempotent, so the later flip is a no-op. Owner decision: a
  *  delivered subagent leaves the background dock the moment its result is
  *  visible, not when the teacher's turn ends. */
 export function noteSteerVisible(steer: SteerMessage): void {
@@ -186,7 +183,7 @@ async function submitSteer(chatId: string, steer: SteerMessage): Promise<boolean
 	}, BACKGROUND_CONTEXT);
 }
 
-/** The steer route's live hand-off (composer steering, 2026-10-03): a
+/** The steer route's live hand-off: a
  *  learner message for a RUNNING turn becomes a durable inbox input — the
  *  run reads it at its next boundary and the record keeps it. False means
  *  no committed run is live (the caller 409s and the client falls back to
@@ -252,11 +249,10 @@ interface AbortOutcome {
 }
 
 /**
- * ABORT (2026-09 dock semantics, user-decided): real kill, error with
- * reason, the teacher still learns. The dock's END button reaches this
- * through POST /api/activity/abort (body {kind: "job", id: jobId}); the
- * route is master's thin composition — this is the job-side mechanism.
- * Four things happen, in order:
+ * ABORT (owner decision): real kill, error with reason, the teacher still
+ * learns. The dock's END button reaches this through POST
+ * /api/activity/abort (body {kind: "job", id: jobId}). Four things happen,
+ * in order:
  *
  *   1. RECORD the abort intent before touching the runtime: flip the
  *      record to error "Aborted by learner", so a
@@ -268,18 +264,18 @@ interface AbortOutcome {
  *   2. KILL the spend: fire the job's registered AbortController (the
  *      runner registered it at loop start) — the in-flight model call
  *      aborts, not just the next loop check. The runner unwinds silently
- *      (its catch checks abortSignal.aborted; finishJob checks status).
+ *      (its catch checks the signal; finishJob checks status).
  *   3. DROP any queued result steer for this job (the delivering-result
- *      phase): resolve its entry without firing the wake. If the wake
- *      turn is ALREADY in flight (the pump shifted the entry), it's too
- *      late — the result steer lands, and the cancellation steer dedupes
- *      against it via steerDelivered (same jobId metadata).
+ *      phase): resolve its entry without firing the wake. If it was ALREADY
+ *      submitted to a live run, it's too late — the result steer lands, and
+ *      the cancellation steer dedupes against it via steerDelivered (same
+ *      jobId metadata).
  *   4. STEER the teacher: a one-line abort note (buildAbortSteer) through
  *      the same wake pipeline, so the teacher's promise of a result
  *      doesn't hang silently in the lesson.
  *
- * The runner writes the usage folded so far in its finally (merge patch),
- * so an aborted job's money record survives the kill.
+ * The runner writes usage as it accrues, so an aborted job's money record
+ * survives the kill.
  */
 export function abortJob(jobId: string): AbortOutcome {
 	const job = jobStore.getJob(jobId);
@@ -299,9 +295,9 @@ export function abortJob(jobId: string): AbortOutcome {
 	}
 
 	// Drop any queued steers for this job (their deliver() resolves unfired).
-	// HANDED entries (already in a live run's follow-up queue) are past
-	// recall — same ruling as a fired wake: the result lands, and the abort
-	// note below dedupes against it via steerDelivered (same jobId).
+	// SUBMITTED entries (already in a live run's inbox) are past recall: the
+	// result lands, and the abort note below dedupes against it via
+	// steerDelivered (same jobId).
 	const queue = state().queues.get(job.chatId);
 	if (queue) {
 		const remaining = queue.filter(
@@ -329,14 +325,14 @@ export function abortJob(jobId: string): AbortOutcome {
 }
 
 /**
- * The per-chat pump: delivers the registry along pi's two native paths.
+ * The per-chat pump: delivers the registry along its two vehicles.
  * Only one loop per chat at a time; later arrivals ride the registry.
  *
  * Each iteration first clears dead weight (gone chat, already-delivered
- * markers), then picks the vehicle: a LIVE turn takes every eligible
- * marker via agent.followUp (the run continues at its own stop — nothing
- * more to do here until settlement re-pumps); otherwise the IDLE WAKE
- * fires ONE turn carrying every pending marker as its input appends.
+ * markers), then picks the vehicle: a LIVE run takes every eligible
+ * marker through its durable inbox (nothing more to do here until
+ * settlement re-pumps); otherwise the IDLE WAKE fires ONE turn carrying
+ * every pending marker as its input appends.
  */
 async function pump(chatId: string): Promise<void> {
 	const s = state();
@@ -424,8 +420,8 @@ async function pump(chatId: string): Promise<void> {
 				continue; // the gone-chat branch rejects next iteration
 			}
 
-			// The runner is required — chat-handler sets it at init. If some
-			// module instance missed the wiring, fail loudly rather than hang.
+			// The runner is required — boot() sets it. If some module instance
+			// missed the wiring, fail loudly rather than hang.
 			if (!s.turnRunner) {
 				s.queues.delete(chatId);
 				const err = new Error("wake pipeline: no turn runner wired (setTurnRunner)");
@@ -450,21 +446,19 @@ async function pump(chatId: string): Promise<void> {
 				return;
 			}
 
-			// THE DISMISSAL PAUSE (owner design 2026-10-03, "A2"): the record
+			// THE DISMISSAL PAUSE (owner design): the record
 			// ends in a user dismissal — the session waits for the USER. Hold
 			// every marker in the queue (no wake fires) and return; the user's
-			// next send is the wake that carries them (the in-run vehicle below
-			// hands them to that turn once the text-claim lands — until then,
-			// settlement re-pumps and lands them right after it). The pause is
-			// derived from the tail, so any user message un-holds by construction.
+			// next send un-holds them — its settlement re-pumps and lands them
+			// right after it. The pause is derived from the tail, so any user
+			// message un-holds by construction.
 			if (endsInDismissal(fresh.messages)) {
 				return;
 			}
 
-			// DEQUEUE-AT-FIRE (the Wave C lesson from the Wave B regression):
-			// the carried markers leave the registry BEFORE the turn runs —
-			// the wake run's OWN follow-up poll must never see its own cargo,
-			// and a 409 (client raced in) must be able to push them back.
+			// DEQUEUE-AT-FIRE: the carried markers leave the registry BEFORE the
+			// turn runs — the wake run must never see its own cargo still
+			// queued, and a 409 (client raced in) must be able to push them back.
 			s.queues.delete(chatId);
 			const steers = fire.map((e) => e.steer);
 
@@ -560,13 +554,11 @@ async function waitForIdle(chatId: string): Promise<void> {
 // ─── crash recovery ──────────────────────────────────────────────────────────
 
 /**
- * Boot-time sweep, LIVENESS-GATED
- * (accuracy wave, 2026-09-19): a "running" record without a live loop
- * registration (subagents/aborts.ts) is an orphan of a process death —
- * re-deliver its stored result (idempotently) or re-spawn the loop, at
- * once (the old 15-minute age heuristic waited on ghosts AND re-ran
- * hung-but-alive loops beside themselves — the figure-maker incident,
- * 2026-09-18). A record WITH a live registration is provably executing
+ * Boot-time sweep, LIVENESS-GATED: a "running" record without a live loop
+ * registration (aborts.ts) is an orphan of a process death — re-deliver
+ * its stored result (idempotently) or re-spawn the loop, at once (an age
+ * heuristic would wait on ghosts AND re-run hung-but-alive loops beside
+ * themselves). A record WITH a live registration is provably executing
  * in THIS process — never touched, however old: a hung first model call
  * (zero usage ever billed) stays honestly "running" in the dock until
  * END kills it. The abort registration spans loop start to delivery

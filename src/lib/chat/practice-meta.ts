@@ -1,4 +1,4 @@
-/** The conclude card's metadata rows (the old MetadataPopover data seam). */
+/** The conclude card's metadata rows. */
 interface PracticeMetaInputs {
 	conclude: { outcome?: string; rung?: unknown; missClass?: unknown; retest?: unknown };
 	problem: { mode?: unknown; target?: unknown };

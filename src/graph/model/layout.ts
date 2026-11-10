@@ -1,14 +1,13 @@
 /**
- * The layout engine — d3-force, everywhere (DECIDED 2026-09-13).
+ * The layout engine — d3-force, everywhere (owner decision).
  *
  * One engine owns the equilibrium: the merge-time incremental settle AND
  * the live drag physics run the SAME force set (links as springs, charge
  * repulsion, weak gravity), so the positions ledger and the transient
- * simulation agree on what "resting" means. (FA2 was replaced after a
- * research round: it has no annealing/pinning/settle model and mixing it
- * with a different live engine visibly re-flows the graph on every drag.)
+ * simulation agree on what "resting" means (mixing in a different live
+ * engine visibly re-flows the graph on every drag).
  *
- * Layout EVOLVES instead of reshuffling (Option A): each settle warm-starts
+ * Layout EVOLVES instead of reshuffling: each settle warm-starts
  * from the positions ledger and spring-ties every previously-positioned
  * node toward its anchor (a per-node anchor force). New nodes seed near
  * their positioned neighbors; orphans seed on the rim OUTSIDE the core and
@@ -16,8 +15,7 @@
  *
  * Design constraints (kept deliberately, for live physics):
  *  - PURE: no fs, no server types — this module runs server-side (the
- *    merge settle) and in the browser (the live simulation, via the core
- *    barrel). A pinned node is just fx/fy; an anchored node is a spring.
+ *    merge settle) and in the browser (the live simulation). A pinned node is just fx/fy; an anchored node is a spring.
  *  - DETERMINISTIC: seeds derive from node id; d3-force ticks are
  *    deterministic — same inputs, same layout.
  */
@@ -60,7 +58,7 @@ export interface DepthAnchor {
 }
 
 /** Inference depth per node: the longest chain of directed edges from a
- * base node. CYCLE-SAFE (2026-09-13, user requirement — the DAG property
+ * base node. CYCLE-SAFE (owner requirement — the DAG property
  * is typical, not guaranteed): Tarjan SCC condensation collapses each
  * strongly connected component to one super-node, ranks the (always
  * acyclic) condensation, and every cycle member shares its component's
@@ -172,12 +170,10 @@ interface SimOptions {
 	depthAnchor?: DepthAnchor;
 	/** The LOGICAL edge list (proposition→conclusion, imp hops
 	 *  contracted) for the depth machinery — orphan detection AND the
-	 *  rank pass (owner, 2026-09-30). Absent = `edges` (legacy
-	 *  behavior). Springs ALWAYS run over `edges` — the drawn arrows. */
+	 *  rank pass. Absent = `edges`. Springs ALWAYS run over `edges` — the drawn arrows. */
 	logicalEdges?: ReadonlyArray<LayoutEdge>;
 	/** The derived imp nodes' chain linkage (id + members), straight
-	 *  from deriveView. Drives the IMP MIDPOINT ANCHOR (owner,
-	 *  2026-09-30): an implication node's depth is the average of the
+	 *  from deriveView. Drives the IMP MIDPOINT ANCHOR: an implication node's depth is the average of the
 	 *  HIGHEST premise row and the conclusion's row — strictly above
 	 *  every premise, strictly below the conclusion, uniform in vertical
 	 *  (a row) and radial (a ring) modes. Absent = imp nodes keep the
@@ -188,7 +184,7 @@ interface SimOptions {
 	 *  centroid. Two O(n) passes per tick — cheaper than a real virtual
 	 *  node (which would need one extra link spring per member plus a
 	 *  maintained position). Strength 0 or absent = force off.
-	 *  Callers supply the partition (Louvain output shape). */
+	 *  Callers supply the partition. */
 	clusterPull?: {
 		clusters: ReadonlyArray<{ members: ReadonlyArray<string> }>;
 		strength: number;
@@ -213,20 +209,20 @@ interface ImpLink {
 /* Links TOUCHING an imp node get HALF the base rest length — the
  * argument's geometry (a converging point) sits tight against its
  * premises/conclusion instead of spread like a real proposition citizen
- * (owner ruling, rendering arc 2026-09-30). */
+ * (owner decision). */
 const impLinkId = (v: string | number | { id: string }): string =>
 	typeof v === "object" ? v.id : String(v);
 /** Per-tick anchor re-blend: fraction of an anchored node's displacement
  *  from its previous position that SURVIVES each tick. 0.85 = gentle
  *  evolution where forces are strong, stillness where they are not —
- *  the exact FA2-era constant. Position-space (alpha-independent), so it
+ *  Position-space (alpha-independent), so it
  *  cannot be overpowered by d3's long-range link springs the way a force-
  *  space anchor can (forceLink is a Hooke spring: strength*(d-L)*alpha). */
 const ANCHOR_RETENTION = 0.85;
 /** Gravity strengths. d3 manyBody repulsion falls off as 1/d, so two
  *  20-node blobs at distance d push with ~n1*n2*|charge|/d; cluster
  *  spacing settles where that equals g*d*n/2 — g=0.03 lands clusters
- *  ~400 world units apart (the FA2-era density), and the anchor re-blend
+ *  ~400 world units apart, and the anchor re-blend
  *  (position-space, alpha-independent) keeps gravity's transient sag
  *  from ever moving an anchored node at rest. */
 const BOOTSTRAP_GRAVITY = 0.2;
@@ -259,7 +255,7 @@ export function createGraphSimulation(
 				edges.map((e) => ({ source: e.from, target: e.to })),
 			)
 				.id((d) => d.id)
-				// Per-link rest length (rendering arc, owner 2026-09-30): a
+				// Per-link rest length: a
 				// link touching an implication node (arg_-prefixed id — the
 				// string form pre-init, the node ref after) gets HALF the
 				// base distance, default or user-tuned alike.
@@ -284,14 +280,12 @@ export function createGraphSimulation(
 	// y axis, so gravity goes x-only (it would fight the level lines); in
 	// radial mode a center pull is purely radial and would fight the
 	// rings, so it is dropped entirely (rings already bound the radius).
-	// Depth mode projections (DECIDED 2026-09-13), with the ORPHAN RULE
-	// (user-decided, same day): a node with no edges at all has no
+	// Depth mode projections, with the ORPHAN RULE (owner decision): a node with no edges at all has no
 	// dependency structure — depth is a property of inference chains, so
 	// stamping unconnected propositions onto the baseline / base ring
 	// assigns them meaning they don't have. Orphans are exempt from the
 	// depth force and keep the REGULAR view's forces instead (full center
-	// gravity + full cluster pull, unprojected). AMENDED (owner,
-	// 2026-09-30 physics follow-up): in VERTICAL mode the central pole is
+	// gravity + full cluster pull, unprojected). Except: in VERTICAL mode the central pole is
 	// a HORIZONTAL force for everyone — structured and orphan/imp alike —
 	// y belongs to the depth rows and to nothing else; the full regular
 	// pull survives only in radial mode (where the rings own the radius).
@@ -311,8 +305,7 @@ export function createGraphSimulation(
 			connected.add(e.from);
 			connected.add(e.to);
 		}
-		// Proposition ranks first; then the IMP MIDPOINT ANCHOR (owner,
-		// 2026-09-30): an implication node's depth = (highest premise row
+		// Proposition ranks first; then the IMP MIDPOINT ANCHOR: an implication node's depth = (highest premise row
 		// + conclusion row) / 2 — the junction sits strictly above every
 		// premise and strictly below the conclusion (a conclusion is
 		// always ≥ highest premise + 1), uniform in both modes: a row in
@@ -355,8 +348,7 @@ export function createGraphSimulation(
 		sim.force("y", forceY<LayoutNode>(g.y).strength(g.strength));
 	} else if (g) {
 		// Mode-projected gravity, EXACTLY d3's forceX/forceY math (restoring
-		// force × strength × alpha). VERTICAL (owner, 2026-09-30 physics
-		// follow-up): the central pole is horizontal-ONLY for EVERY node —
+		// force × strength × alpha). VERTICAL: the central pole is horizontal-ONLY for EVERY node —
 		// structured (the depth force owns y) and orphan/imp alike (an
 		// unstructured node has no row to sit on and no pole to sag
 		// toward; its y is free). RADIAL: orphans keep the full regular
@@ -500,9 +492,7 @@ interface IncrementalLayoutOptions {
 	/** Center-of-mass gravity strength override (tuning/A-B experiments;
 	 *  defaults to the internal bootstrap/incremental constants). */
 	gravityStrength?: number;
-	/** Cluster partition (Louvain output shape). Supplied by callers so
-	 *  this module stays louvain-free (the browser bundle must not carry
-	 *  embedding ledger; absent = no cluster pull. */
+	/** Cluster partition, supplied by callers; absent = no cluster pull. */
 	clusters?: ReadonlyArray<{ members: ReadonlyArray<string> }>;
 	/** Cluster centroid pull strength (default CLUSTER_PULL_STRENGTH). */
 	clusterPullStrength?: number;
@@ -575,8 +565,7 @@ export function incrementalLayout(
 	// The rim radius derives from the CONNECTED core's mean radius — orphans
 	// never inflate it (a max-span-based radius feeds back: each batch's
 	// rim pushes the next batch's rim farther out, and the layout runs
-	// away). 1.7x matches the density the FA2-era settle produced
-	// (orphan mean r ~338 vs connected ~194).
+	// away). 1.7x: orphan mean r ~338 vs connected ~194.
 	let rimRadius = 0;
 	let connectedAnchored = 0;
 	for (const [id, a] of anchors) {
@@ -588,7 +577,6 @@ export function incrementalLayout(
 	else if (hasCore) rimRadius = coreRadius * 1.15; // no connected anchors yet: bbox fallback
 	rimRadius += 4;
 
-	// Seed every node.
 	const simNodes: LayoutNode[] = nodes.map((node) => {
 		const rand = seededRandom(node.id);
 		const anchor = anchors.get(node.id);
@@ -665,7 +653,7 @@ export function incrementalLayout(
 		// arrangement in the FREE dimension only — x in vertical mode, the
 		// angle in radial mode — because the depth force owns the
 		// constrained dimension (a node's level/ring is meaning, not
-		// memory). Off-mode: full 2D blend as before.
+		// memory). Off-mode: full 2D blend.
 		if (hasCore && retention < 1) {
 			for (const [id, a] of anchors) {
 				const n = byId.get(id);

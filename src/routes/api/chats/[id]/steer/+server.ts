@@ -1,15 +1,11 @@
-// POST /api/chats/[id]/steer — the composer's mid-turn steering rail
-// (owner arc 2026-10-03). The learner's message for a RUNNING turn rides
-// pi's steering queue: drained at the next response boundary INSIDE the
-// same run (agent.steer + steeringMode "all"), forwarded verbatim on the
-// live stream (the client upserts the card by the client-minted id), and
-// persisted by the turn's own settlement.
+// POST /api/chats/[id]/steer — the composer's mid-turn steering rail. The
+// learner's message for a RUNNING turn becomes a durable inbox input, read
+// at the run's next boundary and kept by the record; the client upserts the
+// card by the client-minted id.
 //
 // This is steering, NOT follow-ups: the route never starts a turn and
 // never extends an ended one. No live turn → 409 and the client falls
-// back to a plain text send (the settle race). Stranding safety: the
-// registry copy survives a question termination or abort and rides the
-// chat's next run.
+// back to a plain text send (the settle race).
 import { ChatInputError, newUserSteer, parseUserSteerInput } from "@/src/session/model";
 import { requireChat } from "@/src/session";
 import { readJson } from "@/src/platform";

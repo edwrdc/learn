@@ -1,23 +1,20 @@
 /**
- * THE SILENT DISMISSAL ROUTE (owner design 2026-10-03, "A2"): ESC-abort
- * from a pending question writes the dismissed toolResult to the record
- * and wakes NOTHING — no beginTurn, no agent, no tokens. The session
- * enters the derived dismissal pause (endsInDismissal): job deliveries
- * hold in the wake pipeline's steer queue, the continuation fold demands
- * nothing, and the user's next plain message is the wake that carries
- * the dismissal (plus any held deliveries) into the agent's context.
+ * THE SILENT DISMISSAL ROUTE (owner design): ESC-abort from a pending
+ * question writes the dismissed toolResult to the record and wakes NOTHING —
+ * no turn, no agent, no tokens. The session enters the derived dismissal
+ * pause (endsInDismissal): job deliveries hold in the wake pipeline's steer
+ * queue, and the user's next plain message is the wake that carries the
+ * dismissal (plus any held deliveries) into the agent's context.
  *
  * Parallel question calls: each dismissal completes exactly its own call
  * (results bind by toolCallId, not position), so the dock advances
  * call-by-call and the composer returns only when nothing dangles.
  *
- * Guards mirror the turn route's honesty: 404 unknown chat, 400 for an
- * input that targets no dangling question call (or isn't a real
- * dismissal). A RUNNING turn no longer refuses (owner, 2026-10-04 — the
- * GLM practice-loop incident): the dismissal is PARKED server-side and
- * the turn's settle path applies it against the persisted record, so
- * ESC-discard now doubles as the turn abort's bookkeeper (the client
- * fires both).
+ * Guards: 404 unknown chat, 400 for an input that targets no dangling
+ * question call (or isn't a real dismissal). A RUNNING turn does not refuse
+ * (owner decision): the dismissal is PARKED (202) and the turn's settle path
+ * applies it against the persisted record, so ESC-discard doubles as the
+ * turn abort's bookkeeper (the client fires both).
  */
 import { ChatInputError, parseDismissInput } from "@/src/session/model";
 import { isTurnRunning, parkDismissal, requireChat, writeDismissal } from "@/src/session";
@@ -39,21 +36,15 @@ export async function POST({ request: req, params }: RequestEvent): Promise<Resp
 		throw err;
 	}
 
-	// A running turn owns the chat's record (its messages persist at
-	// settle) — the dismissal cannot validate against stale truth, so it
-	// is PARKED (owner, 2026-10-04): onFinish applies it to the settled
-	// record if the dismissed question/problem really is pending there.
-	// The dismissing client has also aborted the turn — this 202 is the
-	// "noted, will land" contract.
+	// A running turn owns the chat's record — the dismissal cannot validate
+	// against stale truth, so it is parked and applied at settle. The 202 is
+	// the "noted, will land" contract.
 	if (await isTurnRunning(id)) {
 		parkDismissal(id, input);
 		return Response.json({ ok: true, parked: true }, { status: 202 });
 	}
 
 	try {
-		// Turn-less: the record is the only state that moves. The question's
-		// answer REPLACES its pose placeholder's result; a problem discard
-		// appends its UI-only marker.
 		await writeDismissal(id, input);
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });

@@ -1,6 +1,5 @@
 /**
- * The UI parse seam — parse, don't cast (the rule born of the 2026-09-12
- * live crashes).
+ * The UI parse seam — parse, don't cast.
  *
  * WHY THIS EXISTS. Validation IS first at the model-facing boundary — pi
  * validates arguments against the tool's TypeBox schema before execute,
@@ -15,9 +14,8 @@
  *
  * So invalid input is always observable, and part STATES carry the verdict
  * (input-streaming = partial, input-available = validated, output-error =
- * garbage). The flaw that made the crashes possible: consumers trusted
- * those shapes via TypeScript CASTS — `part.input as X` is a compile-time
- * lie the checker believes, with no runtime check behind it.
+ * garbage). A TypeScript CAST — `part.input as X` — is a compile-time lie
+ * the checker believes, with no runtime check behind it.
  *
  * THE RULE (mechanical, not vigilance): model-authored INPUT is consumed
  * only through these parsers, each running the SAME TypeBox schema the model
@@ -33,10 +31,10 @@ import { quizDisplayInputSchema, askInputSchema, askOptionProblems, quizInputPro
 import { healEncodedArguments } from "../../tools/model/index.ts";
 import { probeDoneInputSchema, type ProbeDoneInput } from "./probe-types.ts";
 
-/** The pi-boundary parse step, mirrored here (live-smoke fix, 2026-09-26):
- *  pi-ai's validateToolArguments runs TypeBox's Value.Convert on the model's
- *  raw arguments before Value.Check — a correctAnswer sent as the NUMBER 17
- *  (what the live smoke's model actually emitted) converts to "17" at the
+/** The pi-boundary parse step, mirrored here: pi-ai's
+ *  validateToolArguments runs TypeBox's Value.Convert on the model's raw
+ *  arguments before Value.Check — a correctAnswer sent as the NUMBER 17
+ *  (models do emit this) converts to "17" at the
  *  boundary, so the tool poses the quiz fine. But the persisted record keeps
  *  the RAW arguments, so a parse seam that skips Convert would reject the
  *  exact input the boundary accepted — an invisible pending quiz and a
@@ -55,8 +53,7 @@ function boundaryParse<T>(schema: TSchema, input: unknown): T | undefined {
  * Both boundaries (the prober's quizInputBase, the teacher's quizInputObject
  * over base + optional nodeId) share THE SAME quizInputBase fields, so
  * anything that passed either boundary parses here; the teacher-only
- * `nodeId` is an unknown key Value.Clean strips (zod's old strip behavior,
- * kept so the display shape stays exactly what the dock always saw). This
+ * `nodeId` is an unknown key Value.Clean strips. This
  * is deliberately the LENIENT common core — the strict per-agent authoring
  * checks are the boundary's job — but it runs the shared grading
  * refinement (quizInputProblems) after Convert, mirroring the boundary's
@@ -65,18 +62,16 @@ function boundaryParse<T>(schema: TSchema, input: unknown): T | undefined {
  * call. The display parse follows the same order so an input that could
  * never have been posed (e.g. `correctAnswer: undefined`, which Convert
  * widens to "") renders as a quiet fallback, not a broken quiz.
- */
-/** Shape parsing never repairs authored text. The dock builds its answer
+ *
+ * Shape parsing never repairs authored text. The dock builds its answer
  * data from this source copy; recovery belongs exclusively to presentation
- * (ToolContentResponse), never option identities, grading, or snapshots. */
+ * (answer-presentation.ts), never option identities, grading, or snapshots.
+ */
 export function parseQuizInput(input: unknown): QuizToolInput | undefined {
-	// quizDisplayInputSchema (question-core, owner 2026-10-03): base + the
-	// OPTIONAL `type` — new teach-phase records carry predict|check and the
-	// dock renders/gates by it (normalizeQuizType at the read seam); old and
-	// probe records carry none. nodeId stays an unknown key Value.Clean
-	// strips, exactly as before.
-	// The display mirror of the boundary heal (whitehead, 2026-10-09): the
-	// record keeps RAW arguments, so the recorded `type: "\"predict\""`
+	// quizDisplayInputSchema: base + the OPTIONAL `type` — teach-phase
+	// records carry predict|check and the dock renders/gates by it
+	// (normalizeQuizType at the read seam); old and probe records carry none.
+	// The display mirror of the boundary heal: the record keeps RAW arguments, so the recorded `type: "\"predict\""`
 	// wobble must heal HERE too or a posed quiz renders invisible (the
 	// tool-parts law). healEncodedArguments is the same pure pass the
 	// boundary's withArgumentHeal runs.
@@ -91,7 +86,7 @@ export function parseQuizInput(input: unknown): QuizToolInput | undefined {
  * Ask parse for DISPLAY: the full ask schema (options optional — free-text
  * mode is the options-less shape), plus the option-sanity refinement the
  * boundary enforced (askOptionProblems — duplicate values break the dock's
- * keying, so they parse to undefined exactly like the zod seam did).
+ * keying, so they parse to undefined).
  */
 export function parseAskInput(input: unknown): AskToolInput | undefined {
 	const cleaned = boundaryParse<AskToolInput>(askInputSchema, input);
@@ -102,7 +97,7 @@ export function parseAskInput(input: unknown): AskToolInput | undefined {
 
 /** Explain parse for DISPLAY: the display schema (base + OPTIONAL
  *  lenient `type`, exactly the quiz pattern — teach explain calls carry
- *  the role since 2026-10-09; the commitment refinement
+ *  the role; the commitment refinement
  *  (explainInputProblems) mirrors the boundary chain). Both explain
  *  variants share the same fields; the teacher's nodeId is an unknown
  *  key Value.Clean strips, same as the quiz seam. */
@@ -113,7 +108,7 @@ export function parseExplainInput(input: unknown): ExplainToolInput | undefined 
 	return cleaned;
 }
 
-/** probe_done parse — the core-owned schema the tool itself declares. */
+/** probe_done parse — the schema the tool itself declares. */
 export function parseProbeDoneInput(input: unknown): ProbeDoneInput | undefined {
 	return boundaryParse<ProbeDoneInput>(probeDoneInputSchema, input);
 }

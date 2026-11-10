@@ -4,13 +4,12 @@
 export const LABEL_SIZE = 12; // the reference label size the wrap-width ratio is taken against
 export const LABEL_WEIGHT = "500";
 
-/** Region (cluster) labels — wave 7's session names made the labels
- *  LONG: imported-file paths and renamed chat titles. They wrap at a
- *  screen-fixed width (the labels are viewer-relative — this px value
- *  is exact on screen at any zoom), capped at a line count with an
- *  ellipsis on the last line (owner, 2026-09-23: wrap, cap 2–3 lines,
- *  ellipsize — a bounded footprint that keeps most of the path
- *  visible). */
+/** Region (cluster) labels are session names — LONG: imported-file paths
+ *  and renamed chat titles. They wrap at a screen-fixed width (the labels
+ *  are viewer-relative — this px value is exact on screen at any zoom),
+ *  capped at a line count with an ellipsis on the last line (owner
+ *  decision: wrap, cap 2–3 lines, ellipsize — a bounded footprint that
+ *  keeps most of the path visible). */
 export const REGION_LABEL_MAX_WIDTH = 220; // screen px
 export const REGION_LABEL_MAX_LINES = 3;
 export const REGION_LABEL_LINE_HEIGHT = 1.3;
@@ -80,7 +79,7 @@ export function wrapRegionLabel(
 	return lines;
 }
 
-/** Label-only cluster patch (rename-shuffle fix, 2026-09-23): apply a set
+/** Label-only cluster patch: apply a set
  *  of live label updates to the data-side cluster records AND the built
  *  region meta (re-wrapping the changed entries with the provided
  *  measure — the same wrap a geometry build would produce). The
@@ -121,13 +120,9 @@ export const LABEL_MAX_WIDTH = 170; // wrap width at the reference label size, w
 export const LABEL_GAP = 2.9; // world units between node edge and first label line (the 2px-at-fit reference ÷ 0.69)
 const LABEL_LINE_HEIGHT = 1.3;
 /** The node→cluster label cross-fade spans gate × this (camera-ratio
- *  units) — PROPORTIONAL since 2026-09-17. The old absolute span (0.5
- *  ratio) read as a 100% relative change at the old 0.5 gate but a bare
- *  12% sliver at the tuned 8x gate (ratio 4): "lower zoom levels naturally
- *  produce a longer transitionary period while higher ones are more
- *  abrupt" — the user's exact observation. Proportional keeps ONE
- *  transitionary feel at any gate; at the 8x default the handoff fades
- *  across a full stop (8x → 12x). */
+ *  units) — PROPORTIONAL, so the handoff feels the same at any gate (an
+ *  absolute span is long at low gates and abrupt at high ones); at the
+ *  8x default the handoff fades across a full stop (8x → 12x). */
 export const LABELS_FADE_RATIO = 0.5;
 
 /** Word-wrap for canvas text. Never truncates: overlong single words are

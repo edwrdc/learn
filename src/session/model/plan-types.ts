@@ -1,10 +1,7 @@
 /**
- * Plan-tree contracts — the session-scoped dependency tree
- *
- * Part of the domain-split contracts (src/core/contracts/): each domain file
- * is owned outright by its stream — cross-domain schema changes go through
- * master. Pure types + protocol docs + tiny pure helpers; type-only imports
- * of "ai" (safe everywhere: server, client, tests). See docs/vision.md.
+ * Plan-tree contracts — the session-scoped dependency tree.
+ * Pure types + protocol docs + tiny pure helpers (safe everywhere: server,
+ * client, tests). See docs/vision.md.
  */
 // ─── Plan tree (vision §2 "formal plan tree") ────────────────────────────────
 // A session-scoped dependency tree authored by the teacher via plan tools.
@@ -29,23 +26,21 @@ export interface PlanEdge {
 export interface PlanTree {
 	nodes: PlanNode[];
 	edges: PlanEdge[];
-	/** Increments on every mutation — lets the UI animate/react to changes. */
+	/** Lets the UI animate/react to changes; createTree starts at 1. */
 	version: number;
 }
 
-// NOTE (2026-09-11 pivot, docs/probe-teach-split.md): the tree once carried
-// `currentNodeId` / `doneNodeIds` — progress fields. They are GONE by
-// design: the tree carries structure ONLY; position and visited-ness derive
-// from the transcript at render time (derivePlanStatuses below). There is no
-// done ledger of any kind. No backwards compatibility for old records.
+// The tree carries structure ONLY (docs/probe-teach-split.md): position and
+// visited-ness derive from the transcript at render time
+// (derivePlanStatuses below). There is no done ledger of any kind.
 
 /** Derived, never stored: status of a node for the panel (vision §2). */
 export type PlanNodeStatus = "current" | "visited" | "upcoming";
 
 // ─── derived statuses: position from CALLS, never from results ─────────────
 //
-// (2026-09-11 pivot — docs/probe-teach-split.md §3.) The teacher AUTHORS the
-// map (plan_init, mermaid — re-callable rewrite) and never tracks progress.
+// (docs/probe-teach-split.md §3.) The teacher AUTHORS the map (plan_init,
+// mermaid — re-callable rewrite) and never tracks progress.
 // The quiz `nodeId` means "this question is ABOUT this node" — a position
 // signal, never a completion signal. Derivation reads CALLS only:
 //   current — the node of the most RECENT tagged quiz call (any state)
@@ -55,9 +50,8 @@ export type PlanNodeStatus = "current" | "visited" | "upcoming";
 // node is the teacher's judgment the previous one is finished, regardless of
 // check outcomes (a failed check then a move-on is still visited); results
 // feed nothing; there is NO fallback current (before the first tagged check
-// nothing is current). Untagged checks no longer exist (nodeId is required
-// on the teach quiz, owner ruling 2026-09-26). NodeIds missing from the
-// current tree are ignored (a rewrite may have dropped the node).
+// nothing is current). nodeId is required on the teach quiz. NodeIds missing
+// from the current tree are ignored (a rewrite may have dropped the node).
 
 /** Minimal structural message slice — anything with typed parts (mirrors
  * phases.ts: pure, no runtime deps, safe on server, client, and in tests). */
@@ -86,7 +80,7 @@ export function derivePlanStatuses(tree: PlanTree, messages: readonly PartsCarri
 	for (const m of messages) {
 		for (const part of m.parts) {
 			// Either quizzing tool (quiz/explain) tags position — the mechanic
-			// is a settings switch; the fold recognizes both (owner 2026-09-27).
+			// is a settings switch; the fold recognizes both.
 			if (part.type !== "tool-quiz" && part.type !== "tool-explain") continue;
 			const nodeId = (part.input as { nodeId?: unknown } | undefined)?.nodeId;
 			if (typeof nodeId !== "string" || !ids.has(nodeId)) continue; // untagged/unknown — moves nothing
@@ -102,11 +96,11 @@ export function derivePlanStatuses(tree: PlanTree, messages: readonly PartsCarri
 }
 
 /**
- * The plan tool result (author-once protocol, 2026-09-03): ONE server-side
- * tool, plan_init (tools/plan.ts) — a mermaid `graph TD` block canonicalized
+ * The plan tool result (author-once protocol): ONE server-side tool,
+ * plan_init (tools/plan.ts) — a mermaid `graph TD` block canonicalized
  * into the structured tree, called once at the probe→teach seam and
- * re-callable to rewrite. The former mutation/tracking tools are gone:
- * statuses derive from check outcomes (derivePlanStatuses above), so the
+ * re-callable to rewrite. Statuses derive from tagged quiz CALLS
+ * (derivePlanStatuses above), so the
  * tree carries structure, never progress. The tree panel still derives its
  * display from the LATEST plan tool output in the transcript — plus the
  * derived statuses — with no separate state channel.
@@ -114,8 +108,8 @@ export function derivePlanStatuses(tree: PlanTree, messages: readonly PartsCarri
 export interface PlanToolResult {
 	ok: boolean;
 	error?: string;
-	/** The saved tree — SUCCESS results only (owner, context diet
-	 *  2026-10-09): this is the record/UI-facing `details` value. The
+	/** The saved tree — SUCCESS results only: this is the record/UI-facing
+	 *  `details` value. The
 	 *  agent-facing content never carries it — content is the validated
 	 *  nodeIds + reminder; failures carry just the error. The plan
 	 *  popup's latestTree seam reads this field. */
@@ -123,7 +117,7 @@ export interface PlanToolResult {
 }
 
 
-// ─── the native fold (Wave D: derivePlanStatuses over LhMessage[]) ───────────
+// ─── the native fold (derivePlanStatuses over LhMessage[]) ──────────────────
 
 import type { LhMessage } from "./transcript.ts";
 

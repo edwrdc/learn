@@ -26,10 +26,8 @@ const propositionProps = {
 	),
 };
 
-// The extractor redesign (owner, 2026-09-30): the extractor submits
-// REASONING CHAINS — premises + conclusion — stored AS-IS (chains-primary,
-// same evening: chains.jsonl is the truth; edges are a derived view, and
-// supports edges are retired entirely).
+// The extractor submits REASONING CHAINS — premises + conclusion — stored
+// AS-IS (chains.jsonl is the truth; edges are a derived view).
 const endpoint = (role: string) =>
 	Type.String({
 		description:
@@ -46,11 +44,9 @@ const chainSchema = Type.Object({
 	conclusion: endpoint("conclusion is"),
 });
 
-// Weak-model tolerance (owner, 2026-09-25): the old zod `.default([])` /
-// `.default({ quiz: {} })` on required-but-empty fields becomes Type.Optional
-// here + a ??-fill at the submit seam (fillFindings/fillAudit below) — same
-// contract on the wire (omission tolerated, empty never means "invalid"),
-// no zod left in the agent band.
+// Weak-model tolerance: optional-but-defaulted fields are Type.Optional here
+// + a ??-fill at the submit seam (submit-role.ts) — omission is tolerated,
+// empty never means "invalid".
 const propositionsDescription =
 	"Only the NEW core ideas this stretch contributes — ideas the prompt's THE GRAPH SO FAR already " +
 	"holds are referenced by id in chains, never restated here.";
@@ -68,7 +64,7 @@ export const findingsSchema = Type.Object({
 	}),
 });
 
-// THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
+// THE SESSION EXTENSION: every session proposition
 // carries a REQUIRED messageId — the anchor of the passage it came from,
 // copied from the view's "TEACHER [id]" label (validated at the submit
 // seam against the CURRENT batch). The NOTES door has no messages: its

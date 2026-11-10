@@ -29,23 +29,19 @@ export const APP_IDENTITY = Object.freeze({
 });
 
 /**
- * The one engine factory every agent's model comes from (the pi-ai swap,
- * docs/pi-engine-swap.md). BYOK ALL THE WAY DOWN (owner, 2026-09-22):
- * there are no factory pins — every engine resolves from a RESOLVED SPEC
- * (the settings chain's output) and the one builder here wires it to
- * pi-ai's federated catalogs.
+ * The one engine factory every agent's model comes from. BYOK all the way
+ * down (owner decision): there are no factory model pins — every engine
+ * resolves from a resolved spec (the settings chain's output).
  *
  * An "engine" is the model + the stream function the durable Harness runs on
- * — the two things a test fake replaces. Production engines resolve the model
- * from pi-ai's static catalogs and stream through the same Models
- * collection.
+ * — the two things a test fake replaces.
  */
 
 export interface PiEngine {
 	model: Model<Api>;
 	streamFn: StreamFunction;
-	/** The resolved (config-or-settings, CLAMPED) thinking level —
-	 *  observability + tests; the streamFn pins it anyway. */
+	/** The resolved, clamped thinking level (observability + tests; the
+	 *  streamFn pins it anyway). */
 	level?: ThinkingLevel;
 }
 
@@ -75,14 +71,11 @@ export function runsSnapshot(engine: PiEngine, snapshot: ModelSnapshot): boolean
 	return engine.model.baseUrl === snapshot.baseUrl;
 }
 
-/** The process-wide pi-ai Models collection — EVERY builtin provider's
- *  catalog (model slots wave, 2026-09-20): engines and the picker resolve
- *  against all of pi-ai's per-provider catalogs, so a settings slot can pin
- *  any native model id. Auth is resolved per request by pi-ai itself from
- *  the environment (the keys seam reflects file-saved keys into env), and
- *  a provider with no key simply fails its stream with "not configured" —
- *  honest, late, and unreachable through the picker, which gates on
- *  keyPresent. */
+/** The process-wide pi-ai Models collection with every builtin provider's
+ *  catalog. Auth is resolved per request by pi-ai from the environment (file-
+ *  saved keys are reflected into env), and a provider with no key fails its
+ *  stream with "not configured" — unreachable through the picker, which
+ *  gates on keyPresent. */
 export function piModels() {
 	return processState("piModels", () => {
 		const collection = createModels({ identity: APP_IDENTITY });
@@ -92,13 +85,10 @@ export function piModels() {
 }
 
 /** Per-conversation engine bindings for the durable Harness. The Harness's
- *  `models` reader is process-wide, but foreground turns and every background
- *  child share one Harness: a single mutable "current engine" would let the
- *  last turn's settings redirect another conversation's provider request
- *  (including two runs of the same catalog model with different thinking
- *  levels, or two custom-endpoint snapshots). The router keys by the
- *  conversation's provider session id — the public, per-conversation value
- *  the Harness already forwards as `sessionId` on every request. */
+ *  `models` reader is process-wide and every conversation shares one Harness,
+ *  so a single "current engine" would let one turn's settings redirect
+ *  another conversation's request. The router keys by the provider session
+ *  id the Harness forwards as `sessionId` on every request. */
 interface RunBinding {
 	engine: PiEngine;
 	observer?: ProviderEventObserver;
@@ -168,8 +158,6 @@ export function routedModels(): Models {
 				};
 			}
 			if (property === "streamSimple") return stream;
-			// completeSimple/dispatch resolve through this object's streamSimple;
-			// binding the base method would bypass the per-session engine.
 			if (property === "completeSimple") {
 				return (model: Model<Api>, context: Parameters<StreamFunction>[1], options?: Parameters<StreamFunction>[2]) =>
 					stream(model, context, options).result();
@@ -193,21 +181,16 @@ function customSnapshot(): { current?: CustomProviderSnapshot } {
 }
 
 /**
- * Register (or remove) THE user-configured OpenAI Responses provider in the
- * process-wide collection. Called by the server composition boundary from
- * the settings record — the agent layer never reads the store itself.
+ * Register (or remove) the user-configured OpenAI Responses provider in the
+ * process-wide collection.
  *
- * The provider is rebuilt on every config/key signature change, so saved
- * edits reach the catalog immediately. Static model entries carry the
- * explicit limits/capabilities from the settings record; their numeric
- * pi-ai costs are placeholders on purpose — the app's money channel reads
- * core/prices.ts, where this provider is absent, so prices stay UNPRICED
- * (never a fabricated zero) on every user-facing surface.
+ * The model entries' pi-ai costs are placeholders: the app's money channel
+ * reads src/session/model/prices.ts, where this provider is absent, so its
+ * prices stay unpriced (never a fabricated zero).
  *
- * `apiKey` is the key already resolved for this exact base URL by the
- * server composition. Capturing it here (instead of an env lookup at
- * request time) is what makes an engine's endpoint + credential immutable
- * across later edits/removals. */
+ * `apiKey` is the key already resolved for this exact base URL. Capturing it
+ * here (not an env lookup at request time) keeps an engine's endpoint +
+ * credential immutable across later edits/removals. */
 export function setCustomEndpointProvider(config: CustomEndpointConfig | null, apiKey?: string): void {
 	const models = piModels();
 	if (!config) {
@@ -253,20 +236,16 @@ function noRedirectFetch(upstream: typeof fetch): typeof fetch {
 	return (input, init) => upstream(input, { ...init, redirect: "error" });
 }
 
-/** A fully-resolved model pin — the shape every engine now comes from:
- *  the settings-resolution chain's output (role override → slot, or the
- *  chat's conversation chain). thinkingLevel is OPTIONAL: unset means
- *  the baked default resolves here (owner 2026-09-22) — the first entry
- *  of DEFAULT_THINKING_ORDER the model supports. */
+/** A fully-resolved model pin: the settings-resolution chain's output.
+ *  Unset thinkingLevel means the first entry of DEFAULT_THINKING_ORDER the
+ *  model supports. */
 export interface ResolvedModelSpec {
 	provider: string;
 	id: string;
 	thinkingLevel?: ThinkingLevel;
 }
 
-/** The first entry of the baked default order the model supports (owner,
- *  2026-09-22). A non-reasoning model reports exactly ["off"], so the
- *  order walk lands there naturally. */
+/** A non-reasoning model reports exactly ["off"] from pi-ai. */
 function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 	const supported = getSupportedThinkingLevels(model);
 	for (const level of DEFAULT_THINKING_ORDER) {
@@ -275,12 +254,10 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 	return supported[0] ?? "off";
 }
 
-/** The production engine for a RESOLVED spec (model slots wave,
- *  2026-09-20): provider-aware catalog lookup + thinking clamp. Builtin
- *  engines resolve auth per request through the Models collection. A
- *  custom engine instead captures the published provider + credential at
- *  construction, so an edit/removal can never redirect an already-running
- *  turn (or swap its key mid-turn). New engines resolve the fresh config. */
+/** The production engine for a resolved spec. Builtin engines resolve auth
+ *  per request through the Models collection. A custom engine captures the
+ *  published provider + credential at construction, so an edit/removal can
+ *  never redirect an already-running turn (or swap its key mid-turn). */
 export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 	const custom = spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customSnapshot().current : undefined;
 	const models: Models = piModels();
@@ -289,10 +266,7 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 			? custom?.provider.getModels().find((m) => m.id === spec.id)
 			: models.getModel(spec.provider, spec.id);
 	if (!model) throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
-	// UNSET level → the baked default order (first entry the model
-	// supports); SET level → pi's native nearest-clamp (model swaps keep
-	// the user's intent and adapt honestly). The engine forwards it as
-	// `reasoning` (undefined = off on pi-ai's scale).
+	// pi-ai's `reasoning` scale has no "off": undefined means off.
 	const level = spec.thinkingLevel ? clampThinkingLevel(model, spec.thinkingLevel) : defaultThinkingLevel(model);
 	const reasoning = level === "off" ? undefined : level;
 	if (custom) {
@@ -302,8 +276,6 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 			level,
 			streamFn: (_requestModel, context, options) => {
 				const upstream = options?.fetch ?? fetch;
-				// The captured model carries the endpoint snapshot's baseUrl;
-				// a later catalog edit must never redirect an in-flight turn.
 				return provider.streamSimple(model, context, {
 					...options,
 					apiKey,

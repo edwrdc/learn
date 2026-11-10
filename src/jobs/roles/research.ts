@@ -1,5 +1,5 @@
 /**
- * The researcher sub-agent (vision §2.5): a SEPARATE durable child
+ * The researcher sub-agent: a SEPARATE durable child
  * conversation from the teacher — an isolated loop with only web_search +
  * web_fetch, so raw search/fetch churn never touches the teacher's context
  * window.

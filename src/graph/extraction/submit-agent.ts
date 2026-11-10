@@ -1,11 +1,11 @@
 import { isAbortError } from "../../platform/model/index.ts";
 /**
  * runSubmitAgent — the shared single-submit runner for the extraction
- * stages (the durable port of the old pi-agent loop). One TypeBox-validated
+ * stages. One TypeBox-validated
  * submit call is the whole deliverable; the model may retry a
  * schema-invalid call, and the auditor may explore the graph first.
  *
- * The loop is a durable conversation (durable-run.ts): the submitted value
+ * The loop is a durable conversation (jobs/durable-run.ts): the submitted value
  * is committed into the run descriptor's role state BEFORE its tool result,
  * so a restart reattaches the same conversation (same request id) instead of
  * billing another copy, and a process that died after the submit reads the
@@ -28,7 +28,6 @@ import type { SubmitRunInput, SubmitVariant } from "./submit-role.ts";
 
 export async function runSubmitAgent<T>(opts: {
 	role: ModelRole;
-	/** Which submit wire this run speaks. */
 	variant: SubmitVariant;
 	systemPrompt: string;
 	prompt: string;

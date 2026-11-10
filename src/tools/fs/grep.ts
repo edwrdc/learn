@@ -17,14 +17,10 @@ import {
 } from "./shared.ts";
 
 /**
- * The grep tool — sources v1 (2026-09-19): pi's dist/core/tools/grep.js
- * ported to a pure-Node scan (pi shells out to rg). Schemas and output
- * formats are pi-verbatim — `relative/path:LINE: text` matches,
- * `relative/path-LINE- text` context lines, the 500-char line cap, the
- * "use read to see full lines" notice. Deltas: home-anchored default,
- * .gitignore replaced by hard noise exclusions, binary detection via NUL
- * sniff, a 2MB file cap, and a wall-clock timeout with partial results.
- * Read-only by construction.
+ * The grep tool: pi's grep ported to a pure-Node scan (pi shells out to rg).
+ * Schemas and output formats are pi-verbatim. Deltas: those in shared.ts,
+ * binary detection via NUL sniff, a 2MB file cap, and a wall-clock timeout
+ * with partial results.
  */
 
 const DEFAULT_LIMIT = 100;
@@ -69,7 +65,6 @@ export const grepTool: AppTool<typeof grepInput> = {
 		const contextValue = input.context && input.context > 0 ? input.context : 0;
 		const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 
-		// Files to scan: one explicit file, or the walked tree (glob-filtered).
 		const files: string[] = [];
 		let timedOut = false;
 		let aborted = false;
@@ -96,10 +91,8 @@ export const grepTool: AppTool<typeof grepInput> = {
 		let matchCount = 0;
 		let limitReached = false;
 		let linesTruncated = false;
-		// The scan phase is bounded too (2026-09-19): the walk's 10s deadline
-		// bounds COLLECTION, but reading every collected file was unbounded —
-		// the grep that outlived its turn by minutes. Same budget, checked per
-		// file; abort lands mid-scan with partial results.
+		// The walk's deadline bounds collection only; the scan gets the same
+		// budget, checked per file.
 		const scanDeadline = Date.now() + WALK_TIMEOUT_MS;
 		let scanTimedOut = false;
 

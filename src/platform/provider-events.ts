@@ -1,28 +1,19 @@
 /**
- * provider-events — the raw-wire recorder (owner, 2026-10-04).
+ * The raw-wire recorder. pi-ai's onProviderStreamEvent observer fires for
+ * each parsed provider stream event before pi normalizes it — the layer
+ * where provider quirks live (e.g. GLM-flash truncating tool-call arguments
+ * mid-JSON, DeepSeek resetting tool-call ids every response) and nothing
+ * else in the app can see.
  *
- * pi-ai 1.0's onProviderStreamEvent observer fires for each PARSED
- * provider stream event BEFORE pi normalizes it — the exact layer where
- * our provider-quirk incident class lives and where nothing else in the
- * app can see: GLM-flash truncating tool-call arguments mid-JSON
- * (2026-09-25), DeepSeek resetting tool-call ids every response
- * (2026-10-04, the Lacan session). This module turns that observer into
- * an inspectable artifact.
+ * Gating (owner decision): env var only — `LH_PROVIDER_EVENTS=1 npm run dev`.
+ * Default off: raw events carry full prompts (privacy) and unbounded volume.
  *
- * Gating (owner choice, 2026-10-04): env var only —
- *   LH_PROVIDER_EVENTS=1 npm run dev
- * Default off: raw events carry full prompts (privacy) and unbounded
- * volume (disk). No app surface; a debugging feature, not a feature.
- *
- * Artifact: one JSONL file per chat at
- *   data/debug/provider-events/<chatId>.jsonl
- * (data/ is disposable scratch — no retention system). Each line:
+ * Artifact: one JSONL file per chat at data/debug/provider-events/<chatId>.jsonl,
+ * no retention. Each line:
  *   {"t":<epoch ms>,"ctx":"teacher|prober|job:<role>","provider":…,"model":…,"event":<raw>}
- * plus {"note":…} run markers. A per-file byte cap (CAPPED at ~20 MB)
- * writes one truncation marker and stops — a runaway turn must not fill
- * the disk. Event payloads are adapter-owned; a non-serializable event
- * degrades to a type note, never throws (an observer exception must not
- * kill a stream).
+ * plus {"note":…} run markers. Past the byte cap it writes one truncation
+ * marker and stops. An observer exception must not kill a stream, so a
+ * non-serializable event degrades to a type note.
  */
 
 import { processState } from "./model/index.ts";
@@ -49,8 +40,6 @@ function files(): Map<string, { bytes: number; capped: boolean }> {
 }
 
 function fileFor(chatId: string): string {
-	// chat ids are app-minted (chat_<base36>) — sanitize against any future
-	// id scheme putting path-hostile characters in here.
 	const safe = chatId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	return path.join(EVENTS_DIR, `${safe}.jsonl`);
 }
@@ -86,17 +75,12 @@ function encodeEvent(data: unknown): unknown {
 	}
 }
 
-/** True when recording is on (read per call — toggling needs no restart
- *  beyond the next turn's agent construction). */
+/** Read per call: toggling the env var needs no restart. */
 export function providerEventsEnabled(): boolean {
 	return !!process.env.LH_PROVIDER_EVENTS;
 }
 
-/**
- * The observer for one run, or undefined when disabled. Pass the result as
- * the engine stream's onProviderStreamEvent (the turn registry and the
- * background role runtime build it from a chatId in hand).
- */
+/** The observer for one run, or undefined when disabled. */
 export function providerEventObserver(chatId: string, context: string): ProviderEventObserver | undefined {
 	if (!providerEventsEnabled()) return undefined;
 	return (data, model) => {

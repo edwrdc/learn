@@ -1,5 +1,5 @@
 /**
- * Durable background runs (pi-durable migration, unit C).
+ * Durable background runs.
  *
  * Every background model loop runs as a real durable conversation in the
  * owning chat's database: a child conversation with its own provider session
@@ -13,7 +13,7 @@
  * Roles: the job roles (research, demo, visual, PDF), the extraction submit
  * stages (extractor, auditor; a notes source owns its own database) and the
  * compaction summarizer. Role state is the discriminated `RunState` union in
- * agent/subagents/durable-run.ts; tools commit their state BEFORE their
+ * durable-run.ts; tools commit their state BEFORE their
  * result, and the after-tools / on-yield hooks own the role's turn cap,
  * image-in-the-loop messages and the PDF nudge.
  *
@@ -425,12 +425,11 @@ function idOf(id: number): ConversationId {
 	return id as ConversationId;
 }
 
-/** In-process single-flight per run: a dispatch and a recovery sweep that
- *  race share one attach instead of creating two conversations. */
-
 /** Run (or reattach to) one background conversation and return its final
  *  text. Throws the run's failure so the caller can build the kind's
- *  failure result. */
+ *  failure result. In-process single-flight per run: a dispatch and a
+ *  recovery sweep that race share one attach instead of creating two
+ *  conversations. */
 export function runBackgroundConversation(request: BackgroundRunRequest): Promise<BackgroundRunResult> {
 	const key = `${request.chatId}\u0000${request.jobId}`;
 	const inflight = processState("backgroundInflight", () => new Map<string, Promise<BackgroundRunResult>>());
@@ -585,7 +584,7 @@ export async function retireBackgroundRun(chatId: string, jobId: string): Promis
 
 /** Reinstall the tools, prompt and Models binding of every live background
  *  run BEFORE the scheduler resumes it. Called from the chat runtime's open
- *  bootstrap (store/durable.ts) while scheduling is still off. */
+ *  bootstrap (session/durable.ts) while scheduling is still off. */
 export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> {
 	const index = await readIndex(runtime);
 	for (const [jobId, raw] of Object.entries(index.runs)) {

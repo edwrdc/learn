@@ -1,25 +1,7 @@
-import { fileURLToPath } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig, type Plugin } from "vite";
 import { loadProcessEnv } from "./scripts/load-env.mjs";
 import { assertNoPayloadData, RUNTIME_EXTERNALS } from "./scripts/build-server.mjs";
-
-/** core/coverage.ts and core/graph.ts use node:crypto for server-side
- *  hashing/ids, but the browser imports the shared core barrel. Only the
- *  CLIENT build (and only for core's own imports) gets the throwing shim;
- *  the SSR build and every server-layer importer keep the real module. */
-function nodeCryptoClientShim(): Plugin {
-	const shim = fileURLToPath(new URL("./src/lib/shims/node-crypto.ts", import.meta.url));
-	return {
-		name: "lh-node-crypto-client-shim",
-		enforce: "pre",
-		resolveId(source, importer, options) {
-			if (source !== "node:crypto" || options?.ssr !== false) return null;
-			if (!importer?.includes("/src/") || importer.includes("/src/lib/")) return null;
-			return shim;
-		},
-	};
-}
 
 function sourceEnv(): Plugin {
 	return {
@@ -32,7 +14,7 @@ function sourceEnv(): Plugin {
 }
 
 export default defineConfig({
-	plugins: [sourceEnv(), nodeCryptoClientShim(), sveltekit()],
+	plugins: [sourceEnv(), sveltekit()],
 	// Desktop dev parity: electron/main.cjs's LH_DEV_URL expects :3000.
 	server: { port: 3000, strictPort: true },
 	ssr: { external: RUNTIME_EXTERNALS },

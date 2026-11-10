@@ -1,6 +1,6 @@
 /**
- * PUT /api/keys/:id — save one key; DELETE — remove it (auth-keys wave,
- * 2026-09-19). `id` is the env-var/file key name (OPENROUTER_API_KEY, …).
+ * PUT /api/keys/:id — save one key; DELETE — remove it. `id` is the
+ * env-var/file key name (OPENROUTER_API_KEY, …).
  *
  * PUT body {value}: shape-gated (owner decision — bad pastes are 400s
  * naming the expected format, never stored; validation is SHAPE-ONLY, no
@@ -12,7 +12,7 @@
  * DELETE: gone from the file always; the env copy goes only when it was
  * the store's own reflection (a real env var stays — env wins). Idempotent
  * (absent key = success). Writable ids are the CURATED CATALOG ∪ THE
- * MODEL-PROVIDER env vars (provider-keys interlude); anything else is 404
+ * MODEL-PROVIDER env vars; anything else is 404
  * — unknown file vars are preserved, not editable.
  */
 import { isWritableAuthKey } from "@/src/settings";

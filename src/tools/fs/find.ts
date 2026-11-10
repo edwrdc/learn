@@ -13,13 +13,11 @@ import {
 } from "./shared.ts";
 
 /**
- * The find tool — sources v1 (2026-09-19): pi's dist/core/tools/find.js
- * ported to a pure-Node walker (pi shells out to fd; no binaries here —
- * Electron/Windows-safe, fs-shared.ts). Schemas, fd's glob semantics
- * (basename-mode without a slash, implied deep prefix with one), relativized output,
- * and the notice formats are pi-verbatim; the deltas: home-anchored
- * default, .gitignore replaced by hard noise exclusions, and a wall-clock
- * timeout with partial results. Read-only by construction.
+ * The find tool: pi's find ported to a pure-Node walker (pi shells out to
+ * fd; no binaries here, so it is Electron/Windows-safe). Schemas, fd's glob
+ * semantics, relativized output and notice formats are pi-verbatim; the
+ * deltas are listed in shared.ts, plus a wall-clock timeout with partial
+ * results.
  */
 
 const DEFAULT_LIMIT = 1000;
@@ -58,7 +56,7 @@ export const findTool: AppTool<typeof findInput> = {
 				if (!matchGlob(rel, input.pattern)) return false;
 				if (matches.length >= effectiveLimit) {
 					limitReached = true;
-					return true; // stop the walk
+					return true;
 				}
 				matches.push(rel);
 				return false;

@@ -1,8 +1,8 @@
 /**
- * One chat turn over the DURABLE record (pi-durable foreground runtime).
+ * One chat turn over the DURABLE record.
  * Framework-free (plain Request/Response) so tests drive it directly.
  *
- * THE INPUT-EVENTS CONTRACT is unchanged: POST /api/chat carries
+ * THE INPUT-EVENTS CONTRACT: POST /api/chat carries
  * {chatId, input} — one explicit event, never a client transcript. This
  * module is the TURN COMPOSITION ROOT: it turns the event into durable
  * transcript writes, configures the conversation for the turn (model,
@@ -16,7 +16,7 @@
  * replacement and starts nothing.
  *
  * The same composition serves client requests and the wake pipeline's
- * server-side steers (src/server/jobs.ts).
+ * server-side steers (src/jobs/wake.ts).
  */
 
 import { tokensForChars } from "../platform/model/index.ts";
@@ -264,9 +264,8 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		settleSteers(chatId, after);
 		await appendPlanBlocks(stores.chatStore, chatId, before, after);
 		if (turnServices().upkeep) await triggerExtraction(stores, turnServices().extraction, chatId);
-		// PARKED DISMISSAL: a dismissal that arrived
-		// mid-turn was parked by the dismiss route; apply it against the
-		// settled record now.
+		// PARKED DISMISSAL: a dismissal that arrived mid-turn was parked by
+		// the dismiss route; apply it against the settled record now.
 		await applyParkedDismissal(chatId);
 		await markTurnSettled(runtime, turn.turnId);
 	} catch (error) {
@@ -281,9 +280,8 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// Any marker still queued (a steer stranded behind the question stop or
 	// the abort) goes back through the pump's gates.
 	repumpSteers(chatId);
-	// THE SETTLE KICK: if the projection is now over
-	// threshold, the summary starts in the background INSIDE the learner's
-	// reading/answering pause.
+	// THE SETTLE KICK: if the projection is now over threshold, the summary
+	// starts in the background INSIDE the learner's reading/answering pause.
 	if (turnServices().upkeep)
 		kickCompaction(async () => {
 			const fresh = effectiveSettings();
@@ -382,10 +380,10 @@ export async function handleChatInput(
 		const runtime = await openChatRuntime(chatId);
 		const modelId = modelKey(engine.model.provider, engine.model.id);
 
-		// THE COMPACTION GATE: NOTHING model-facing
-		// for this chat interleaves with a running compaction — await the settle
-		// kick's summary, compact synchronously if still over threshold. The
-		// record re-reads after because compaction appends the marker.
+		// THE COMPACTION GATE: NOTHING model-facing for this chat interleaves
+		// with a running compaction — await the settle kick's summary, compact
+		// synchronously if still over threshold. The record re-reads after
+		// because compaction appends the marker.
 		if (turnServices().upkeep) {
 			await ensureCompacted(compactionDeps(turnProfile(chatPhase(record.messages, record.kind), engine, effective)), chatId);
 		}
@@ -470,9 +468,9 @@ export async function handleChatInput(
 					tail = startsInput(appends[appends.length - 1]) ? appends[appends.length - 1] : undefined;
 					await appendMessages(chatId, tail ? appends.slice(0, -1) : appends);
 				}
-				// Dock fix (owner ruling 2026-09-26): persisted markers are visible
-				// in the record — flip their jobs now (the wake's steers ride this
-				// write-ahead; the delivering turn may run for minutes).
+				// Persisted markers are visible in the record — flip their jobs now
+				// (the wake's steers ride this write-ahead; the delivering turn may
+				// run for minutes).
 				for (const appended of appends) {
 					if (appended.role === "custom") noteSteerVisible(appended as SteerMessage);
 				}
@@ -506,9 +504,8 @@ export async function handleChatInput(
 			try {
 				await writeTurn(runtime, admission);
 				await prepareConversation(runtime, baseMessages, profile, deps, turn?.tools);
-				// Debug recorder run marker: correlates the
-				// JSONL event stream with the record's turns; no-op unless
-				// LH_PROVIDER_EVENTS=1.
+				// Debug recorder run marker: correlates the JSONL event stream with
+				// the record's turns; no-op unless LH_PROVIDER_EVENTS=1.
 				providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
 				const draft = tail ? inputOf(tail) : undefined;
 				submission = await runtime.root.submit(
@@ -546,9 +543,8 @@ export async function handleChatInput(
 			void submission.wait(BACKGROUND_CONTEXT).catch((error) => {
 				console.error(`[chat ${chatId}] submission failed:`, error);
 			});
-			// CONNECTION DIET B: the POST acknowledges acceptance
-			// and closes; the turn runs server-side and every view attaches through
-			// GET /api/chats/[id]/stream.
+			// The POST acknowledges acceptance and closes; the turn runs
+			// server-side and every view attaches through GET /api/chats/[id]/stream.
 			return Response.json({ ok: true });
 		} finally {
 			if (!handedOff) endTurn(chatId);

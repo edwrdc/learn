@@ -1,28 +1,21 @@
 /**
- * The search engines: the Tavily and Brave adapters behind the search port,
- * and the pure engine choice (settings/search.ts feeds it the live pin and
- * keys).
+ * The Tavily and Brave adapters behind the search port, and the pure engine
+ * choice (settings/search.ts feeds it the live pin and keys).
  *
- * Owner decisions (2026-09-20):
- *  - NO default engine: an engine is live iff its key is present.
- *  - Setting a key is ALL the user does: an explicit agent.search.engine
- *    pins the preference (when BOTH keys are present the order is
- *    Tavily → Brave); without a pin, whichever engine has a key is the engine.
- *  - An explicit choice does NOT silently fall back to the other engine:
- *    engine pinned but its key missing = unavailable, and the reason says so.
+ * Owner decisions: an engine is live iff its key is present; without a pin
+ * the first keyed engine in SEARCH_ENGINES order wins; a pinned engine
+ * whose key is missing is unavailable — no silent fallback to the other.
  */
 
 import { SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../model/search.ts";
 
-/** The wire-callable shape the adapters close over (tests inject a stub). */
+/** Tests inject a stub. */
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
-/** Tavily: POST https://api.tavily.com/search — Bearer auth in the
- *  Authorization header (the current documented scheme; the legacy
- *  api_key-in-body form is retired), query + max_results (0–20) in the
- *  JSON body. VERIFIED against docs.tavily.com's OpenAPI, 2026-09-20:
- *  response {results: [{title, url, content, score, …}]}, errors
- *  {detail: {error}}. */
+/** Tavily: POST https://api.tavily.com/search — Bearer auth (the legacy
+ *  api_key-in-body form is retired), query + max_results (0–20) in the JSON
+ *  body. Response {results: [{title, url, content, score, …}]}, errors
+ *  {detail: {error}} (per docs.tavily.com's OpenAPI). */
 export function tavilyProvider(apiKey: string, fetchFn: FetchLike = fetch): SearchProvider {
 	return {
 		id: "tavily",
@@ -38,14 +31,11 @@ export function tavilyProvider(apiKey: string, fetchFn: FetchLike = fetch): Sear
 			});
 			if (!resp.ok) {
 				const body = await resp.text();
-				// Their error body is {detail: {error: "…"}} — surface the
-				// message when present, else the raw slice.
 				let detail = body.slice(0, 200);
 				try {
 					const parsed = JSON.parse(body) as { detail?: { error?: string } };
 					if (parsed.detail?.error) detail = parsed.detail.error.slice(0, 200);
 				} catch {
-					/* keep the raw slice */
 				}
 				throw new Error(`Tavily search API ${resp.status}: ${detail}`);
 			}
@@ -63,10 +53,9 @@ export function tavilyProvider(apiKey: string, fetchFn: FetchLike = fetch): Sear
 	};
 }
 
-/** Brave: GET https://api.search.brave.com/res/v1/web/search with the
- *  key in the X-Subscription-Token header. VERIFIED against Brave's
- *  dashboard docs, 2026-09-20: count max 20; response
- *  {web: {results: [{title, url, description, …}]}}. */
+/** Brave: GET https://api.search.brave.com/res/v1/web/search with the key
+ *  in the X-Subscription-Token header; count max 20; response
+ *  {web: {results: [{title, url, description, …}]}} (per Brave's docs). */
 export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): SearchProvider {
 	return {
 		id: "brave",
@@ -99,12 +88,9 @@ export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): Searc
 	};
 }
 
-/** Resolve the search state PURELY from the given pins (testable): the
- *  explicit engine (if pinned) wins but must be keyed; absent pin → first
- *  keyed engine in preference order. Never throws. */
+/** Resolve the search state from the pin and keys. Never throws. */
 export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
-	/** Per-engine live keys (absent engine = absent property is fine). */
 	keys: Partial<Record<SearchEngineId, string | undefined>>,
 ): SearchStatus & { key: string | null } {
 	const pinnedKey = pinned ? keys[pinned] ?? null : null;

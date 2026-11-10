@@ -1,5 +1,5 @@
 /**
- * PARKED DISMISSALS (owner, 2026-10-04): ESC-discard while the turn is
+ * PARKED DISMISSALS: ESC-discard while the turn is
  * still working.
  *
  * Mid-turn the record's live state is durable per commit, but the dismissal

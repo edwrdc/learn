@@ -1,12 +1,12 @@
 /**
  * GraphStore — the fs JSONL adapter: the append-only ledgers at
- * config.LEDGER_FILES (contracts.ts "v1 emission").
+ * files.ts LEDGER_FILES.
  *   nodes.jsonl     GraphNode        — one line per node write: the FIRST
  *                                      line for an id defines it; a later
  *                                      line with a REPEATED id is a
  *                                      link-append (session phrasings join
  *                                      aliases, provenance unions); reads
- *                                      merge by id (core/graph.ts getGraph)
+ *                                      merge by id (snapshot.ts getGraph)
  *   chains.jsonl    GraphChain       — one line per chain ASSERTION (a second
  *                                      session asserting the same
  *                                      (premises, conclusion) appends
@@ -14,22 +14,18 @@
  *   sessions.jsonl  SessionCheckpoint— emission checkpoints (foldedAt)
  *   coverage.jsonl  CoverageEntry    — per-message extraction coverage
  *
- * CHAINS-PRIMARY (owner, 2026-09-30): there is NO edges ledger — the edge
- * view (implication nodes + untyped arrows) is derived in core/graph.ts on
- * every read and never persisted. A stale edges.jsonl left by a pre-chains
- * build is deleted once, here, at adapter load (same doctrine as the
- * events-ledger purge below).
+ * CHAINS-PRIMARY: there is NO edges ledger — the edge view (implication
+ * nodes + untyped arrows) is derived in snapshot.ts on every read and never
+ * persisted.
  *
- * Plus config.SOURCES_FILE (sources.json): the imported-notes bookkeeping
- * (NOT a ledger) — one JSON map, src-id → NotesSource, read-modify-write
- * like a chat file. The format-agnostic front door (2026-09-13).
+ * Plus SOURCES_FILE (sources.json): the imported-notes bookkeeping (NOT a
+ * ledger) — one JSON map, src-id → NotesSource, read-modify-write like a
+ * chat file.
  *
- * Implements core/ports.ts GraphStore. data/graph/* is exclusively this
- * adapter's. Reads are strict against the contracts.ts shapes (the 2026-09-02
- * graph redesign): corrupt lines are skipped, never guessed at — the ledgers
- * are the source of truth and everything else is derived (core/graph.ts,
- * which takes this port as a parameter). Same idioms as src/store/chats.ts:
- * sync fs, no framework.
+ * Implements model/ports.ts GraphStore. data/graph/* is exclusively this
+ * adapter's. Reads are strict against the model/types.ts shapes: corrupt
+ * lines are skipped, never guessed at — the ledgers are the source of truth
+ * and everything else is derived (snapshot.ts). Sync fs.
  */
 
 import { readJsonFile, writeFileAtomic, writeJsonAtomic } from "../platform/index.ts";
@@ -45,7 +41,7 @@ import type { GraphStore } from "./model/ports.ts";
 
 function appendLine<T>(file: string, record: T): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
+	ensureGraphFormat();
 	fs.appendFileSync(file, `${JSON.stringify(record)}\n`, "utf-8");
 }
 
@@ -54,7 +50,7 @@ function readRawLines(file: string): unknown[] {
 	try {
 		raw = fs.readFileSync(file, "utf-8");
 	} catch {
-		return []; // no ledger yet — nothing has ever been emitted
+		return [];
 	}
 	const out: unknown[] = [];
 	for (const line of raw.split("\n")) {
@@ -76,9 +72,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 const isString = (v: unknown): v is string => typeof v === "string";
 
-/** Strict shape guards — anything not matching a W4 ledger shape is skipped. */
+/** Strict shape guards — anything not matching a ledger shape is skipped. */
 function readValid<T>(file: string, isValid: (v: unknown) => v is T): T[] {
-	assertGraphFormat(); // honest refusal on a newer-stamped data dir
+	assertGraphFormat();
 	return readRawLines(file).filter(isValid);
 }
 
@@ -127,7 +123,7 @@ export const graphStore: GraphStore = {
 	},
 	/** Raw node lines in append order. A node id may appear on more than
 	 *  one line (a later session's LINK-append: phrasings + provenance); the
-	 *  derivation (core/graph.ts getGraph) merges lines by id. */
+	 *  derivation (snapshot.ts getGraph) merges lines by id. */
 	readNodes(): GraphNode[] {
 		return readValid(LEDGER_FILES.nodes, isGraphNode);
 	},
@@ -155,7 +151,7 @@ export const graphStore: GraphStore = {
 		return readValid(LEDGER_FILES.coverage, isCoverageEntry);
 	},
 
-	// ── imported-notes bookkeeping (config.SOURCES_FILE — a JSON map) ──
+	// ── imported-notes bookkeeping (SOURCES_FILE — a JSON map) ──
 
 	/** Upsert: keeps the existing record's usage log when re-importing. */
 	upsertSource(source: NotesSource): void {
@@ -171,14 +167,14 @@ export const graphStore: GraphStore = {
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void {
 		const all = readSourceMap();
 		const source = all[id];
-		if (!source) return; // no such source — nothing to bill against
+		if (!source) return;
 		source.extractions = source.extractions?.some((r) => r.startedAt === entry.startedAt)
 			? source.extractions
 			: [...(source.extractions ?? []), entry];
 		writeSourceMap(all);
 	},
 
-	// ── the layout ledger (config.POSITIONS_FILE — a JSON map) ──
+	// ── the layout ledger (POSITIONS_FILE — a JSON map) ──
 	readPositions(): Record<string, Position> {
 		return readPositionMap();
 	},
@@ -186,7 +182,7 @@ export const graphStore: GraphStore = {
 		writePositionMap(positions);
 	},
 
-	/** THE DESTRUCTIVE SEAM (wave 6 session deletion): atomic full-content
+	/** THE DESTRUCTIVE SEAM (session deletion): atomic full-content
 	 *  replacement per provided ledger — write a uniquely-named temp file
 	 *  beside the ledger, then rename over it (POSIX-atomic: a crash mid-
 	 *  write leaves the original ledger and an orphan .tmp-*, never a torn
@@ -232,7 +228,7 @@ const isPosition = (v: unknown): v is Position =>
 /** sources.json — { id: NotesSource }. Read-modify-write, NOT append-only:
  *  the usage log lives inside the record (like a chat's JSON file). */
 function readSourceMap(): Record<string, NotesSource> {
-	assertGraphFormat(); // honest refusal on a newer-stamped data dir
+	assertGraphFormat();
 	const parsed = readJsonFile(SOURCES_FILE);
 	if (!isRecord(parsed)) return {};
 	const out: Record<string, NotesSource> = {};
@@ -244,7 +240,7 @@ function readSourceMap(): Record<string, NotesSource> {
 
 function writeSourceMap(map: Record<string, NotesSource>): void {
 	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
-	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
+	ensureGraphFormat();
 	writeJsonAtomic(SOURCES_FILE, map);
 }
 

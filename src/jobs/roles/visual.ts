@@ -6,9 +6,8 @@ import type { VisualInput } from "../tools.ts";
 import type { JobRole } from "./role.ts";
 
 /**
- * The visual-maker sub-agent (vision §2.5): authors ONE precise SVG from a
- * brief, renders it to a PNG with the same rasterizer the transcript
- * will use, LOOKS at the result, and iterates until correct — a direct port
+ * The visual-maker sub-agent: authors ONE precise SVG from a brief, renders
+ * it to a PNG, LOOKS at the result, and iterates until correct — a direct port
  * of the vault POC's svg-maker doctrine ("the one rule that matters: verify
  * by looking").
  *

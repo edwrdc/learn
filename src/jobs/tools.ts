@@ -6,23 +6,21 @@ import { JOB_TEXT } from "./model/job-text.ts";
 import type { JobStore } from "./model/ports.ts";
 
 /**
- * Async sub-agent job tools (vision §2.5; W2/W6 kinds + the pi-model
- * protocol). SERVER-EXECUTED: each call creates the job record, fires the
- * background runner (via the injected spawn seam — the agent layer never
- * imports one), and resolves IMMEDIATELY with a fire-and-forget ack. The
- * teacher's turn does NOT end at the call; the result arrives later as a
- * steer message that wakes the teacher in a new turn. See contracts.ts
- * "THE ASYNC PROTOCOL".
+ * Async sub-agent job tools. SERVER-EXECUTED: each call creates the job
+ * record, fires the background runner (via the injected spawn seam), and
+ * resolves IMMEDIATELY with a fire-and-forget ack. The teacher's turn does
+ * NOT end at the call; the result arrives later as a steer message through
+ * the wake pipeline (wake.ts).
  */
 
-/** What the job tools need at execute time (injected by the composition root). */
+/** What the job tools need at execute time. */
 export interface JobToolContext {
 	chatId: string;
 	/** Creates the job record (deduped by toolCallId). */
 	jobStore: JobStore;
 	/** Fire the background runner for a fresh job — fire-and-forget. The
-	 *  input rides along because the spawn happens MID-STREAM, before
-	 *  onFinish persists the tool part — a transcript scan would race it. */
+	 *  input rides along because the spawn happens MID-STREAM, before the
+	 *  tool part is persisted — a transcript scan would race it. */
 	spawn: SpawnJob;
 }
 
@@ -73,7 +71,7 @@ const JOB_INPUT_SCHEMAS = {
 
 /**
  * The per-call dispatch: create the job (idempotent by toolCallId), fire the
- * runner, and return the ack. Shared by all three tools — only kind differs.
+ * runner, and return the ack. Shared by every job tool — only kind differs.
  */
 function dispatch(
 	ctx: JobToolContext,
@@ -88,9 +86,9 @@ function dispatch(
 }
 
 /**
- * Per-request job tool registry: each tool closes over the composition root's
- * context (chatId + jobStore + the spawn seam), so concurrent chats never
- * share state. chat-handler wires it each turn; tests wire their own.
+ * Per-request job tool registry: each tool closes over its context (chatId +
+ * jobStore + the spawn seam), so concurrent chats never share state. Each
+ * turn wires it; tests wire their own.
  *
  * Research remains available without a search-provider key; the role's
  * existing user-toggle filtering still applies outside this registry.

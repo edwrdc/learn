@@ -4,13 +4,12 @@
  * along untouched. The body is parsed strictly by the settings schema; a
  * section may add a catalog check and a transform below.
  *
- * Thinking levels never reject a write (owner, interlude 2026-09-22): a
- * pinned level CLAMPS to the named model's nearest supported level.
+ * Thinking levels never reject a write (owner decision): a pinned level
+ * CLAMPS to the named model's nearest supported level.
  *
- * Prompt switches heal instead of rejecting (interlude 2026-09-26): an ON
- * switch whose override file is gone (or whose segment left the source
- * tree) drops to OFF inside the same write, so a user can never get stuck
- * unable to write settings.
+ * Prompt switches heal instead of rejecting: an ON switch whose override
+ * file is gone (or whose segment left the source tree) drops to OFF inside
+ * the same write, so a user can never get stuck unable to write settings.
  */
 
 import { isSettingsSection, parseSection, SETTINGS_SECTIONS, type AgentSettings, type ModelsSettings, type SettingsSection } from "@/src/settings/model";

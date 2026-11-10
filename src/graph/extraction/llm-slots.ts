@@ -1,22 +1,14 @@
 import { abortError, processState } from "../../platform/model/index.ts";
 
 /**
- * THE SHARED BACKGROUND-LLM SEMAPHORE (owner ruling, 2026-09-29): ONE
- * process-wide pool of 3 permits for ALL background LLM jobs — extraction
- * chunks. Total background
- * LLM concurrency is bounded at 3, whoever is calling: no subsystem gets
- * a private lane past the provider-facing stance.
- *
- * Extraction owned this gate alone first (owner, 2026-09-28: at most 3
- * concurrent extractor calls).
- * the ruling then unified them — this module is the single truth, so
- * extraction chunks are the only holders.
+ * THE SHARED BACKGROUND-LLM SEMAPHORE (owner decision): ONE process-wide
+ * pool of 3 permits for background LLM jobs (today: extraction chunks).
+ * No subsystem gets a private lane past it.
  *
  * FIFO; abort-aware (a queued caller that aborts marks its ticket dead —
  * the permit handoff skips it and hands to the next waiter).
  *
- * FRESH-TAKE / HANDED-OFF-PERMIT discipline (the double-count deadlock
- * lesson, extraction 2026-09-28): fresh takers increment `active`
+ * FRESH-TAKE / HANDED-OFF-PERMIT discipline: fresh takers increment `active`
  * themselves; a HANDED-OFF permit does not (the releaser left `active`
  * untouched for the inheritor) — counting both sides is how a semaphore
  * slowly deadlocks at 3-with-empty-queue.
@@ -26,9 +18,7 @@ import { abortError, processState } from "../../platform/model/index.ts";
  * only remaining throttle.
  */
 
-/** Total background LLM concurrency, process-wide, across ALL subsystems
- *  (owner ruling 2026-09-29: one shared pool — extraction chunks +
- *  extraction chunks). */
+/** Total background LLM concurrency, process-wide. */
 export const BG_LLM_PERMITS = 3;
 
 interface LlmSlots {
@@ -36,7 +26,6 @@ interface LlmSlots {
 	queue: { resolve: () => void; dead: boolean }[];
 }
 
-/** The process's single permit pool. */
 function bgLlmSlots(): LlmSlots {
 	return processState<LlmSlots>("llmSlots", () => ({ active: 0, queue: [] }));
 }
@@ -57,7 +46,7 @@ export async function withBgLlmSlot<T>(
 			slots.queue.push(ticket);
 			if (!signal) return;
 			const die = () => {
-				ticket.dead = true; // the permit handoff must skip us
+				ticket.dead = true;
 				reject(abortError("background LLM job aborted while queued for a permit"));
 			};
 			if (signal.aborted) die();

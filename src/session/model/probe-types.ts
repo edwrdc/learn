@@ -9,7 +9,7 @@
  * queues the handoff steer through the wake pipeline so the teacher starts
  * immediately after the prober's turn ends (auto-wake, user-decided).
  *
- * Assessment shape (v1 — refine later): the probe was a binary search per
+ * Assessment shape: the probe was a binary search per
  * dependency strand; the assessment formalizes exactly that. A list of the
  * strands the lesson will depend on, each with a free-form read of where
  * the learner's edge sits.
@@ -38,12 +38,11 @@ export interface ProbeDoneInput {
 	assessment: ProbeAssessment;
 }
 
-// The TypeBox schema of that input — SINGLE SOURCE OF TRUTH, lived by the
-// tool (src/agent/tools/probe.ts) and by the UI parse seam (src/core/tool-parts.ts):
+// The TypeBox schema of that input — SINGLE SOURCE OF TRUTH, used by the
+// tool (tools/probe.ts) and by the UI parse seam (model/tool-parts.ts):
 // the boundary validation and the consumer parse run literally the same
 // schema, so "schema-valid at the boundary" ⇔ "parseable by a consumer" is
-// structural, not a convention. (Live crash 2026-09-12: the model sent
-// `assessment` as a STRING; the card cast it and died on `.strands.map`.)
+// structural, not a convention (models do send `assessment` as a string).
 export const probeDoneInputSchema = Type.Object({
 	assessment: Type.Object(
 		{
@@ -78,8 +77,7 @@ export interface ProbeDoneResult {
 	error?: string;
 }
 
-/** The probe_done ack's model-facing text (owner, context diet
- *  2026-10-09): the assessment is the CALL's arguments — durable in the
+/** The probe_done ack's model-facing text: the assessment is the CALL's arguments — durable in the
  *  transcript, streamed to the learner — so echoing it back in the
  *  result would duplicate the probe phase's largest payload in every
  *  future context. The agent sees this fixed line instead; `details`

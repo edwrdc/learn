@@ -1,8 +1,6 @@
 /**
  * The chat-turn services — one named, error-contained seam per turn
- * responsibility, extracted from the chat-handler so it composes instead of
- * implementing. Each takes its dependencies explicitly (storage ports)
- * — no module here imports an adapter.
+ * responsibility.
  *
  *   answerWrite / applyAnswer — the learner's graded answer as the posed
  *                        question's EFFECTIVE result: a ContextEdit over the
@@ -20,7 +18,7 @@
  *                        crosses the token-budget batch threshold.
  *
  * Logs are the minimal-observability baseline: one line per failure, tagged
- * [chat <id>] — structured logging lands behind these seams later.
+ * [chat <id>].
  */
 
 import type { LhMessage } from "./model/transcript.ts";
@@ -212,7 +210,7 @@ export async function appendPlanBlocks(
 /** The money channel for one run: one TurnUsage built from the assistant
  *  entries the run committed, keyed to the first one (provenance). A
  *  cancelled attempt is not a billed step — partial/estimated usage on an
- *  aborted message is not money spent, the app's long-standing rule. */
+ *  aborted message is not money spent. */
 export async function appendRunUsage(
 	chatStore: ChatStore,
 	chatId: string,
@@ -248,8 +246,7 @@ export async function appendRunUsage(
 /**
  * The graph write channel (vision §1 construction): the extraction pipeline
  * (extractor → auditor → merger — the sole graph writer) runs ASYNC once a
- * chat's UNCOVERED transcript tokens reach the chunk budget
- * (vision-extraction-coverage.md, 2026-09-15). Coverage reads through the
+ * chat's UNCOVERED transcript tokens reach the chunk budget. Coverage reads through the
  * projection (the record is native history; the extraction view stays
  * client-shaped).
  *
@@ -265,13 +262,12 @@ export async function triggerExtraction(
 		const graph = effectiveSettings().graph;
 		const record = await deps.chatStore.getChat(chatId);
 		// The write channel dies with the master switch; practice sessions
-		// write nothing (v1: the session is the deliverable).
+		// write nothing (the session is the deliverable).
 		if (!record || record.kind === "practice" || !graph.enabled) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
 		if (covered.uncoveredTokens < graph.extractionChunkTokens) return;
 		void extraction.runExtraction(chatId).catch((err) => {
-			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
-			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
+			// BYOK + key presence: an unconfigured OR keyless write channel SKIPS (the
 			// coverage ledger keeps the messages uncovered — the next trigger
 			// retries once slots/keys are set); only real failures log.
 			if (err instanceof ModelsNotConfiguredError) {

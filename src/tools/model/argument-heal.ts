@@ -1,52 +1,35 @@
 /**
- * THE WEAK-MODEL ARGUMENT HEAL — the pure core (owner, 2026-10-09 —
- * generalize the 2026-10-04 practice heal; see agent/tools/heal.ts for
- * the registry-wide wiring story). Lives in core because BOTH seams need
- * it (the tool-parts law: display parses mirror boundary coercion or a
- * healed-at-boundary call whose record keeps the RAW arguments renders
- * as an invisible pending quiz):
+ * The weak-model argument heal. Weak models (e.g. GLM) emit JSON-encoded
+ * stand-ins like `"mode": "\"recall\""`, and TypeBox's error text never
+ * names the expected values, so the model re-emits the same payload in a
+ * loop. A string value where the schema expects a literal union / boolean /
+ * null / number / array is JSON.parse-d and kept when the parsed value
+ * satisfies the expectation. Well-formed args pass through untouched (same
+ * reference); unhealable values stay for validation to reject.
  *
- *   - the agent boundary: pi's prepareArguments seam, BEFORE TypeBox
- *     validation (withArgumentHeal / healToolRecord);
- *   - the display parse: tool-parts' parseQuizInput, before
- *     boundaryParse — the persisted record keeps raw arguments, so the
- *     same wobble heals on read.
- *
- * Born of the GLM incident (owner, 2026-10-04): 19 consecutive rejected
- * `problem` calls, every one carrying `"mode": "\"recall\""` — a
- * JSON-string-encoded enum — while TypeBox's error text `must be equal
- * to constant` never named the expected values, so the model re-emitted
- * the identical payload each time; the 2026-10-09 whitehead session ran
- * the same loop on quiz `type` for ten turns. A STRING value where the
- * schema expects a literal union / boolean / null / number / array is
- * JSON.parse-d and kept when the parsed value satisfies the expectation.
- * Well-formed args pass through UNTOUCHED (same reference); unhealable
- * values stay for validation to reject honestly.
+ * Used at the tool boundary (src/tools/heal.ts) and by the display parse:
+ * the persisted record keeps raw arguments, so the same wobble must heal on
+ * read or a call healed at the boundary renders wrong.
  */
 
-/** One property schema of a TypeBox object (the shapes this fork emits:
- * literal unions carry anyOf[{const}], scalars carry type). */
+/** One property schema of a TypeBox object: literal unions carry
+ *  anyOf[{const}], scalars carry type. */
 type PropSchema = {
 	type?: string;
 	const?: unknown;
 	anyOf?: PropSchema[];
 };
 
-/** The literal values a property accepts ([] when it is not a literal
- *  union / bare literal). */
 function literalsOf(prop: PropSchema): unknown[] {
 	if (prop.anyOf) return prop.anyOf.flatMap((m) => literalsOf(m));
 	return "const" in prop ? [prop.const] : [];
 }
 
-/** Does the property accept null (Type.Null standalone or as a union
- *  member)? */
 function acceptsNull(prop: PropSchema): boolean {
 	if (prop.type === "null") return true;
 	return (prop.anyOf ?? []).some((m) => m.type === "null");
 }
 
-/** JSON.parse that never throws (undefined for malformed input). */
 function tryParse(raw: string): unknown {
 	try {
 		return JSON.parse(raw) as unknown;
@@ -70,7 +53,7 @@ export function healEncodedArguments(
 		let fixed: unknown;
 		const literals = literalsOf(prop);
 		if (literals.length > 0) {
-			if (literals.includes(raw)) continue; // already a valid member
+			if (literals.includes(raw)) continue;
 			if (literals.includes(parsed)) fixed = parsed;
 		}
 		// The literal branch does not cover null (Type.Null carries no

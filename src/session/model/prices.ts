@@ -1,19 +1,17 @@
 /**
- * Price + context-limit registry — the money channel's lookup table (pure core).
+ * Price registry — the money channel's lookup table (pure).
  *
- * Every model the harness runs gets an entry: per-1M-token USD prices and
- * the model's context window. Usage is CAPTURED in the records (chat turns,
- * jobs); cost is INFERRED here at read time — nothing stores dollars, so a
- * price correction re-prices the whole history for free.
+ * Every model the harness runs gets per-1M-token USD prices. Usage is
+ * CAPTURED in the records (chat turns, jobs); cost is INFERRED here at read
+ * time — nothing stores dollars, so a price correction re-prices the whole
+ * history for free.
  *
- * The table is GENERATED, not hand-maintained: scripts/sync-pricing.ts pulls
- * OpenRouter's published per-token pricing and rewrites this file. Stale
- * prices are possible between syncs (they change rarely); a MISSING model
- * makes cost render as absent ("—"), never zero — the honest presentation.
+ * The PRICES table is GENERATED, not hand-maintained: scripts/sync-pricing.ts
+ * rewrites it from pi-ai's shipped catalogs. A MISSING model makes cost
+ * render as absent ("—"), never zero — the honest presentation.
  *
- * Client-safe: pure types + numbers, no node imports; exposed via the core
- * barrel (@/src/core) so shell components fold usage without cost math
- * living in components.
+ * Client-safe: pure types + numbers, no node imports, so shell components
+ * fold usage without cost math living in components.
  */
 
 import type { CallUsage, ChatRecord, TurnUsage } from "./types.ts";
@@ -1711,21 +1709,20 @@ export function sessionCost(record: Pick<ChatRecord, "turns">): { cost: number; 
  *  transcript size). Null when the record has no usage yet or the
  *  model's limit is unknown.
  *
- *  NUMERATOR (owner audit, 2026-09-23): cache tokens count. Provider
+ *  NUMERATOR: cache tokens count. Provider
  *  `input` EXCLUDES cacheRead/cacheWrite, so folding input+output alone
  *  reads wildly low on cache-heavy sessions — include all four
  *  (= pi's own totalTokens semantics; the fields are persisted in every
  *  CallUsage).
  *
- *  DENOMINATOR (owner ruling, 2026-09-23 — the amendment): the live
- *  catalog is the ONLY source — `limits`, when given, is the index of
+ *  DENOMINATOR: the live catalog is the ONLY source — `limits`, when given, is the index of
  *  provider:id → contextWindow straight from pi's catalog (GET
  *  /api/models serves it per model; the server's catalogContextLimits
  *  builds the same index). No hardcoded fallback: a model missing from
  *  the live index (historical session, package update removed it, a
  *  failed catalog fetch) resolves limit null and the meter renders
- *  usage-only — the honest-render precedent (never a fake window,
- *  same shape as unpriced models never showing $0).
+ *  usage-only (never a fake window, same shape as unpriced models never
+ *  showing $0).
  *
  *  Zeroed-step fallback: an aborted/failed last call reports zeroed
  *  usage — that is NOT the session footprint; fall back to the previous

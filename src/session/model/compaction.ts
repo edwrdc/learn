@@ -1,7 +1,7 @@
 /**
- * COMPACTION (owner round 14, 2026-10-05): the context-fitting mechanic,
- * mirroring pi's design (docs aside, this is OUR implementation — pi's
- * compaction lives in the coding-agent package we don't depend on).
+ * COMPACTION: the context-fitting mechanic, mirroring pi's design (this is
+ * OUR implementation — pi's compaction lives in the coding-agent package
+ * we don't depend on).
  *
  * THE CONTRACT: full history stays persisted in the record — extraction
  * and the user's transcript keep reading everything. A compaction marker
@@ -14,15 +14,14 @@
  * compaction kicks at turn settle (running during the pause) and every
  * turn start awaits the gate. No mid-run surgery exists.
  *
- * Trigger threshold (owner ruling): effective = min(settings threshold,
- * model contextWindow − 16k reserve). Defaults: threshold 150k, kept
- * tail ~20k recent tokens (pi's defaults, owner-approved). Token
- * estimation follows pi's law (2026-10-05 incident fix): anchor on the
- * provider-reported usage of the last assistant message, chars/4 only
- * for messages appended after that anchor; the heuristic alone runs
- * only when no usage exists yet.
+ * Trigger threshold: effective = min(settings threshold, model
+ * contextWindow − 16k reserve). Defaults: threshold 150k, kept tail ~20k
+ * recent tokens (pi's defaults). Token estimation follows pi's law:
+ * anchor on the provider-reported usage of the last assistant message,
+ * chars/4 only for messages appended after that anchor; the heuristic
+ * alone runs only when no usage exists yet.
  *
- * Summary content (owner's three requirements + continuity): the
+ * Summary content: the
  * learner's understanding and its EVOLUTION (quiz outcomes, confidence,
  * misconceptions — a detailed picture of what the user knows), the
  * teaching arc / session progression, and the plan dependency tree
@@ -41,9 +40,9 @@ import type { LhMessage, LhMarkerMessage } from "./transcript.ts";
 import { danglingQuestionOf, newMessageId } from "./transcript.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
-// ─── constants (the tunables, owner-approved) ────────────────────────────────
+// ─── constants (the tunables) ────────────────────────────────────────────────
 
-/** Kept-recent tail budget (pi's default, owner-approved 2026-10-05):
+/** Kept-recent tail budget (pi's default):
  * ~20k tokens of verbatim recent transcript always ride after the
  * summary — recency is cheap insurance against summary loss. */
 const KEEP_RECENT_TOKENS = 20_000;
@@ -75,15 +74,15 @@ export function calculateContextTokens(usage: {
 	);
 }
 
+/** Anything the token estimator reads: a role and its content. */
+type EstimableMessage = { role?: string; content?: unknown };
+
 /** Estimate a message's context tokens from its WIRE-relevant text only
  * (pi's estimator): text + thinking + toolCall name/args for assistants,
  * content text for user/toolResult/custom. NEVER JSON.stringify of the
  * whole message — record scaffolding (ids, usage, responseId, app-side
- * details, escaped quotes/backslashes) inflates ~3x (measured on the
- * 2026-10-05 relational-databases incident: 84k estimated vs ~30k real). */
-/** Anything the token estimator reads: a role and its content. */
-type EstimableMessage = { role?: string; content?: unknown };
-
+ * details, escaped quotes/backslashes) inflates ~3x (measured: 84k
+ * estimated vs ~30k real). */
 export function estimateMessageTokens(message: EstimableMessage): number {
 	const content: unknown = (message as { content?: unknown }).content;
 	let chars = 0;
@@ -152,8 +151,7 @@ interface ContextTokenEstimate {
  * assistant usage the provider reported — prompt, tools, tokenizer
  * density and all — and chars/4-estimate ONLY what was appended after
  * it. The heuristic never re-estimates history the provider already
- * counted (the relational-databases bug: full-record JSON.stringify/4
- * tripled the true context and fired a 30k session at an 80k threshold). */
+ * counted. */
 export function estimateContextTokens(messages: readonly EstimableMessage[]): ContextTokenEstimate {
 	const anchor = lastAssistantUsageIndex(messages);
 	if (anchor === null) {
@@ -239,7 +237,7 @@ export interface CompactionDetails {
 	 * (provenance for the divider's tooltip/dialog). */
 	tokensBefore: number;
 	/** provider:id of the model that wrote the summary (the session's
-	 * own model — owner ruling; provenance, never a routing input). */
+	 * own model; provenance, never a routing input). */
 	model?: string;
 	/** ISO timestamp of the compaction moment. */
 	at: string;
@@ -330,8 +328,8 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 	return lines.join("\n\n");
 }
 
-/** Render the plan dependency tree verbatim (owner requirement: the tree
- * persists through compaction). Structure from record.tree, statuses
+/** Render the plan dependency tree verbatim (the tree persists through
+ * compaction). Structure from record.tree, statuses
  * derived from the transcript (the record's own law: the tree carries
  * structure only). Empty tree → absent section (nothing persisted). */
 export function planTreeToText(tree: PlanTree | undefined, messages: readonly LhMessage[]): string | null {
@@ -353,10 +351,10 @@ export function planTreeToText(tree: PlanTree | undefined, messages: readonly Lh
 }
 
 /**
- * The summarizer prompt. The summary's REQUIRED SHAPE (owner rulings):
+ * The summarizer prompt. The summary's REQUIRED SHAPE:
  * the learner's understanding AND its evolution, the teaching arc, the
  * plan tree verbatim, and the current moment — in that order of stress.
- * The summarizer is the session's own model (owner ruling), writing for
+ * The summarizer is the session's own model, writing for
  * its own future self: the summary replaces everything before the cut.
  */
 export function buildCompactionPrompt(input: {

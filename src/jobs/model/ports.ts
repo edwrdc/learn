@@ -23,8 +23,8 @@ export interface JobStore {
 	listJobs(chatId: string): JobRecord[];
 	/** The job fulfilling a given tool part, if any (spawn-hook dedup). */
 	findJobByToolCallId(chatId: string, toolCallId: string): JobRecord | null;
-	/** Delete every job record for a chat — running or finished (session-
-	 *  deletion wave 6). Returns how many files were removed. The deletion
+	/** Delete every job record for a chat — running or finished. Returns
+	 *  how many files were removed. The deletion
 	 *  route refuses while jobs are still running, so by the time this
 	 *  fires every record is terminal. */
 	deleteJobsForChat(chatId: string): number;

@@ -1,15 +1,15 @@
 /**
  * ChatStore — the chat record adapter: METADATA in fs JSON, TRANSCRIPT in
- * the durable store (src/store/durable.ts).
+ * the durable store (durable.ts).
  *
- * Implements core/ports.ts ChatStore; the record shapes live in
- * core/contracts.ts (ChatRecord/ChatSummary). One JSON file per chat keeps
+ * Implements model/ports.ts ChatStore; the record shapes live in
+ * model/types.ts (ChatRecord/ChatSummary). One JSON file per chat keeps
  * everything that is not the transcript — title, timestamps, plan tree,
  * usage logs, settings, the schema stamp. The transcript is a read
  * projection over the chat's durable entries, so `getChat` is async: the
  * durable read is the truth, never a second cache.
  *
- * Wired in the composition root (src/server/stores.ts); nothing else
+ * Wired in src/stores.ts; nothing else
  * constructs it.
  */
 
@@ -240,7 +240,7 @@ async function renameChat(id: string, title: string): Promise<ChatRecord> {
  *  closes, admitted commits settled), then remove its database, journals,
  *  and the legacy backup, then the metadata file. False when the id is
  *  unknown; removal failures throw. The graph-ledger purge and job cleanup
- *  are the caller's choreography (core/graph-deletion.ts + the DELETE route). */
+ *  are the caller's choreography (operations.ts deleteChatSession). */
 async function deleteChat(id: string): Promise<boolean> {
 	// The metadata queue owns the whole removal: a mutation that arrives
 	// afterwards re-reads the (now absent) file inside the same lock and

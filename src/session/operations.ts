@@ -10,15 +10,13 @@ import { isTurnRunning } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
 
 /**
- * Server-side chat entries for the transport layer (app/api/chats*,
- * app/chat/[id]). Today these delegate straight to the ChatStore port; the
- * services stage carves the real orchestration behind this same surface.
+ * Server-side chat entries for the routes (src/routes/api/chats*,
+ * src/routes/chat/[id]).
  *
- * deleteChatSession (wave 6, session deletion — the FIRST destructive
- * operation on the graph ledgers) is the one real orchestration here:
- * gates → extraction wind-down → ledger purge → awaited storage deletion. See
- * core/graph-deletion.ts for the ledger semantics and the atomicity
- * argument.
+ * deleteChatSession (the FIRST destructive operation on the graph ledgers)
+ * is the one real orchestration here: gates → extraction wind-down →
+ * ledger purge → awaited storage deletion. See src/graph/model/deletion.ts
+ * for the ledger semantics and the atomicity argument.
  */
 
 export const { createChat, getChat, listChats } = stores.chatStore;
@@ -73,8 +71,8 @@ type ChatDeleteOutcome =
 	  };
 
 /**
- * Delete a session (owner rulings 2026-09-22/23): gates first, then the
- * purge. The owner-locked choreography:
+ * Delete a session: gates first, then the purge. The owner-locked
+ * choreography:
  *
  *   1. GATES — a turn in flight or a running background job refuses with
  *      409 (they write the chat record and steer into it; deleting
@@ -146,8 +144,8 @@ export async function sessionCoverage(chatId: string): Promise<SessionCoverage |
 	const record = await stores.chatStore.getChat(chatId);
 	if (!record) return null;
 	const entries = stores.graphStore.readCoverage();
-	// Wave B: the record is native history — coverage reads through the
-	// projection (same view the extraction pipeline folds).
+	// Coverage reads through the projection (same view the extraction
+	// pipeline folds).
 	const cov = coverageOf(record.messages, entries, chatId);
 	let lastFoldedAt: string | null = null;
 	for (const entry of entries) {

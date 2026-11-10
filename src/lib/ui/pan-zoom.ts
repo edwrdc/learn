@@ -1,15 +1,14 @@
 /**
- * Shared pan/zoom viewport math — the "fit floor" semantics harvested from
- * the plan popup (plan-graph rounds 2–4) so the session overlays (the plan
- * focus, the mermaid focus) run the SAME geometry: fully zoomed out IS the
- * fit (whichever axis binds), panning locks at the floor (nothing to move),
+ * Shared pan/zoom viewport math — the "fit floor" semantics, so the session
+ * overlays (the plan focus, the mermaid focus) run the SAME geometry: fully
+ * zoomed out IS the fit (whichever axis binds), panning locks at the floor (nothing to move),
  * wheel zooms to the cursor. Pure on purpose: the overlays are render-tested
  * in static markup (no live pointer events), so the math lives here where
  * tests can pin it (tests/pan-zoom.test.ts).
  */
 
-/** Zoom ceiling for every surface that uses this math (raised 2×→4× for
- *  reading node titles closely, owner, plan-graph round 3). */
+/** Zoom ceiling for every surface that uses this math (4×, for reading
+ *  node titles closely). */
 export const ZOOM_MAX = 4;
 /** Viewport breathing room subtracted by the fit. */
 const FIT_PAD = 16;
@@ -23,9 +22,8 @@ export interface Viewport {
 	y: number;
 }
 
-/** The fit zoom for a box in a viewport: never below a true fit (the old
- *  0.15 floor could sit ABOVE the fit for wide graphs — the epsilon only
- *  guards degenerate viewports), never above FIT_ZOOM_MAX. Pure. */
+/** The fit zoom for a box in a viewport: never below a true fit (the
+ *  epsilon only guards degenerate viewports), never above FIT_ZOOM_MAX. Pure. */
 export function fitZoomFor(box: { w: number; h: number }, viewport: { w: number; h: number }): number {
 	if (!viewport.w || !viewport.h || box.w === 0) return 1;
 	return Math.max(0.02, Math.min((viewport.w - FIT_PAD) / box.w, (viewport.h - FIT_PAD) / box.h, FIT_ZOOM_MAX));

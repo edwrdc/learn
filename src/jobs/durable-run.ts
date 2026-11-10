@@ -1,12 +1,11 @@
 /**
- * The durable background-run contract (pi-durable migration, unit C).
+ * The durable background-run contract.
  *
  * Every background model loop — the job roles (research, demo, visual,
  * PDF), the extraction submit stages (extractor, auditor) and the
  * compaction summarizer — is a durable child conversation driven through
- * this one seam. The seam lives in the agent layer because the agent layer
- * may not import the server composition; `chat-handler` wires it to
- * `src/server/durable-background.ts`.
+ * this one seam. boot() configures it (configureBackgroundRuns); the run
+ * itself is runtime.ts.
  *
  * The persisted domain shape is `RunDescriptor` plus the discriminated
  * `RunState` union below: a later process rebuilds the role's tools, prompt,
@@ -64,7 +63,7 @@ export interface VisualRunState {
 	/** A render of `currentSvg` is committed by the tool and awaits the image
 	 *  message the after-tools hook appends. */
 	pendingRender: boolean;
-	/** The final verification render failed (the old loop's hard failure). */
+	/** The final verification render failed. */
 	renderError?: string;
 }
 
@@ -75,8 +74,8 @@ export interface PdfRunState {
 	/** Pages genuinely read — extract or render output entered the loop. */
 	read: number[];
 	pendingRender: { pages: number[]; dpi: number } | null;
-	/** The doctrine gate could not run at the turn cap: the run ends like the
-	 *  old loop's iteration limit, never delivering an unread brief. */
+	/** The doctrine gate could not run at the turn cap: the run ends there,
+	 *  never delivering an unread brief. */
 	blockedAtCap?: boolean;
 }
 

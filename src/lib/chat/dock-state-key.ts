@@ -6,12 +6,10 @@
  * only (typing growth never animates).
  *
  * The expanded term (the fold: full form ↔ slim bar) belongs to EVERY
- * docked variant — question AND practice. For two months it keyed on
- * `pending` (the question's tool call) alone, which is null in practice
- * sessions: the practice dock folded and re-expanded with an INSTANT
- * height jump while teaching morphed (owner report 2026-10-06, "opens
- * and closes instantly"). The fold machine itself already treats
- * practice as a dock owner; this key now agrees.
+ * docked variant — question AND practice. It must not key on `pending`
+ * (the question's tool call) alone: that is null in practice sessions,
+ * and the practice dock would fold with an INSTANT height jump instead
+ * of morphing. The fold machine treats practice as a dock owner too.
  */
 export function dockStateKey(mode: string, docked: boolean, expanded: boolean): string {
 	return docked ? `${mode}:${expanded}` : `${mode}:-`;

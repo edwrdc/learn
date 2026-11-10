@@ -8,15 +8,8 @@ export async function GET({ params }: RequestEvent) {
 	const { id } = params;
 	const chat = await requireChat(id);
 	if (chat instanceof Response) return chat;
-	// turnInFlight lets a returning client re-attach to a running turn
-	// (chat-handler write-ahead + registry — see src/server/turn-liveness.ts).
-	// coverage (extraction-UX redesign, 2026-09-24): the chat view's ring
-	// meter + sidebar block — THE coverage surface (the all-sessions GET
-	// route died with the redesign; the Extract POST stays). getChat
-	// already 404'd, so the block exists.
-	// Wave D (owner-approved 2026-09-26): the record's messages are native
-	// agent history, served VERBATIM — the client derives its view
-	// (core/view.ts projectView). turnInFlight lets a returning client
+	// The record's messages are native agent history, served VERBATIM — the
+	// client derives its view. turnInFlight lets a returning client
 	// re-attach to a running turn; coverage is the chat view's ring meter.
 	const [turnInFlight, coverage] = await Promise.all([isTurnRunning(id), sessionCoverage(id)]);
 	const view: ChatView = { ...chat, turnInFlight, compacting: compactionInFlight(id), coverage };
@@ -24,7 +17,7 @@ export async function GET({ params }: RequestEvent) {
 }
 
 /**
- * Rename (2026-09-17): the header's click-to-edit title commits here.
+ * Rename: the header's click-to-edit title commits here.
  * Validation is a single rule — a non-empty string after trim (the store's
  * "Untitled session" floor is never reached from this route). updatedAt is
  * deliberately NOT bumped: a rename must not reorder the sidebar (same
@@ -46,7 +39,7 @@ export async function PUT({ request: req, params }: RequestEvent) {
 
 /**
  * DELETE /api/chats/[id]?mode=preserve-graph|delete-nodes — session deletion
- * (wave 6, owner rulings 2026-09-22/23). The mode is REQUIRED and explicit:
+ * (owner decision). The mode is REQUIRED and explicit:
  * no default, because the two differ in destructiveness —
  *
  *   preserve-graph  the session record, its jobs, and its extraction
@@ -58,9 +51,9 @@ export async function PUT({ request: req, params }: RequestEvent) {
  *                   (shared nodes survive automatically, their other
  *                   sessions' content intact).
  *
- * Gates are the server orchestration's (server/chats.ts deleteChatSession):
- * 409 while a turn or background job is running, 503 while the session's
- * extraction is winding down after its abort — both retryable. The
+ * Gates are deleteChatSession's: 409 while a turn or background job is
+ * running, 503 while the session's extraction is winding down after its
+ * abort — both retryable. The
  * response carries what was removed plus the new graphRevision (the
  * version stamp the UI polls to refetch clusters/layout).
  */

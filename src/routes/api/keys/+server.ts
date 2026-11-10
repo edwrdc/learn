@@ -1,14 +1,12 @@
 /**
- * GET /api/keys — the auth page's key list (auth-keys wave, 2026-09-19;
- * providers added by the provider-keys interlude same wave).
+ * GET /api/keys — the auth page's key list.
  *
  * Every curated key (present or not) plus unknown file vars surfaced as
  * generic rows — ABSENT provider keys deliberately do NOT spam status
  * rows; the provider dropdown is the discovery surface. `providers`
  * carries it: {id, envVar, label} for every pi-ai plain-key provider,
  * derived from pi-ai's own provider→env-var table (no-drift pin in
- * tests/auth-provider-keys.test.ts) — the settings UI reads it optionally
- * with a graceful fallback.
+ * tests/auth-provider-keys.test.ts).
  *
  * Masked only — last 4 + length; PLAINTEXT NEVER LEAVES THE STORE THROUGH
  * THIS API (owner decision). `source` tells the page whether the live

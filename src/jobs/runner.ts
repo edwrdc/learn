@@ -12,10 +12,8 @@ import { JOB_ROLES } from "./roles/registry.ts";
 import { runRole } from "./roles/role.ts";
 
 /**
- * The background job runner (contracts.ts "THE ASYNC PROTOCOL" §2–3), created
- * via createJobRunner({ chatStore, jobStore, deliver }) — the composition root
- * (chat-handler) injects the storage ports and the WAKE SEAM (the server-side
- * steer delivery, src/server/jobs.ts); this module never imports an adapter.
+ * The background job runner — boot() injects the storage ports and the WAKE
+ * SEAM (the server-side steer delivery, wake.ts deliverJobResult).
  *
  *   runJob(jobId) — runs the kind's sub-agent loop in the background
  *     (the job tools' execute fires this via the spawn seam, fire-and-forget),
@@ -29,8 +27,6 @@ import { runRole } from "./roles/role.ts";
  *   marked error (the learner's activity card shows it).
  */
 
-/** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-
 interface JobRunnerDeps {
 	chatStore: ChatStore;
 	jobStore: JobStore;
@@ -40,24 +36,21 @@ interface JobRunnerDeps {
 	 * flipped); rejects when delivery fails unrecoverably.
 	 */
 	deliver: (chatId: string, steer: SteerMessage) => Promise<void>;
-	/** Settings-resolved engine per role (model slots wave, 2026-09-20):
-	 *  the role-override → slot chain, read FRESH per job (the server
-	 *  wiring passes effectiveSettings-based resolution). Test overrides
-	 *  (below) still win. BYOK (owner, 2026-09-22): the chain may end
-	 *  EMPTY → undefined; runJob then refuses the spawn honestly instead
-	 *  of guessing a model. */
+	/** Settings-resolved engine per role: the role-override → slot chain,
+	 *  read FRESH per job. BYOK (owner decision): the chain may end EMPTY →
+	 *  undefined; runJob then refuses the spawn honestly instead of guessing
+	 *  a model. */
 	engineFor?: (role: ModelRole) => PiEngine | undefined;
-	/** The search seam (search port wave, 2026-09-20): resolves the LIVE
-	 *  provider fresh per job — server/search.ts composition injected by
-	 *  the wiring; null = honestly unavailable (the researcher's web_search
-	 *  reports it as recoverable text). Absent seam (tests) reads the same;
-	 *  research dispatch and web_fetch do not require search credentials. */
+	/** The search seam: resolves the LIVE provider fresh per job; null =
+	 *  honestly unavailable (the researcher's web_search reports it as
+	 *  recoverable text). Absent seam (tests) reads the same; research
+	 *  dispatch and web_fetch do not require search credentials. */
 	searchProvider?: () => SearchProvider | null;
-	/** Key-presence gate (provider-key interlude, 2026-09-25): given the
-	 *  resolved engine's provider + the kind's slot tier, return the
-	 *  refusal envelope when the provider's key is missing (null = run).
-	 *  Injected because the agent layer may not read the key store; absent
-	 *  in tests that inject engines directly (test engines never owe a key). */
+	/** Key-presence gate: given the resolved engine's provider + the kind's
+	 *  slot tier, return the refusal envelope when the provider's key is
+	 *  missing (null = run). Injected because jobs does not read the key
+	 *  store; absent in tests that inject engines directly (test engines
+	 *  never owe a key). */
 	providerKeyMissing?: (provider: string, slots: ModelSlotName[]) => ProviderKeyMissing | null;
 }
 
@@ -97,9 +90,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		}
 		const role = JOB_ROLES[job.kind];
 		const roleInput = role.input(await resolveInput(job, input));
-		// BYOK (owner, 2026-09-22) and the provider-key interlude (2026-09-25):
-		// no engine for the kind's tier, or its provider key gone, fails the
-		// job like any other failure — the teacher reads the refusal instead
+		// BYOK (owner decision): no engine for the kind's tier, or its
+		// provider key gone, fails the job like any other failure — the teacher reads the refusal instead
 		// of waiting forever on a job it already dispatched.
 		const tier = ROLE_SLOT[role.model];
 		const engine = deps.engineFor?.(role.model);
@@ -154,7 +146,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 * The tail of every job: store the result, build the steer, hand it to
 	 * the wake pipeline. The pipeline flips the status when the lesson has
 	 * actually resumed — until then the job reads "running" so the client's
-	 * activity card keeps polling and re-syncs once, at the end.
+	 * activity card stays live and re-syncs once, at the end.
 	 */
 	async function finishJob(jobId: string, result: JobResult): Promise<void> {
 		const job = jobStore.getJob(jobId);

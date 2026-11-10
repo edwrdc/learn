@@ -18,21 +18,18 @@ import type { DurableRole, RoleStateIo, SubmitRunState } from "../../jobs/index.
 import { auditorGraphTools } from "./graph-tools.ts";
 import { stores } from "../../stores.ts";
 
-/** What the extractor SUBMITS (the redesign's wire shape) — propositions
- *  + chains. fillFindings normalizes it; validateFindingsChains checks
- *  the chain laws — chains are stored AS-IS (chains-primary, owner
- *  2026-09-30: no edge translation at any seam). */
+/** What the extractor SUBMITS — propositions + chains. Chains are stored
+ *  AS-IS (chains-primary: no edge translation at any seam). */
 type FindingsSubmit = Static<typeof findingsSchema>;
 
 /** The SESSION wire — the notes shape plus the REQUIRED messageId anchor
- *  on every proposition (owner, 2026-10-13). */
+ *  on every proposition. */
 type SessionFindingsSubmit = Static<typeof sessionFindingsSchema>;
 
-// VERDICTS-ONLY (owner, 2026-09-28): the auditor never alters the
-// extractor's findings, so it does not restate them — links are its
-// ENTIRE deliverable (owner, 2026-09-28 evening: the edges argument is
-// GONE; the auditor never mints edges. The graph connects across sources
-// solely through identified equivalences — a link, never an inference).
+// VERDICTS-ONLY (owner decision): the auditor never alters or restates the
+// extractor's findings and never mints edges — links are its ENTIRE
+// deliverable. The graph connects across sources solely through identified
+// equivalences.
 const auditSchema = Type.Object({
 	links: Type.Array(
 		Type.Object({
@@ -57,8 +54,8 @@ function fillFindings<T extends { propositions: Array<{ aliases?: string[] }>; c
 
 /** The notes fill: the shared alias ??-fill PLUS the door's boundary — a
  *  stray messageId (the notes schema has none; extra properties pass
- *  schema validation) is stripped so notes provenance stays chat-level
- *  (the file is the anchor, owner 2026-09-13). */
+ *  schema validation) is stripped so notes provenance stays source-level
+ *  (the file is the anchor). */
 function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
 	return fillFindings({
 		...raw,
@@ -70,11 +67,9 @@ function fillNotesFindings(raw: FindingsSubmit): FindingsSubmit {
 	});
 }
 
-/** The chain laws (extractor redesign, 2026-09-30; digest-aware
- *  2026-09-30 evening) — the LOUD channel: runSubmitAgent turns a
- *  problem string into an error tool result and the model re-submits
- *  within its turns. The MIXED NAMESPACE: an
- *  endpoint resolves when it is a submitted proposition id OR an
+/** The chain laws — the LOUD channel: a problem string becomes an error
+ *  tool result and the model re-submits within its turns. The MIXED
+ *  NAMESPACE: an endpoint resolves when it is a submitted proposition id OR an
  *  existing graph node id (the extractor continues a partly-extracted
  *  source and references digest ids verbatim). Identical (premise-set,
  *  conclusion) chains are NOT errors — they dedupe silently at the
@@ -96,7 +91,7 @@ function validateFindingsChains(value: FindingsSubmit, existingIds: ReadonlySet<
 	return null;
 }
 
-/** The SESSION anchor law (owner, 2026-10-13): every proposition names a
+/** The SESSION anchor law: every proposition names a
  *  passage of the CURRENT batch — nonempty, and a teacher-prose message
  *  id present in the stretch this extractor is reading (the same ids the
  *  view's TEACHER [id] labels carry). Refused anchors ride the existing
@@ -140,9 +135,9 @@ export const FINDINGS_TOOL = "submit_findings";
 export const AUDIT_TOOL = "submit_review";
 
 /** One submit tool: validates, commits the accepted value into the run's
- *  role state BEFORE the tool result, and asks the run to stop — the old
- *  `shouldStop` law (a clean submit ends the loop; a refused one is an
- *  error result the model may retry). */
+ *  role state BEFORE the tool result, and asks the run to stop (a clean
+ *  submit ends the loop; a refused one is an error result the model may
+ *  retry). */
 export function submitRoleTool(
 	input: SubmitRunInput,
 	io: RoleStateIo<SubmitRunState>,

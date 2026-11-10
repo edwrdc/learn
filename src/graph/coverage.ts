@@ -1,6 +1,6 @@
 /**
- * Extraction coverage — the pure core. THE TEACHER'S PROSE IS THE UNIT
- * (owner ruling, 2026-09-28): the extractor sees ONLY the teacher agent's
+ * Extraction coverage. THE TEACHER'S PROSE IS THE UNIT (owner decision):
+ * the extractor sees ONLY the teacher agent's
  * text blocks — no learner messages, no thinking, no tool calls or
  * results, no quiz blocks. Everything else is INVISIBLE to coverage: it
  * neither opens nor joins a run, so answering a quiz or editing a learner
@@ -13,10 +13,7 @@
  * (fingerprint the current transcript, diff against the ledger) — never
  * dual-tracked. Runs are token-budgeted batches of the oldest uncovered
  * teacher-prose messages: greedy consecutive fill, a message is never
- * split, a single over-budget message rides alone. (The old
- * inseparability bond — call + results in one chunk — died with the
- * ruling: tool results are invisible now, so nothing needs keeping
- * together.)
+ * split, a single over-budget message rides alone.
  */
 
 import { tokensForChars } from "../platform/model/index.ts";
@@ -29,7 +26,7 @@ import { textOf, type LhMessage } from "../session/model/index.ts";
 /**
  * The extraction-relevant lines of ONE native message — the shared seam
  * between the extractor's prompt and messageFingerprint (coverage).
- * TEACHER PROSE ONLY (owner, 2026-09-28): an assistant message yields one
+ * TEACHER PROSE ONLY: an assistant message yields one
  * line per text block; everything else (user messages, tool results,
  * markers) yields NOTHING and is invisible to coverage. `mid` is the
  * message id — part of the hash input, so the same prose in two messages
@@ -44,7 +41,6 @@ export function messageViewLines(message: LhMessage, mid: string): string[] {
 	return lines;
 }
 
-/** Tokens of a message's view. */
 function viewTokens(lines: string[]): number {
 	return tokensForChars(lines.join("\n").length);
 }
@@ -60,7 +56,6 @@ export function messageFingerprint(message: LhMessage): string {
 	return h.digest("hex");
 }
 
-/** One message's coverage-relevant projection. */
 interface CoverageSlot {
 	message: LhMessage;
 	fp: string;
@@ -73,7 +68,6 @@ export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[
 	return messages.map((message) => ({ message, fp: messageFingerprint(message), tokens: viewTokens(messageViewLines(message, message.id)) }));
 }
 
-/** The covered-fingerprint set for one chat, from the ledger. */
 function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
 	const out = new Set<string>();
 	for (const e of entries) if (e.chatId === chatId) out.add(e.fp);
@@ -106,7 +100,7 @@ export function coverageOf(
 	let uncoveredTokens = 0;
 	for (let i = 0; i < slots.length; i++) {
 		const slot = slots[i]!;
-		if (messageViewLines(slot.message, slot.message.id).length === 0) continue; // invisible
+		if (messageViewLines(slot.message, slot.message.id).length === 0) continue;
 		if (covered.has(slot.fp)) coveredTokens += slot.tokens;
 		else {
 			uncovered.push(i);
