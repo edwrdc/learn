@@ -46,7 +46,6 @@ function fakeHeadless(rendered: { pages: number[] } = { pages: [] }): HeadlessAp
 	return {
 		calls,
 		paths,
-		available: () => true,
 		unavailableReason: () => null,
 		runDemo: async () => {
 			throw new Error("unused");
@@ -210,7 +209,6 @@ describe("pdf-reader loop (faux engine)", () => {
 				engine,
 				run: roleRun(),
 				headless: {
-					available: () => false,
 					unavailableReason: () => "No Chrome found",
 					runDemo: async () => {
 						throw new Error("unused");

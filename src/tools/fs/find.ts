@@ -35,7 +35,6 @@ const findInput = Type.Object({
 
 export const findTool: AppTool<typeof findInput> = {
 	name: "find",
-	label: "find",
 	description: `Search for files by glob pattern. Returns matching file paths relative to the search directory. Ignores node_modules, .git, and Library directories. Output is truncated to ${DEFAULT_LIMIT} results or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first).`,
 	parameters: findInput,
 	execute: serverExecute("find", findInput, async (input, ctx) => {

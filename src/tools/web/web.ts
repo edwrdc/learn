@@ -4,7 +4,6 @@ import { serverExecute } from "../execute.ts";
 // The search-hit shape lives in the core port since the search wave
 // (2026-09-20); this alias keeps callers churn-free.
 import type { SearchHit as WebSearchResult, SearchProvider } from "../model/search.ts";
-export type { WebSearchResult };
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
@@ -32,7 +31,6 @@ import TurndownService from "turndown";
  */
 
 // ── web_search ───────────────────────────────────────────────────────────────
-// (WebSearchResult is the core SearchHit, re-exported above.)
 
 // ── web_fetch ────────────────────────────────────────────────────────────────
 
@@ -139,7 +137,6 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 	return {
 		web_search: {
 			name: "web_search",
-			label: "web_search",
 			description: "Search the web. One search per call — use one call per search angle. " +
 				"Returns an array of results with title, url, and snippet.",
 			parameters: webSearchInput,
@@ -161,7 +158,6 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 
 		web_fetch: {
 			name: "web_fetch",
-			label: "web_fetch",
 			description:
 				"Fetch a web page and extract its readable content as markdown (Readability). " +
 				"Handles HTML pages and plain text; JS-rendered pages fall back to a reader service.",

@@ -32,7 +32,7 @@
  * sync fs, no framework.
  */
 
-import { writeFileAtomic, writeJsonAtomic } from "../platform/index.ts";
+import { readJsonFile, writeFileAtomic, writeJsonAtomic } from "../platform/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../platform/index.ts";
@@ -213,23 +213,13 @@ export const graphStore: GraphStore = {
  *  handling (a browser commit must be able to detect "the graph changed
  *  underneath me"); reads just return the map. */
 function readPositionMap(): Record<string, Position> {
-	let raw: string;
-	try {
-		raw = fs.readFileSync(POSITIONS_FILE, "utf-8");
-	} catch {
-		return {}; // no ledger yet — nothing has ever settled
+	const parsed = readJsonFile(POSITIONS_FILE);
+	if (!isRecord(parsed) || !isRecord(parsed.positions)) return {};
+	const out: Record<string, Position> = {};
+	for (const [id, value] of Object.entries(parsed.positions)) {
+		if (isPosition(value)) out[id] = { x: value.x, y: value.y };
 	}
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (!isRecord(parsed) || !isRecord(parsed.positions)) return {};
-		const out: Record<string, Position> = {};
-		for (const [id, value] of Object.entries(parsed.positions)) {
-			if (isPosition(value)) out[id] = { x: value.x, y: value.y };
-		}
-		return out;
-	} catch {
-		return {};
-	}
+	return out;
 }
 
 function writePositionMap(positions: Record<string, Position>): void {
@@ -243,23 +233,13 @@ const isPosition = (v: unknown): v is Position =>
  *  the usage log lives inside the record (like a chat's JSON file). */
 function readSourceMap(): Record<string, NotesSource> {
 	assertGraphFormat(); // honest refusal on a newer-stamped data dir
-	let raw: string;
-	try {
-		raw = fs.readFileSync(SOURCES_FILE, "utf-8");
-	} catch {
-		return {};
+	const parsed = readJsonFile(SOURCES_FILE);
+	if (!isRecord(parsed)) return {};
+	const out: Record<string, NotesSource> = {};
+	for (const [id, value] of Object.entries(parsed)) {
+		if (isNotesSource(value)) out[id] = value;
 	}
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (!isRecord(parsed)) return {};
-		const out: Record<string, NotesSource> = {};
-		for (const [id, value] of Object.entries(parsed)) {
-			if (isNotesSource(value)) out[id] = value;
-		}
-		return out;
-	} catch {
-		return {};
-	}
+	return out;
 }
 
 function writeSourceMap(map: Record<string, NotesSource>): void {

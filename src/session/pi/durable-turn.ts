@@ -69,7 +69,6 @@ export interface PiTurnHandle {
 
 interface DurableTurnSpec {
 	runtime: ChatRuntime;
-	chatId: string;
 	/** The admitted submission this view follows. Its settlement is the
 	 *  run's own end; a queued steer that starts a follow-up run is awaited
 	 *  after it (waitForIdle), so a steer racing the run's end still lands
@@ -85,9 +84,7 @@ interface DurableTurnSpec {
 	/** The canonical settle seam: usage, plan blocks, extraction, parked
 	 *  dismissal. AWAITED before views close, so a reader that sees the
 	 *  terminal always finds the record and the job bookkeeping current. */
-	onFinish: (isAborted: boolean) => void | Promise<void>;
-	/** The handler's error-masking policy for loop-level failures. */
-	onError?: (error: unknown) => string;
+	onFinish: () => void | Promise<void>;
 	/** One callback per newly committed transcript entry (the delivery
 	 *  bookkeeping seam: a steer marker's entry is its visibility moment). */
 	onEntry?: (entry: EntryRecord) => void;
@@ -99,11 +96,11 @@ interface DurableTurnSpec {
 const UPDATE_FLUSH_MS = 100;
 
 export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
-	const { runtime, chatId, submission, onFinish, onError, onEntry } = spec;
+	const { runtime, submission, onFinish, onEntry } = spec;
+	const { chatId } = runtime;
 
 	let settled = false;
 	let started = false;
-	let sawAbort = false;
 	let streaming = false;
 	let lastPartial = "";
 	let seenEntries: number | undefined = spec.replayAfter === undefined ? 0 : undefined;
@@ -209,7 +206,6 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 				streaming = false;
 				lastPartial = "";
 				send({ type: "message_end", message: assistant });
-				if (assistant.stopReason === "aborted") sawAbort = true;
 				const callIds = assistant.content
 					.filter((block) => block.type === "toolCall")
 					.map((block) => block.id);
@@ -290,7 +286,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 			const final = await runtime.root.context(BACKGROUND_CONTEXT).catch(() => undefined);
 			if (final) advanceEntries(final.entries);
 			start();
-			await onFinish(sawAbort);
+			await onFinish();
 			send({ type: "agent_end" });
 			closeAll();
 		})();
@@ -320,7 +316,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 			}
 			console.error(`[chat ${chatId}] durable turn view failed:`, error);
 			if (!settled) {
-				send({ type: "error", errorText: onError?.(error) ?? "An error occurred." });
+				send({ type: "error", errorText: "An error occurred." });
 				await settle().catch(() => undefined);
 			}
 		}
@@ -365,7 +361,6 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 		},
 		abort() {
 			if (settled) return;
-			sawAbort = true;
 			void runtime.root.abort(BACKGROUND_CONTEXT).catch((error) => {
 				console.error(`[chat ${chatId}] turn abort failed:`, error);
 			});

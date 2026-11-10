@@ -60,8 +60,11 @@ function markdownContext(messages: ReadonlyArray<LhMessage>): MarkdownContext {
 	return { messages, calls };
 }
 
+/** A practice conclude's outcome (dismissed is synthesized, never the model's). */
+export type PracticeOutcome = "solved" | "solvedWithHints" | "movedOn" | "surrendered" | "dismissed";
+
 /** solvedWithHints → "Solved with hints" — the outcome enum reads as prose. */
-function outcomeLabel(outcome: string): string {
+export function outcomeLabel(outcome: string): string {
 	const spaced = outcome.replace(/([a-z])([A-Z])/g, (_, lo: string, hi: string) => `${lo} ${hi.toLowerCase()}`);
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }

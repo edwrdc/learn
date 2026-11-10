@@ -38,6 +38,6 @@ export async function PUT({ request, params }: RequestEvent) {
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 	const write = SECTION_WRITES[section] as ((value: unknown) => Checked) | undefined;
 	const checked = write ? write(parsed.value) : { ok: true as const, value: parsed.value };
-	if (!checked.ok) return Response.json({ error: checked.error, supported: checked.supported }, { status: 400 });
+	if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
 	return Response.json({ settings: writeSettingsSection(section, checked.value) });
 }

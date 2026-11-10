@@ -10,7 +10,7 @@ import {
 	modelCatalog,
 	rolePinsFor,
 	toModelDto,
-	validateChatSettings,
+	validateModelChoice,
 	validateModelsSettings,
 } from "../src/settings/model-catalog.ts";
 import type { EffectiveModelSpec } from "../src/settings/model/resolution.ts";
@@ -252,10 +252,10 @@ describe("the models-section validation gate", () => {
 describe("the settings validation gate", () => {
 	it("thinking levels never reject a chat write (owner, interlude 2026-09-22)", () => {
 		assert.deepEqual(
-			validateChatSettings({ model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "minimal" }),
+			validateModelChoice({ model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "minimal" }),
 			{ ok: true },
 		);
-		assert.deepEqual(validateChatSettings({ thinkingLevel: "xhigh" }), { ok: true });
+		assert.deepEqual(validateModelChoice({ thinkingLevel: "xhigh" }), { ok: true });
 	});
 
 	it("clampChatLevel: the body's model, else the strong slot, translates the pin", () => {
@@ -276,12 +276,12 @@ describe("the settings validation gate", () => {
 	});
 
 	it("rejects unknown providers and models", () => {
-		assert.equal(validateChatSettings({ model: { provider: "nope", id: "x/y" } }).ok, false);
-		assert.equal(validateChatSettings({ model: { provider: "openrouter", id: "nope/nope" } }).ok, false);
+		assert.equal(validateModelChoice({ model: { provider: "nope", id: "x/y" } }).ok, false);
+		assert.equal(validateModelChoice({ model: { provider: "openrouter", id: "nope/nope" } }).ok, false);
 	});
 
 	it("accepts empty settings (the clear-overrides write)", () => {
-		assert.deepEqual(validateChatSettings({}), { ok: true });
+		assert.deepEqual(validateModelChoice({}), { ok: true });
 	});
 });
 

@@ -9,7 +9,7 @@
  */
 
 import { isSafeId, mintId } from "../platform/model/index.ts";
-import { writeJsonAtomic } from "../platform/index.ts";
+import { readJsonFile, writeJsonAtomic } from "../platform/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../platform/index.ts";
@@ -48,11 +48,7 @@ function createJob(init: CreateJobInit): JobRecord {
 }
 
 function getJob(id: string): JobRecord | null {
-	try {
-		return JSON.parse(fs.readFileSync(jobFile(id), "utf-8")) as JobRecord;
-	} catch {
-		return null;
-	}
+	return (readJsonFile(jobFile(id)) as JobRecord | undefined) ?? null;
 }
 
 /** Merge a partial patch into the record (identity fields are immutable).
@@ -80,7 +76,8 @@ function listJobs(chatId: string): JobRecord[] {
 			.map((f) => getJob(f.slice(0, -5)))
 			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-	} catch {
+	} catch (error) {
+		console.error("[jobs] cannot list jobs:", error);
 		return [];
 	}
 }

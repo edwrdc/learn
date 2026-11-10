@@ -21,10 +21,9 @@ import {
 	type RoleRunIdentity,
 	type SubmitRunState,
 } from "../../jobs/index.ts";
-import type { GraphToolContext } from "./graph-tools.ts";
+import type { GraphDeps } from "../snapshot.ts";
 import type { SubmitRunInput, SubmitVariant } from "./submit-role.ts";
 
-export { healStringifiedArrays } from "./submit-role.ts";
 
 export async function runSubmitAgent<T>(opts: {
 	role: ModelRole;
@@ -46,7 +45,7 @@ export async function runSubmitAgent<T>(opts: {
 	/** The durable owner + stable run key (source id + job identity). */
 	run: RoleRunIdentity;
 	/** The live graph the auditor explores (tests inject their ledgers). */
-	graph?: GraphToolContext;
+	graph?: GraphDeps;
 }): Promise<T> {
 	if (!opts.engine) throw new Error("submit agent: no model engine was resolved");
 	const input: SubmitRunInput = {

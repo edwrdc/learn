@@ -15,7 +15,7 @@ import {
 import { enabledTools, quizMechanics, type EnabledTools } from "../../tools/model/index.ts";
 import type { JobRecord } from "../../jobs/model/index.ts";
 import type { JobStore } from "../../jobs/model/index.ts";
-import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "../../jobs/index.ts";
+import { jobTools, type SpawnJob } from "../../jobs/index.ts";
 import { planTools, type PlanToolContext } from "./plan.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./probe.ts";
 import { proberGraphTools } from "../../graph/index.ts";
@@ -25,7 +25,6 @@ import { findTool } from "../../tools/index.ts";
 import { grepTool } from "../../tools/index.ts";
 import type { GraphStore } from "../../graph/model/index.ts";
 
-export { jobTools };
 export type { ProbeDoneContext } from "./probe.ts";
 
 /**
@@ -77,7 +76,6 @@ function prepareQuestionArguments<T extends object>(args: unknown): T {
 
 export const askUserQuestionTool: AppTool<typeof askInputSchema> = {
 	name: "ask_user_question",
-	label: "ask_user_question",
 	description:
 		"Ask the learner a single question and pause until they answer. NOT graded — there is no correct answer. " +
 		"Use when requirements are ambiguous, preferences are needed, a decision would materially affect the lesson, " +
@@ -203,7 +201,6 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
  *  `probe` never lies about what `quiz` requires. */
 export const probeQuizTool: AppTool<typeof probeQuizInputSchema> = {
 	name: "probe",
-	label: "probe",
 	description: quizDescription({ name: "probe", nodeId: false, types: false }),
 	parameters: probeQuizInputSchema,
 	prepareArguments: prepareQuestionArguments,
@@ -222,7 +219,6 @@ export function teachExplainToolFor(
 ): AppTool<typeof explainInputObject> {
 	return {
 		name: "explain",
-		label: "explain",
 		description: explainDescription("explain", true),
 		parameters: explainInputObject,
 		prepareArguments: prepareQuestionArguments,
@@ -247,7 +243,6 @@ export function teachExplainToolFor(
  *  both). */
 export const probeExplainTool: AppTool<typeof explainInputBase> = {
 	name: "recall",
-	label: "recall",
 	description: explainDescription("recall", false),
 	parameters: explainInputBase,
 	prepareArguments: prepareQuestionArguments,
@@ -266,9 +261,7 @@ export interface ProberToolContext extends ProbeDoneContext {
 	/** Creates the job record (deduped by toolCallId). */
 	jobStore: JobStore;
 	/** Fire the background runner for a freshly created job. */
-	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Retained search-status seam; research dispatch is available keylessly. */
-	searchAvailable?: () => boolean;
+	spawn: SpawnJob;
 	/** The prober's graph-map reader (wave 7): present = the two map tools
 	 *  (list_sessions / list_propositions) are registered. The composition
 	 *  root passes it only when graphToolsEnabled(effective) — the graph
@@ -296,7 +289,6 @@ export function createProberTools(
 		chatId: ctx.chatId,
 		jobStore: ctx.jobStore,
 		spawn: ctx.spawn,
-		searchAvailable: ctx.searchAvailable,
 	});
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the probe
 	// quiz for the probe explain — one quizzing tool at a time, whichever
@@ -374,7 +366,6 @@ async function nodeIdProblem(
 export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">): AppTool<typeof quizInputObject> {
 	return {
 		name: "quiz",
-		label: "quiz",
 		description: quizDescription({ name: "quiz", nodeId: true, types: true }),
 		parameters: quizInputObject,
 		prepareArguments: prepareQuestionArguments,
@@ -396,9 +387,7 @@ export interface TeacherToolContext extends PlanToolContext {
 	/** Fire the background runner for a freshly created job. The tool input
 	 *  rides along — the spawn fires mid-stream, before the tool part is
 	 *  persisted to the transcript (a transcript scan would race it). */
-	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Retained search-status seam; research dispatch is available keylessly. */
-	searchAvailable?: () => boolean;
+	spawn: SpawnJob;
 }
 
 /**
@@ -432,7 +421,7 @@ export function createTeacherTools(
 			find: findTool,
 			grep: grepTool,
 			...planTools(ctx),
-			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn }),
 		},
 		enabled,
 	);

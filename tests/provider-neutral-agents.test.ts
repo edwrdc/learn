@@ -82,7 +82,6 @@ function callsFor(loop: Loop, round: number): Call[] {
 
 function fakeHeadless(renders: string[]): HeadlessApi {
 	return {
-		available: () => true,
 		unavailableReason: () => null,
 		runDemo: async () => { throw new Error("unexpected demo"); },
 		renderSvg: async (svg) => {

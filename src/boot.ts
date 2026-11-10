@@ -4,7 +4,7 @@ import { configureBackgroundRuns, createJobRunner, recoverStaleJobs, resumeBackg
 import { createExtractionPipeline, type ExtractionPipeline } from "./graph/index.ts";
 import { resolveRoleSpec, type ModelRole } from "./settings/model/index.ts";
 import type { PiEngine } from "./platform/index.ts";
-import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey, searchProvider } from "./settings/index.ts";
+import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey, readSettings, searchProvider } from "./settings/index.ts";
 import { openChatRuntime, setRuntimeBootstrap } from "./session/durable.ts";
 import { handleChatInput, resumeForegroundTurn } from "./session/turn.ts";
 
@@ -29,7 +29,7 @@ interface AppServices {
  *  between dispatch and spawn lands. Undefined (no model configured, or
  *  one the catalog lost) reaches the per-need refusal gates. */
 function resolveEngine(role: ModelRole): PiEngine | undefined {
-	const spec = resolveRoleSpec(role, stores.settingsStore.readSettings());
+	const spec = resolveRoleSpec(role, readSettings());
 	if (!spec) return undefined;
 	try {
 		return engineForSpec(spec);

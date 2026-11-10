@@ -169,9 +169,8 @@ export async function applyAnswer(chatId: string, write: AnswerWrite): Promise<v
 
 /** Write a dismissal — the question's tool result, or the practice
  *  problem's UI-only discard marker. No run starts. Emits the record change
- *  so open views refetch; true means the transcript changed (the caller owns
- *  the activity timestamp). */
-export async function writeDismissal(chatId: string, input: DismissInput): Promise<boolean> {
+ *  so open views refetch (the caller owns the activity timestamp). */
+export async function writeDismissal(chatId: string, input: DismissInput): Promise<void> {
 	const messages = await readChatMessages(chatId);
 	const record = { messages: [...messages] };
 	if (input.type === "dismiss-problem") {
@@ -181,7 +180,6 @@ export async function writeDismissal(chatId: string, input: DismissInput): Promi
 		await applyAnswer(chatId, write);
 	}
 	emit("record-changed", { chatId });
-	return true;
 }
 
 /** The plan presentation markers a finished run owes, idempotent per

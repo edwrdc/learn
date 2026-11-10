@@ -1,23 +1,3 @@
-import type { UserSettings } from "./settings.ts";
-
-// ─── SettingsStore — THE user settings record (settings-storage wave, 2026-09-19) ──
-
-/**
- * The one record for every non-secret product preference (core/settings.ts
- * UserSettings — delta semantics, see that module's doc). The store is
- * replace-whole on the RECORD; per-section scoping is a server-band concern
- * (single process, no stale-client hazard to defend against at this seam).
- * Schema-version lazy migration happens inside readSettings, never in
- * the callers. (The legacy default-settings.json fold died with the chat
- * section — per-session models, owner 2026-09-28.)
- */
-export interface SettingsStore {
-	/** The sanitized record, or null when none exists yet (first boot). */
-	readSettings(): UserSettings | null;
-	/** Persist the record (replace-whole). Callers pass a SANITIZED record. */
-	writeSettings(settings: UserSettings): void;
-}
-
 // ─── AuthStore — BYOK provider keys (auth-keys wave, 2026-09-19) ────────────
 
 /**

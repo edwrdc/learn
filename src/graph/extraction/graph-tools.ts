@@ -1,9 +1,7 @@
 import { Type } from "typebox";
 import type { AppTool } from "../../tools/index.ts";
 import { serverExecute } from "../../tools/index.ts";
-import { getGraph, graphSessionIndex, graphSessionPropositions } from "../snapshot.ts";
-import type { ChatStore } from "../../session/model/index.ts";
-import type { GraphStore } from "../model/ports.ts";
+import { getGraph, graphSessionIndex, graphSessionPropositions, type GraphDeps } from "../snapshot.ts";
 
 /**
  * THE PROBER'S GRAPH TOOLS (wave 7, owner-locked 2026-09-23): context
@@ -24,12 +22,6 @@ import type { GraphStore } from "../model/ports.ts";
  * store (absent = the gate is closed, no map tools — tests drive this).
  */
 
-/** What the graph tools close over: the stores the session views read. */
-export interface GraphToolContext {
-	chatStore: ChatStore;
-	graphStore: GraphStore;
-}
-
 const listSessionsInput = Type.Object({});
 
 const listPropositionsInput = Type.Object({
@@ -39,12 +31,10 @@ const listPropositionsInput = Type.Object({
 	}),
 });
 
-export function proberGraphTools(ctx: GraphToolContext): Record<string, AppTool<any>> {
-	const deps = { chatStore: ctx.chatStore, graphStore: ctx.graphStore };
+export function proberGraphTools(deps: GraphDeps): Record<string, AppTool<any>> {
 	return {
 		list_sessions: {
 			name: "list_sessions",
-			label: "list_sessions",
 			description:
 				"List the sessions of the learner's persistent knowledge graph — every chat or imported-notes file that ever contributed a proposition, most recent first. The map is organized into birth-session clusters (propositions grouped by the session they were first learned in), and session names are those clusters' labels. " +
 				"Each line: the session's name, kind (chat/file), how many propositions were born in it, its dates, and its id — use that id with list_propositions. " +
@@ -62,7 +52,6 @@ export function proberGraphTools(ctx: GraphToolContext): Record<string, AppTool<
 		},
 		list_propositions: {
 			name: "list_propositions",
-			label: "list_propositions",
 			description:
 				"List the propositions BORN in one knowledge-graph session — what was covered there. " +
 				"Names only — no statement text, no session contents (owner ruling 2026-09-23: the map's ORGANIZATION is your business, its prose is not).",
@@ -110,8 +99,7 @@ function globMatch(pattern: string, text: string): boolean {
 	return re.test(text);
 }
 
-export function auditorGraphTools(ctx: GraphToolContext): Record<string, AppTool<any>> {
-	const deps = { chatStore: ctx.chatStore, graphStore: ctx.graphStore };
+export function auditorGraphTools(deps: GraphDeps): Record<string, AppTool<any>> {
 	const findInput = Type.Object({
 		query: Type.String({
 			minLength: 1,
@@ -121,7 +109,6 @@ export function auditorGraphTools(ctx: GraphToolContext): Record<string, AppTool
 	return {
 		find: {
 			name: "find",
-			label: "find",
 			description:
 				"Search the knowledge graph for existing propositions — glob over names, statements, and aliases. " +
 				"Returns each match's id, name, full statement, and the session(s) it was born in (a list_propositions id). " +
@@ -149,7 +136,6 @@ export function auditorGraphTools(ctx: GraphToolContext): Record<string, AppTool
 		},
 		list_sessions: {
 			name: "list_sessions",
-			label: "list_sessions",
 			description:
 				"List the knowledge graph's birth sessions — every chat or imported-notes file that ever contributed a proposition. " +
 				"Each line: name, kind, proposition count, id. Use the id with list_propositions to see what a session covered.",
@@ -163,7 +149,6 @@ export function auditorGraphTools(ctx: GraphToolContext): Record<string, AppTool
 		},
 		list_propositions: {
 			name: "list_propositions",
-			label: "list_propositions",
 			description:
 				"List the propositions BORN in one session, with FULL statement text — the content-level view for identity work " +
 				"(deciding whether a new proposition is really one of these).",

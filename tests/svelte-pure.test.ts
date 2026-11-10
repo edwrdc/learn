@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { escAbortTarget, initialPromptOwed, parseModelsRefusal, parseProviderKeyRefusal } from "../src/lib/chat/chat-logic.ts";
+import { escAbortTarget, initialPromptOwed, parseRefusal } from "../src/lib/chat/chat-logic.ts";
 import { codeKeydown, withCode } from "../src/lib/chat/code-input.ts";
 import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
 import { confidenceRailStyle, CONFIDENCE_COLORS } from "../src/lib/chat/confidence.ts";
@@ -16,11 +16,8 @@ describe("chat logic", () => {
 		assert.equal(initialPromptOwed([], undefined), false);
 	});
 
-	it("Esc layers overlays before a question, problem or turn", () => {
-		const base = { abortAsk: false, mermaidFocus: false, planOpen: false, setupOpen: false, pending: false, problem: false, busy: false };
-		assert.equal(escAbortTarget({ ...base, mermaidFocus: true, pending: true }), "mermaid");
-		assert.equal(escAbortTarget({ ...base, planOpen: true, pending: true }), "plan");
-		assert.equal(escAbortTarget({ ...base, setupOpen: true, pending: true }), "setup");
+	it("Esc aborts a question, then a problem, then the turn", () => {
+		const base = { abortAsk: false, pending: false, problem: false, busy: false };
 		assert.equal(escAbortTarget({ ...base, pending: true, busy: true }), "question");
 		assert.equal(escAbortTarget({ ...base, problem: true, busy: true }), "problem");
 		assert.equal(escAbortTarget({ ...base, busy: true }), "turn");
@@ -28,10 +25,10 @@ describe("chat logic", () => {
 	});
 
 	it("BYOK refusal envelopes parse from the transport's verbatim text", () => {
-		assert.deepEqual(parseModelsRefusal(JSON.stringify({ code: "models_not_configured", missing: ["cheap"] })), ["cheap"]);
-		assert.equal(parseModelsRefusal("boom"), null);
-		assert.equal(parseProviderKeyRefusal(JSON.stringify({ code: "provider_key_missing", error: "No OpenRouter key is set — add one in Settings → Keys" })), true);
-		assert.equal(parseProviderKeyRefusal("{}"), false);
+		assert.equal(parseRefusal(JSON.stringify({ code: "models_not_configured", missing: ["cheap"] })), "models_not_configured");
+		assert.equal(parseRefusal("boom"), null);
+		assert.equal(parseRefusal(JSON.stringify({ code: "provider_key_missing", error: "No OpenRouter key is set — add one in Settings → Keys" })), "provider_key_missing");
+		assert.equal(parseRefusal("{}"), null);
 	});
 });
 
@@ -57,11 +54,11 @@ describe("learner code input", () => {
 		const run = (
 			key: string,
 			opts: Record<string, unknown> = {},
-			escape = true,
+			leave = true,
 		) => {
 			let value = (opts.value as string) ?? "";
 			const calls = { prevented: 0, stopped: 0 };
-			const seen = { change: 0, submit: 0, escape: 0, leave: 0 };
+			const seen = { change: 0, submit: 0, leave: 0 };
 			const field = {
 				selectionStart: (opts.selectionStart as number) ?? value.length,
 				selectionEnd: (opts.selectionEnd as number) ?? value.length,
@@ -87,8 +84,7 @@ describe("learner code input", () => {
 				event,
 				() => seen.change++,
 				() => seen.submit++,
-				escape ? () => seen.escape++ : undefined,
-				() => seen.leave++,
+				leave ? () => seen.leave++ : undefined,
 			);
 			return { value, calls, seen };
 		};
@@ -98,7 +94,7 @@ describe("learner code input", () => {
 		assert.equal(tab.calls.prevented, 1);
 		assert.equal(tab.calls.stopped, 1);
 		assert.equal(tab.seen.change, 1);
-		assert.equal(tab.seen.submit + tab.seen.escape + tab.seen.leave, 0);
+		assert.equal(tab.seen.submit + tab.seen.leave, 0);
 
 		assert.deepEqual(run("Tab", { shiftKey: true }).calls, { prevented: 0, stopped: 0 });
 		assert.deepEqual(run("Tab", { ctrlKey: true }).calls, { prevented: 0, stopped: 0 });
@@ -120,15 +116,13 @@ describe("learner code input", () => {
 		assert.equal(composing.calls.prevented, 0);
 		assert.equal(composing.seen.submit, 0);
 
-		const escape = run("Escape");
-		assert.deepEqual(escape.calls, { prevented: 1, stopped: 1 });
-		assert.equal(escape.seen.escape, 1);
-		assert.equal(escape.seen.leave, 0);
-
-		const leave = run("Escape", {}, false);
+		const leave = run("Escape");
 		assert.deepEqual(leave.calls, { prevented: 1, stopped: 1 });
-		assert.equal(leave.seen.escape, 0);
 		assert.equal(leave.seen.leave, 1);
+
+		const unhandled = run("Escape", {}, false);
+		assert.deepEqual(unhandled.calls, { prevented: 0, stopped: 0 });
+		assert.equal(unhandled.seen.leave, 0);
 	});
 });
 

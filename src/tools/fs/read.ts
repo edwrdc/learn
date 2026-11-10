@@ -92,7 +92,6 @@ function readTextSlice(text: string, offset: number | undefined, limit: number |
  */
 export const readTool: AppTool<typeof readInput> = {
 	name: "read",
-	label: "read",
 	description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50.0KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 	parameters: readInput,
 	execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }): Promise<string | ImageFileResult> => {

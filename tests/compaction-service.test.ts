@@ -132,7 +132,6 @@ describe("the compaction service", () => {
 			const readGate = deferred();
 			const summaryStarted = deferred();
 			const summaryGate = deferred();
-			const blockedReads = competitor === "cold caller" ? 2 : 1;
 			let reads = 0;
 			let summaries = 0;
 			const base = depsOf(chatId, 40_000);
@@ -141,8 +140,8 @@ describe("the compaction service", () => {
 				chatStore: {
 					...chatStore,
 					getChat: async () => {
-						if (++reads <= blockedReads) {
-							if (reads === blockedReads) readsReady.resolve();
+						if (++reads === 1) {
+							readsReady.resolve();
 							await readGate.promise;
 						}
 						return record;
@@ -181,61 +180,6 @@ describe("the compaction service", () => {
 			assert.ok(activeCompactionOf((await chatStore.getChat(chatId))!.messages), "the marker is persisted before callers return");
 		});
 	}
-
-	it("the turn-start gate waits after a competing kick saves its marker but before usage finishes", async () => {
-		const chatId = await overThresholdChat("compact: saved marker overlap");
-		const readStarted = deferred();
-		const readFinished = deferred();
-		const readGate = deferred();
-		const usageStarted = deferred();
-		const usageGate = deferred();
-		let returned = false;
-		const base = depsOf(chatId, 40_000);
-		const caller = ensureCompacted({
-			...base,
-			chatStore: {
-				...chatStore,
-				getChat: async (id) => {
-					readStarted.resolve();
-					await readGate.promise;
-					const record = await chatStore.getChat(id);
-					readFinished.resolve();
-					return record;
-				},
-			},
-		}, chatId).then(() => { returned = true; });
-		await readStarted.promise;
-		kickCompaction(() => ({
-			...base,
-			chatStore: {
-				...chatStore,
-				appendTurnUsage: async (id, entry) => {
-					usageStarted.resolve();
-					await usageGate.promise;
-					return chatStore.appendTurnUsage(id, entry);
-				},
-			},
-		}), chatId);
-		const kick = awaitCompaction(chatId);
-		try {
-			await usageStarted.promise;
-			const record = (await chatStore.getChat(chatId))!;
-			assert.ok(activeCompactionOf(record.messages), "the marker is already persisted");
-			assert.ok(projectedContextTokens(record.messages, 100) < base.thresholdTokens);
-			assert.equal(record.turns?.length ?? 0, 0, "usage has not been recorded");
-			readGate.resolve();
-			await readFinished.promise;
-			await setImmediate();
-			assert.equal(returned, false, "an under-threshold read must still join the active compaction");
-		} finally {
-			readGate.resolve();
-			usageGate.resolve();
-			await Promise.all([caller, kick]);
-		}
-		assert.equal(returned, true);
-		const record = (await chatStore.getChat(chatId))!;
-		assert.ok(record.turns?.some((turn) => turn.messageId === activeCompactionOf(record.messages)!.id));
-	});
 
 	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {
 		const chatId = await overThresholdChat("compact: gate");

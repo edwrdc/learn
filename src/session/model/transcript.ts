@@ -147,8 +147,11 @@ export function newAnswerResult(
 	};
 }
 
-/** The probe→teach handoff wake: scaffolding, not speech — the model reads
- *  HANDOFF_TEXT, the UI renders the quiet system line. */
+/** The probe→teach handoff wake: probe_done queues it through the wake
+ *  pipeline, which fires it once the prober's turn ends. Scaffolding, not
+ *  speech — the model reads HANDOFF_TEXT, the UI renders the quiet system
+ *  line. Deterministic id per chat: exactly one handoff, idempotent
+ *  re-delivery. */
 export function newHandoffMessage(chatId: string): LhMarkerMessage {
 	return {
 		id: `steer_probe_${chatId}`,
@@ -410,6 +413,15 @@ export function problemInputForConclude(
 		}
 	}
 	return undefined;
+}
+
+/** Has a practice problem been posed in this transcript (any call)? */
+export function hasPracticeProblem(messages: readonly LhMessage[]): boolean {
+	return messages.some(
+		(m) =>
+			(m as { role?: string }).role === "assistant" &&
+			(m as AssistantMessage).content.some((b) => b.type === "toolCall" && b.name === PRACTICE_PROBLEM_TOOL),
+	);
 }
 
 export function activeProblemOf(

@@ -9,14 +9,13 @@
 import { chatStore } from "./session/store.ts";
 import { graphStore } from "./graph/store.ts";
 import { jobStore } from "./jobs/store.ts";
-import { settingsStore } from "./settings/store.ts";
+import { readSettings } from "./settings/store.ts";
 import { resolveSettings, type EffectiveSettings } from "./settings/model/resolution.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
 	chatStore,
 	graphStore,
 	jobStore,
-	settingsStore,
 };
 
 /**
@@ -28,5 +27,5 @@ export const stores = {
  * no caching layer (stale toggles after a settings PUT would be worse).
  */
 export function effectiveSettings(): EffectiveSettings {
-	return resolveSettings(settingsStore.readSettings());
+	return resolveSettings(readSettings());
 }

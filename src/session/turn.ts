@@ -35,7 +35,7 @@ import {
 import { providerEventNote } from "../platform/index.ts";
 import { effectiveSettings, stores } from "../stores.ts";
 import { services } from "../boot.ts";
-import { searchAvailable, searchProvider } from "../settings/index.ts";
+import { searchProvider } from "../settings/index.ts";
 import { modelKey, modelsNotConfigured, resolveConversationSpec, type EffectiveSettings } from "../settings/model/index.ts";
 import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
@@ -71,6 +71,7 @@ import {
 	CONTINUATION_KIND,
 	CONTINUATION_TEXT,
 	appendMessages,
+	inputOf,
 	openChatRuntime,
 	projectEntries,
 	readEntries,
@@ -128,8 +129,7 @@ function compactionDeps(profile: TurnProfile): CompactionDeps {
 function noteTurnEntry(chatId: string, entry: EntryRecord): void {
 	const message = (entry.data as { message?: LhMessage } | undefined)?.message;
 	if (message?.role !== "custom") return;
-	noteSteerVisible(message as SteerMessage);
-	markSteerDelivered(chatId, message.id);
+	markSteerDelivered(chatId, message as SteerMessage);
 }
 
 /** Rebuild and reattach a foreground turn that outlived its process. The
@@ -184,13 +184,8 @@ export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (mod
 			runtime.chatId,
 			runDurableTurn({
 				runtime,
-				chatId: runtime.chatId,
 				submission,
 				replayAfter,
-				onError: (error) => {
-					console.error(`[chat ${runtime.chatId}] recovered turn error:`, error);
-					return "An error occurred.";
-				},
 				onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
 				onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
 			}),
@@ -319,27 +314,8 @@ function conversationDeps(turn?: ChatTurnInjection): ConversationDeps {
 		jobStore: stores.jobStore,
 		spawn: (job, jobInput) => void services().jobRunner.runJob(job.id, jobInput),
 		deliver: (chatId, steer) => void deliverJobResult(chatId, steer as SteerMessage),
-		searchAvailable,
 		graphNodes: () => firstLineById(stores.graphStore.readNodes()).map((node) => ({ id: node.id, name: node.name })),
 		...turn?.deps,
-	};
-}
-
-/** The submission an input places: the message's model text is the input
- *  content; the record keeps the app shape in entry data. */
-function submissionOf(message: LhMessage): {
-	content: string;
-	entry: { kind: string; data: unknown };
-} {
-	if (message.role === "custom") {
-		return {
-			content: modelTextOf(message) ?? "",
-			entry: { kind: "lh.marker", data: { message } },
-		};
-	}
-	return {
-		content: typeof message.content === "string" ? message.content : "",
-		entry: { kind: "lh.user", data: { id: message.id } },
 	};
 }
 
@@ -518,7 +494,7 @@ export async function handleChatInput(
 				// JSONL event stream with the record's turns; no-op unless
 				// LH_PROVIDER_EVENTS=1.
 				providerEventNote(chatId, "turn", `run start (base: ${baseMessages.length} messages)`);
-				const draft = tail ? submissionOf(tail) : undefined;
+				const draft = tail ? inputOf(tail) : undefined;
 				submission = await runtime.root.submit(
 					draft
 						? {
@@ -547,13 +523,8 @@ export async function handleChatInput(
 
 			const handle = runDurableTurn({
 				runtime,
-				chatId,
 				submission,
 				replayAfter,
-				onError: (error) => {
-					console.error(`[chat ${chatId}] turn error:`, error);
-					return "An error occurred.";
-				},
 				onEntry: (entry) => noteTurnEntry(chatId, entry),
 				onFinish: () => settleForegroundTurn(runtime, chatId, admission),
 			});

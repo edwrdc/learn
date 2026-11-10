@@ -1,5 +1,5 @@
 import { isTurnRunning } from "@/src/session";
-import { listJobs } from "@/src/jobs";
+import { stores } from "@/src/stores";
 import { isSafeId } from "@/src/platform/model";
 import type { RequestEvent } from "./$types";
 
@@ -20,5 +20,5 @@ export async function GET({ url }: RequestEvent) {
 	if (!isSafeId(chatId)) {
 		return Response.json({ error: "Invalid chatId" }, { status: 400 });
 	}
-	return Response.json({ jobs: listJobs(chatId), turnInFlight: await isTurnRunning(chatId) });
+	return Response.json({ jobs: stores.jobStore.listJobs(chatId), turnInFlight: await isTurnRunning(chatId) });
 }

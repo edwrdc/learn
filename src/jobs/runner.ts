@@ -1,6 +1,7 @@
 import type { PiEngine } from "../platform/index.ts";
 import type { SearchProvider } from "../tools/model/index.ts";
-import { buildSubagentSteer, type DemoToolInput, type JobRecord, type JobResult, type PdfToolInput, type ResearchToolInput, type SteerMessage, type VisualToolInput } from "./model/types.ts";
+import { buildSubagentSteer, type JobRecord, type JobResult, type SteerMessage } from "./model/types.ts";
+import type { JobInput } from "./tools.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
 import type { ModelRole } from "../settings/model/index.ts";
 import { MODELS_NOT_CONFIGURED_CODE, ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../settings/model/index.ts";
@@ -28,7 +29,6 @@ import { runRole } from "./roles/role.ts";
  */
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
 
 interface JobRunnerDeps {
 	chatStore: ChatStore;
@@ -65,7 +65,7 @@ export interface JobRunner {
 	 *  The tool input rides along from dispatch (the spawn fires mid-stream,
 	 *  before the tool part is persisted — only crash-recovery re-spawns
 	 *  resolve the input from the transcript). */
-	runJob(jobId: string, input?: JobToolInput): Promise<void>;
+	runJob(jobId: string, input?: JobInput): Promise<void>;
 }
 
 function refusalOf(envelope: ProviderKeyMissing | null) {
@@ -83,7 +83,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		return jobStore.getJob(jobId)?.status === "running";
 	}
 
-	async function runJob(jobId: string, input?: JobToolInput): Promise<void> {
+	async function runJob(jobId: string, input?: JobInput): Promise<void> {
 		const job = jobStore.getJob(jobId);
 		if (!job) {
 			console.error(`[job ${jobId}] not found — nothing to run`);
@@ -137,13 +137,13 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 
 	/** The job's tool input: dispatch passes it directly; a crash-recovery
 	 *  re-spawn reads the call's arguments from the transcript. */
-	async function resolveInput(job: JobRecord, input: JobToolInput | undefined): Promise<JobToolInput | undefined> {
+	async function resolveInput(job: JobRecord, input: JobInput | undefined): Promise<JobInput | undefined> {
 		if (input) return input;
 		const chat = await chatStore.getChat(job.chatId);
 		for (const m of chat?.messages ?? []) {
 			if (m.role !== "assistant") continue;
 			for (const block of m.content) {
-				if (block.type === "toolCall" && block.id === job.toolCallId) return block.arguments as unknown as JobToolInput;
+				if (block.type === "toolCall" && block.id === job.toolCallId) return block.arguments as unknown as JobInput;
 			}
 		}
 		return undefined;

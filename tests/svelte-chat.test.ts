@@ -152,9 +152,9 @@ describe("svelte artifact cards", () => {
 
 describe("svelte transcript chrome", () => {
 	it("phase dividers and compaction dividers keep their labels", async () => {
-		const plan = await render("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 4 });
+		const plan = await render("/src/lib/chat/PhaseDivider.svelte", { phase: "plan" });
 		assert.ok(plan.includes('data-testid="phase-divider-plan"'));
-		assert.match(plan, /Plan · 4 nodes/);
+		assert.match(plan, /Planning/);
 		const teach = await render("/src/lib/chat/PhaseDivider.svelte", { phase: "teach" });
 		assert.match(teach, /Teaching/);
 		const moment = await render("/src/lib/chat/CompactionDivider.svelte", {

@@ -34,17 +34,6 @@ export const PATHS = {
 	debug: path.join(DATA_ROOT, "debug"),
 } as const;
 
-// ─── Models ────────────────────────────────────────────────────────────────
-// BYOK ALL THE WAY DOWN (owner, 2026-09-22): there are NO factory default
-// models. Every engine resolves from the user's model slots (settings.json
-// models section: strong/cheap/vision) over per-role/ChatSettings overrides,
-// and a chain that ends empty REFUSES honestly (503 models_not_configured).
-// .env stays for secrets (API keys) only. What remains here are ENGINE
-// CONSTRUCTION FACTS: the thinking-level scale and the default order.
-
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-
-
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
  * pipeline. Line shapes: src/core/contracts.ts. CHAINS ARE THE STORED

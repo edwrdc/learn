@@ -50,8 +50,6 @@ export interface PiEngine {
 	level?: ThinkingLevel;
 }
 
-export type { ThinkingLevel };
-
 /** The secret-free model selection a run was admitted under; recovery
  *  rebuilds the run's engine from it, never from later settings. */
 export interface ModelSnapshot {
@@ -170,9 +168,6 @@ export function routedModels(): Models {
 					return target.getModel(provider, id);
 				};
 			}
-			if (property === "getModels") {
-				return (provider?: string) => target.getModels(provider);
-			}
 			if (property === "streamSimple") return stream;
 			// completeSimple/dispatch resolve through this object's streamSimple;
 			// binding the base method would bypass the per-session engine.
@@ -288,17 +283,21 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
  *  construction, so an edit/removal can never redirect an already-running
  *  turn (or swap its key mid-turn). New engines resolve the fresh config. */
 export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
-	if (spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID) {
-		const snapshot = customSnapshot().current;
-		const model = snapshot?.provider.getModels().find((m) => m.id === spec.id);
-		if (!snapshot || !model) {
-			throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
-		}
-		const level = spec.thinkingLevel
-			? clampThinkingLevel(model, spec.thinkingLevel)
-			: defaultThinkingLevel(model);
-		const provider = snapshot.provider;
-		const apiKey = snapshot.apiKey;
+	const custom = spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID ? customSnapshot().current : undefined;
+	const models: Models = piModels();
+	const model =
+		spec.provider === CUSTOM_ENDPOINT_PROVIDER_ID
+			? custom?.provider.getModels().find((m) => m.id === spec.id)
+			: models.getModel(spec.provider, spec.id);
+	if (!model) throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
+	// UNSET level → the baked default order (first entry the model
+	// supports); SET level → pi's native nearest-clamp (model swaps keep
+	// the user's intent and adapt honestly). The engine forwards it as
+	// `reasoning` (undefined = off on pi-ai's scale).
+	const level = spec.thinkingLevel ? clampThinkingLevel(model, spec.thinkingLevel) : defaultThinkingLevel(model);
+	const reasoning = level === "off" ? undefined : level;
+	if (custom) {
+		const { provider, apiKey } = custom;
 		return {
 			model,
 			level,
@@ -310,34 +309,16 @@ export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 					...options,
 					apiKey,
 					identity: options?.identity ?? APP_IDENTITY,
-					reasoning: level === "off" ? undefined : level,
+					reasoning,
 					fetch: noRedirectFetch(upstream),
 				});
 			},
 		};
 	}
-	const models: Models = piModels();
-	const model = models.getModel(spec.provider, spec.id);
-	if (!model) {
-		throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
-	}
-	// UNSET level → the baked default order (first entry the model
-	// supports); SET level → pi's native nearest-clamp (model swaps keep
-	// the user's intent and adapt honestly).
-	const level = spec.thinkingLevel
-		? clampThinkingLevel(model, spec.thinkingLevel)
-		: defaultThinkingLevel(model);
 	return {
 		model,
 		level,
-		// bound streamSimple: the Harness forwards the configured thinking
-		// level as `reasoning` (undefined = off on pi-ai's scale); the clamp keeps
-		// the pin honest even when config or settings drift off the map.
-		streamFn: (_requestModel, context, options) =>
-			models.streamSimple(model, context, {
-				...options,
-				reasoning: level === "off" ? undefined : level,
-			}),
+		streamFn: (_requestModel, context, options) => models.streamSimple(model, context, { ...options, reasoning }),
 	};
 }
 

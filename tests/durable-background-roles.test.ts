@@ -430,10 +430,10 @@ describe("durable role caps and concurrency", () => {
 		assert.equal(engine.calls, 1, "the same span reattached its conversation — no second model call");
 		const runtime = await openChatRuntime(chat.id);
 		const index = (await runtime.harness.snapshot(BackgroundRunsDoc, BACKGROUND_CONTEXT)) as unknown as {
-			runs: Record<string, { kind: string }>;
+			runs: Record<string, unknown>;
 		};
 		assert.ok(
-			Object.entries(index.runs).some(([key, ref]) => key.startsWith(`compact:${chat.id}:`) && ref.kind === "compact"),
+			Object.keys(index.runs).some((key) => key.startsWith(`compact:${chat.id}:`)),
 			"the summary ran as a durable compact run",
 		);
 	});

@@ -138,14 +138,6 @@ describe("isValidSegmentPath (the mirror-layout discipline)", () => {
 });
 
 describe("the override store", () => {
-	it("listOverrides is empty with no dir, then lists written mirrors sorted", () => {
-		fs.rmSync(PROMPTS_OVERRIDE_DIR, { recursive: true, force: true });
-		assert.deepEqual(promptOverrides.listOverrides(), []);
-		promptOverrides.writeOverride("teacher/20-teaching.md", "custom teaching");
-		promptOverrides.writeOverride("system-prompt.md", "custom base");
-		assert.deepEqual(promptOverrides.listOverrides(), ["system-prompt.md", "teacher/20-teaching.md"]);
-	});
-
 	it("readOverride round-trips; delete removes idempotently; invalid paths no-op", () => {
 		promptOverrides.writeOverride("prober/30-probe-done.md", "custom probe-done");
 		assert.equal(promptOverrides.readOverride("prober/30-probe-done.md"), "custom probe-done");
@@ -325,7 +317,6 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 				jobStore: stores.jobStore,
 				spawn: () => {},
 				deliver: () => {},
-				searchAvailable: () => false,
 				graphNodes: () => [],
 			};
 			const base = effectiveSettings();

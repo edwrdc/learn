@@ -32,7 +32,6 @@ const probeSchema = Type.Object({});
 function probeTool(captured: { signal?: AbortSignal }, opts: { hang?: boolean; value?: string } = {}) {
 	return {
 		name: "probe",
-		label: "probe",
 		description: "test probe",
 		parameters: probeSchema,
 		execute: serverExecute("probe", probeSchema, (_input: unknown, ctx: ToolExecuteContext) => {
@@ -92,7 +91,6 @@ describe("serverExecute: cooperative settle, mapping parity, question bypass", (
 		const schema = Type.Object({});
 		const pi = {
 			name: "partial",
-			label: "partial",
 			description: "test",
 			parameters: schema,
 			execute: serverExecute("partial", schema, (_input: unknown, ctx: ToolExecuteContext) =>

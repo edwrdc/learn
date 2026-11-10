@@ -96,7 +96,6 @@ export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 	return {
 		web_fetch_pdf: {
 			name: "web_fetch_pdf",
-			label: "web_fetch_pdf",
 			description:
 				"Download a PDF from the web and triage it: returns its local path, page count, size class " +
 				"(short ≤10 pages, medium ≤40, long), and flagged (math/image-heavy) pages. " +
@@ -154,7 +153,6 @@ export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 
 		pdf_info: {
 			name: "pdf_info",
-			label: "pdf_info",
 			description:
 				"Triage a downloaded PDF: page count plus per-page signals (text_length, image_count, math_density).",
 			parameters: pdfPathInput,
@@ -177,7 +175,6 @@ export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 
 		pdf_extract: {
 			name: "pdf_extract",
-			label: "pdf_extract",
 			description:
 				"Extract text from pages of a downloaded PDF (spec: 'all', '1-5', '1,3,7', '3'). " +
 				"Use pdf_info first; narrow the spec for big documents.",
@@ -195,7 +192,6 @@ export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 
 		pdf_search: {
 			name: "pdf_search",
-			label: "pdf_search",
 			description: "Find text in a downloaded PDF — returns the pages and contexts that hit.",
 			parameters: pdfSearchInput,
 			execute: serverExecute("pdf_search", pdfSearchInput, async ({ path: filePath, query }) => {

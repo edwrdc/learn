@@ -20,7 +20,7 @@ import type { ModelRole } from "../settings/model/index.ts";
 import type { JobUsage } from "./model/types.ts";
 import type { JobKind, SearchProvider } from "../tools/model/index.ts";
 import type { ModelSnapshot, PiEngine } from "../platform/index.ts";
-import type { GraphToolContext } from "../graph/index.ts";
+import type { GraphDeps } from "../graph/index.ts";
 import type { HeadlessApi } from "./headless.ts";
 import { processState } from "../platform/model/index.ts";
 
@@ -145,14 +145,13 @@ export interface BackgroundRunRequest {
 	systemPrompt: string;
 	prompt: string;
 	input?: JsonObject;
-	attachments?: { pdfDir?: string };
 	/** The caller's search seam (tests); production falls back to the host. */
 	search?: () => SearchProvider | null;
 	/** The caller's headless seam (tests); production falls back to the host. */
 	headless?: HeadlessApi;
 	/** The caller's graph context for the auditor's exploration tools
 	 *  (tests); production falls back to the host's real stores. */
-	graph?: GraphToolContext;
+	graph?: GraphDeps;
 	/** Aborting stops the child conversation's spend; the run stays
 	 *  recoverable. */
 	signal?: AbortSignal;
@@ -193,7 +192,7 @@ interface BackgroundServices {
 	 *  browser/native rasterizers). */
 	headless?(): HeadlessApi;
 	/** The live graph the auditor explores (production: the real stores). */
-	graphContext?(): GraphToolContext;
+	graphContext?(): GraphDeps;
 }
 
 export function backgroundServices(): Partial<BackgroundServices> {

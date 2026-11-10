@@ -1,6 +1,11 @@
 import type { GraphNode } from "../../graph/model/index.ts";
 import type { LhViewMessage } from "./view.ts";
 
+/** A chat's page URL. */
+export function chatHref(chatId: string): string {
+	return `/chat/${encodeURIComponent(chatId)}`;
+}
+
 /** Message-granular graph links (owner, 2026-10-13). Persisted provenance and
  * native IDs already carry everything needed; only the render seam is new. */
 export function messageAnchorId(messageId: string): string {
@@ -22,7 +27,7 @@ export function messageIdFromHash(hash: string): string | null {
  * lexical order, selects the FIRST recorded message in this source. */
 export function propositionSessionHref(node: Pick<GraphNode, "provenance">, chatId: string): string {
 	const messageId = node.provenance.find((p) => p.chatId === chatId && p.messageId !== "")?.messageId;
-	return `/chat/${encodeURIComponent(chatId)}${messageId ? `#${encodeURIComponent(messageAnchorId(messageId))}` : ""}`;
+	return `${chatHref(chatId)}${messageId ? `#${encodeURIComponent(messageAnchorId(messageId))}` : ""}`;
 }
 
 /** projectView's text-part identity is <native message ID>-t<text index>.

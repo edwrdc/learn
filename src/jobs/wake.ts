@@ -179,6 +179,8 @@ async function submitSteer(chatId: string, steer: SteerMessage): Promise<boolean
 			status: "queued",
 		});
 		const inbox = await tx.doc(InboxDoc, runtime.root.id);
+		// Every steer (a user's composer steer too) keeps its whole message in
+		// a marker entry.
 		inbox.items.push({
 			id: submission.id,
 			mode: "steer",
@@ -201,13 +203,13 @@ export async function steerLiveChat(chatId: string, message: LhMessage): Promise
 /** A marker the run actually delivered (its entry committed): flip the job
  *  and resolve the waiting runner. Called by the turn view on each newly
  *  committed marker entry, so the dock card leaves at visibility. */
-export function markSteerDelivered(chatId: string, steerId: string): void {
+export function markSteerDelivered(chatId: string, steer: SteerMessage): void {
+	finalizeSteer(steer);
 	const queue = state().queues.get(chatId);
 	if (!queue) return;
-	const entry = queue.find((e) => e.steer.id === steerId && !e.delivered);
+	const entry = queue.find((e) => e.steer.id === steer.id && !e.delivered);
 	if (!entry) return;
 	entry.delivered = true;
-	finalizeSteer(entry.steer);
 	entry.resolve();
 	state().queues.set(
 		chatId,
@@ -604,6 +606,3 @@ export async function recoverStaleJobs(): Promise<void> {
 	}
 }
 
-export function listJobs(chatId: string): JobRecord[] {
-	return stores.jobStore.listJobs(chatId);
-}

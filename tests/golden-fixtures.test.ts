@@ -39,7 +39,7 @@ const { chatStore } = await import("../src/session/store.ts");
 const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 const { graphStore } = await import("../src/graph/store.ts");
 const { jobStore } = await import("../src/jobs/store.ts");
-const { settingsStore } = await import("../src/settings/store.ts");
+const { readSettings } = await import("../src/settings/store.ts");
 const { getGraph, deriveView } = await import("../src/graph/snapshot.ts");
 const { toLlmMessages } = await import("../src/session/model/transcript.ts");
 const { phaseAt3Lh } = await import("../src/session/model/phases.ts");
@@ -208,7 +208,7 @@ test("jobs: the kind × status matrix parses through the job store", async () =>
 });
 
 test("settings: the stamped record parses", async () => {
-	const s = settingsStore.readSettings();
+	const s = readSettings();
 	assert.ok(s, "settings record reads");
 	assert.equal(s!.version, 1, "settings carry their version stamp");
 	assert.ok(s!.models && typeof s!.models === "object", "model slots present");

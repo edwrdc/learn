@@ -35,7 +35,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../platform/index.ts";
-import { wireOf, type LhMessage } from "./model/transcript.ts";
+import { modelTextOf, wireOf, type LhMessage } from "./model/transcript.ts";
 import { APP_IDENTITY, routedModels, unbindRunEngine } from "../platform/index.ts";
 
 /** Entry kind of the bookkeeping input that starts a reaction run. It is
@@ -273,18 +273,21 @@ export function removeChatRuntimeFiles(chatId: string): void {
 	fs.rmSync(durableDir(chatId), { recursive: true, force: true });
 }
 
-const SCAN_PAGE = 256;
-
-/** Every entry of the chat's root conversation, oldest first. */
-export async function readEntries(runtime: ChatRuntime, context: Context = BACKGROUND_CONTEXT): Promise<EntryRecord[]> {
+/** Every entry of a conversation, oldest first. */
+export async function readConversationEntries(conversation: ChatRuntime["root"], context: Context = BACKGROUND_CONTEXT): Promise<EntryRecord[]> {
 	const out: EntryRecord[] = [];
 	let cursor: Record<string, unknown> | undefined;
 	for (;;) {
-		const page = await runtime.root.entries({ order: "ascending" }, SCAN_PAGE, cursor as never, context);
+		const page = await conversation.entries({ order: "ascending" }, 256, cursor as never, context);
 		out.push(...page.items);
 		if (!page.next) return out;
 		cursor = page.next as Record<string, unknown>;
 	}
+}
+
+/** Every entry of the chat's root conversation, oldest first. */
+export function readEntries(runtime: ChatRuntime, context: Context = BACKGROUND_CONTEXT): Promise<EntryRecord[]> {
+	return readConversationEntries(runtime.root, context);
 }
 
 /** The app id of the messages an entry contributes. */
@@ -370,6 +373,16 @@ export function projectEntries(entries: readonly EntryRecord[]): LhMessage[] {
 export async function readChatMessages(chatId: string): Promise<LhMessage[]> {
 	const runtime = await openChatRuntime(chatId);
 	return projectEntries(await readEntries(runtime));
+}
+
+/** The input a record message places: its model text is the input content;
+ *  the record keeps the app shape in entry data. */
+export function inputOf(message: LhMessage): { content: string; entry: { kind: string; data: unknown } } {
+	if (message.role === "custom") return { content: modelTextOf(message) ?? "", entry: { kind: "lh.marker", data: { message } } };
+	return {
+		content: typeof message.content === "string" ? message.content : "",
+		entry: { kind: "lh.user", data: { id: message.id } },
+	};
 }
 
 /** The entry draft for one record message: pi-native messages ride `model`

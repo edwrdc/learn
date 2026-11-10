@@ -13,7 +13,7 @@ import { standardFontsDir } from "../tools/index.ts";
  * No extra Chromium is shipped or downloaded.
  *
  * Chrome fallback resolution: CHROME_PATH first, then common macOS,
- * Windows and Linux install paths. `available()` is a cheap executable
+ * Windows and Linux install paths. `unavailableReason()` is a cheap executable
  * check; the helper must still prove it can launch/connect at job time.
  */
 
@@ -31,8 +31,6 @@ export interface DemoRunResult {
 }
 
 interface RunDemoOptions {
-	/** How long to let the page settle (animations, async CDN loads) — default 2s. */
-	settleMs?: number;
 	/** Optional JS expression evaluated in the page after settling; its value
 	 * is returned to the builder so it can assert on internal state. */
 	probe?: string;
@@ -55,8 +53,6 @@ export interface RenderedPdfPage {
 }
 
 export interface HeadlessApi {
-	/** True when a browser helper or Chrome is resolvable (cheap, no launch). */
-	available(): boolean;
 	/** Why not — for error messages. */
 	unavailableReason(): string | null;
 	/** Execute HTML in a browser, capture errors, optionally probe. */
@@ -65,10 +61,6 @@ export interface HeadlessApi {
 	renderSvg(svg: string, opts?: RenderSvgOptions): Promise<Buffer>;
 	/** Render PDF pages to PNGs natively (pdfjs + Skia) for the pdf-reader. */
 	renderPdfPages(pdfPath: string, pages: number[], opts?: RenderPdfOptions): Promise<RenderedPdfPage[]>;
-}
-
-export function getHeadless(): HeadlessApi {
-	return realHeadless;
 }
 
 // ─── Chrome resolution ───────────────────────────────────────────────────────
@@ -274,7 +266,8 @@ function tempDir(prefix: string): string {
 // ─── Demo execution ──────────────────────────────────────────────────────────
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
-	const settleMs = opts.settleMs ?? 2000;
+	/** How long to let the page settle (animations, async CDN loads). */
+	const settleMs = 2000;
 	const dir = tempDir("lh-demo-");
 	const file = path.join(dir, "demo.html");
 	fs.writeFileSync(file, html, "utf-8");
@@ -516,11 +509,8 @@ async function renderPdfPages(
 // ─── the real API ────────────────────────────────────────────────────────────
 
 export const realHeadless: HeadlessApi = {
-	available() {
-		// The helper binary exists by construction in the packaged app; in dev
-		// it resolves via the electron package. System Chrome widens coverage.
-		return browserServiceBinary() !== null || resolveChromeExecutablePath() !== null;
-	},
+	// The helper binary exists by construction in the packaged app; in dev
+	// it resolves via the electron package. System Chrome widens coverage.
 	unavailableReason() {
 		return browserServiceBinary() === null && resolveChromeExecutablePath() === null ? NO_CHROME_MESSAGE : null;
 	},

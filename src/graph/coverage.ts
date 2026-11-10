@@ -25,7 +25,6 @@ import { createHash } from "node:crypto";
 import type { CoverageEntry } from "./model/types.ts";
 import { textOf, type LhMessage } from "../session/model/index.ts";
 
-export type { CoverageEntry };
 
 /**
  * The extraction-relevant lines of ONE native message — the shared seam

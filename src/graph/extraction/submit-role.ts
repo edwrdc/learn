@@ -12,38 +12,9 @@ import type { JsonObject } from "@earendil-works/pi-durable";
 import { Type, type Static } from "typebox";
 import type { AppTool, AppToolResult } from "../../tools/index.ts";
 import { invalidInputResult, toToolResult } from "../../tools/index.ts";
-import { healEncodedArguments } from "../../tools/model/index.ts";
 import type { AuditVerdicts } from "../model/types.ts";
 import { findingsSchema, sessionFindingsSchema } from "../model/findings.ts";
 import type { RoleStateIo, SubmitRunState } from "../../jobs/index.ts";
-
-// ── the weak-model string-heal (owner, 2026-09-28; moved here from
-// extraction.ts with the digest-aware redesign, 2026-09-30 — the heal
-// is wire-format medicine shared by every submit agent) ──
-//
-// OpenRouter log evidence: weak models under a big submit payload often
-// emit a whole array as ONE JSON-STRING instead of a native array
-// ("propositions.0: must be object"). The runtime runs
-// `prepareArguments` BEFORE TypeBox validation — the sanctioned shim
-// point (same doctrine as restoreMathEscapes at the display seam: heal
-// weak-model wire behavior, don't punish it with a retry). Best-effort:
-// heal only a string that parses to an array; anything else passes
-// through untouched and fails validation exactly as before.
-export function healStringifiedArrays(raw: unknown): unknown {
-	if (typeof raw !== "object" || raw === null) return raw;
-	const out: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
-	for (const key of ["propositions", "chains"]) {
-		const v = out[key];
-		if (typeof v !== "string" || v.trim().length === 0) continue;
-		try {
-			const parsed: unknown = JSON.parse(v);
-			if (Array.isArray(parsed)) out[key] = parsed;
-		} catch {
-			// not a clean stringify (e.g. truncated) — leave for validation
-		}
-	}
-	return out;
-}
 
 /** What the extractor SUBMITS (the redesign's wire shape) — propositions
  *  + chains. fillFindings normalizes it; validateFindingsChains checks
@@ -201,7 +172,6 @@ export function submitRoleTool(
 				? "Submit the notes findings."
 				: "Submit the session findings.",
 		parameters,
-		prepareArguments: (args: unknown) => healEncodedArguments(healStringifiedArrays(args), parameters),
 		executionMode: "sequential",
 		async execute(_toolCallId, raw): Promise<AppToolResult> {
 			const value = audit

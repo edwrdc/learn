@@ -31,7 +31,7 @@ import { bindRunEngine, type PiEngine } from "../platform/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
 import { claimToolCallId, collectToolCallIds } from "./pi/call-ids.ts";
 import { CONTINUATION_KIND, projectTranscript, type ChatRuntime } from "./durable.ts";
-import type { DemoInput, PdfInput, ResearchInput, VisualInput } from "../jobs/index.ts";
+import type { SpawnJob } from "../jobs/index.ts";
 
 /** What the composition root hands the setup: the stores and the seams the
  *  tools close over (the same wiring the old per-request construction used). */
@@ -39,9 +39,8 @@ export interface ConversationDeps {
 	chatStore: ChatStore;
 	graphStore: GraphStore;
 	jobStore: JobStore;
-	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
+	spawn: SpawnJob;
 	deliver: (chatId: string, steer: LhMessage) => void;
-	searchAvailable: () => boolean;
 	graphNodes: () => ReadonlyArray<{ id: string; name: string }>;
 }
 
@@ -62,7 +61,6 @@ function toolsFor(
 					chatId,
 					jobStore: deps.jobStore,
 					spawn: deps.spawn,
-					searchAvailable: deps.searchAvailable,
 				},
 				...(graphToolsEnabled(effective) ? { graph: { chatStore: deps.chatStore, graphStore: deps.graphStore } } : {}),
 			}),
@@ -76,7 +74,6 @@ function toolsFor(
 					chatStore: deps.chatStore,
 					jobStore: deps.jobStore,
 					spawn: deps.spawn,
-					searchAvailable: deps.searchAvailable,
 				},
 				effective.agent.tools,
 			),
@@ -90,7 +87,6 @@ function toolsFor(
 				deliver: (steer) => deps.deliver(chatId, steer),
 				jobStore: deps.jobStore,
 				spawn: deps.spawn,
-				searchAvailable: deps.searchAvailable,
 				...(graphToolsEnabled(effective) ? { graphStore: deps.graphStore } : {}),
 			},
 			effective.agent.tools,

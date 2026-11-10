@@ -8,7 +8,11 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-endpoint-"));
 process.env.LH_DATA_DIR = TMP;
-process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
+// The auth file sits in its own folder, so a test can make the data folder
+// (settings.json) read-only while keys stay writable.
+const AUTH_FILE = path.join(TMP, "auth", "auth.json");
+fs.mkdirSync(path.dirname(AUTH_FILE));
+process.env.LH_AUTH_FILE = AUTH_FILE;
 process.env.OPENROUTER_API_KEY ??= "test-key-openrouter-custom-endpoint";
 
 const {
@@ -22,7 +26,7 @@ const { modelCatalog, validateModelsSettings } = await import("../src/settings/m
 const { keyStatuses } = await import("../src/settings/keys.ts");
 const { setCustomEndpointProvider, piEngineForSpec, piModels } = await import("../src/platform/engines.ts");
 const { stores } = await import("../src/stores.ts");
-const { settingsStore } = stores;
+const { readSettings, writeSettings } = await import("../src/settings/store.ts");
 const { chatStore } = stores;
 const { handleChatInput } = await import("../src/session/turn.ts");
 await import("./support-durable.ts");
@@ -198,7 +202,7 @@ describe("custom endpoint E2E", () => {
 		const settingsText = fs.readFileSync(path.join(TMP, "settings.json"), "utf8");
 		assert.ok(settingsText.includes("Local endpoint"));
 		assert.ok(!settingsText.includes(KEY), "settings.json never holds the key");
-		assert.ok(fs.readFileSync(path.join(TMP, "auth.json"), "utf8").includes(KEY), "auth.json is the secret store");
+		assert.ok(fs.readFileSync(AUTH_FILE, "utf8").includes(KEY), "auth.json is the secret store");
 		assert.ok(!JSON.stringify(customEndpointState()).includes(KEY), "GET state never carries the key");
 		assert.ok(!keyStatuses().some((s) => s.id.startsWith("LH_CUSTOM_ENDPOINT_API_KEY")));
 
@@ -235,7 +239,7 @@ describe("custom endpoint E2E", () => {
 		);
 		const customPin = { model: { provider: "custom-endpoint", id: MODEL_ID } };
 		assert.deepEqual(validateModelsSettings({ strong: customPin, cheap: customPin, vision: customPin }), { ok: true });
-		const record = settingsStore.readSettings()!;
+		const record = readSettings()!;
 		const roleSpec = resolveRoleSpec("researcher", {
 			...record,
 			agent: { ...record.agent, models: { researcher: customPin } },
@@ -268,7 +272,7 @@ describe("custom endpoint E2E", () => {
 	});
 
 	it("a real chat turn runs on the custom endpoint and persists the streamed reply", async () => {
-		settingsStore.writeSettings({
+		writeSettings({
 			version: 1,
 			graph: { enabled: false },
 			...(customEndpointState().endpoint ? { customEndpoint: customEndpointState().endpoint! } : {}),
@@ -427,21 +431,18 @@ describe("custom endpoint E2E", () => {
 		const a = saveLocal({ baseUrl: aUrl, models: [model], apiKey: KEY });
 		assert.ok(a.ok, a.ok ? "" : a.error);
 
-		const originalWrite = settingsStore.writeSettings;
-		settingsStore.writeSettings = () => {
-			throw new Error("injected settings write failure");
-		};
+		fs.chmodSync(TMP, 0o555);
 		try {
 			assert.throws(
 				() => saveCustomEndpoint({ displayName: "A2", baseUrl: aUrl, models: [model], apiKey: KEY_B }),
-				/injected settings write failure/,
+				/EACCES/,
 			);
 			assert.throws(
 				() => saveCustomEndpoint({ displayName: "B", baseUrl: bUrl, models: [model], apiKey: KEY_B }),
-				/injected settings write failure/,
+				/EACCES/,
 			);
 		} finally {
-			settingsStore.writeSettings = originalWrite;
+			fs.chmodSync(TMP, 0o755);
 		}
 
 		const afterFailure = customEndpointState();
@@ -470,12 +471,12 @@ describe("custom endpoint E2E", () => {
 		const retried = saveCustomEndpoint({ displayName: "B", baseUrl: bUrl, models: [model], apiKey: KEY_B });
 		assert.ok(retried.ok, retried.ok ? "" : retried.error);
 		assert.equal(customEndpointState().endpoint?.baseUrl, bUrl);
-		const authText = fs.readFileSync(path.join(TMP, "auth.json"), "utf8");
+		const authText = fs.readFileSync(AUTH_FILE, "utf8");
 		assert.ok(authText.includes(KEY_B));
 		assert.ok(!authText.includes(KEY), "the old origin's stored key is pruned after a committed edit");
 
-		const record = settingsStore.readSettings()!;
-		settingsStore.writeSettings({
+		const record = readSettings()!;
+		writeSettings({
 			...record,
 			customEndpoint: { displayName: "A", baseUrl: aUrl, models: [model] },
 		});
@@ -496,7 +497,7 @@ describe("custom endpoint E2E", () => {
 		const removed = removeCustomEndpoint();
 		assert.equal(removed.endpoint, null);
 		assert.equal(removed.keyPresent, false);
-		assert.ok(!fs.readFileSync(path.join(TMP, "auth.json"), "utf8").includes(KEY), "stored key is gone");
+		assert.ok(!fs.readFileSync(AUTH_FILE, "utf8").includes(KEY), "stored key is gone");
 		assert.ok(!modelCatalog().models.some((m) => m.provider === "custom-endpoint"), "removed models leave the picker");
 		assert.notEqual(missingProviderKey("custom-endpoint", ["strong"]), null, "the removed endpoint has no key");
 

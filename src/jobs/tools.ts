@@ -1,7 +1,8 @@
 import { Type, type Static } from "typebox";
 import type { AppTool } from "../tools/index.ts";
 import { serverExecute } from "../tools/index.ts";
-import type { JobRecord } from "./model/types.ts";
+import type { JobKind, JobRecord } from "./model/types.ts";
+import { JOB_TEXT } from "./model/job-text.ts";
 import type { JobStore } from "./model/ports.ts";
 
 /**
@@ -22,11 +23,7 @@ export interface JobToolContext {
 	/** Fire the background runner for a fresh job — fire-and-forget. The
 	 *  input rides along because the spawn happens MID-STREAM, before
 	 *  onFinish persists the tool part — a transcript scan would race it. */
-	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
-	/** Search-provider availability, retained for existing composition seams.
-	 *  Research dispatch does not depend on it: web_fetch is keyless and
-	 *  web_search reports a missing provider as a recoverable tool result. */
-	searchAvailable?: () => boolean;
+	spawn: SpawnJob;
 }
 
 const researchInputSchema = Type.Object({
@@ -66,6 +63,14 @@ export const pdfInputSchema = Type.Object({
 	}),
 });
 
+/** Each job kind's dispatch tool input. */
+const JOB_INPUT_SCHEMAS = {
+	research: researchInputSchema,
+	demo: demoInputSchema,
+	visual: visualInputSchema,
+	pdf: pdfInputSchema,
+} satisfies Record<JobKind, unknown>;
+
 /**
  * The per-call dispatch: create the job (idempotent by toolCallId), fire the
  * runner, and return the ack. Shared by all three tools — only kind differs.
@@ -74,51 +79,13 @@ function dispatch(
 	ctx: JobToolContext,
 	kind: JobRecord["kind"],
 	toolCallId: string,
-	ack: string,
-	input: ResearchInput | DemoInput | VisualInput | PdfInput,
+	input: JobInput,
 ): string {
 	const existing = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId);
 	const job = existing ?? ctx.jobStore.createJob({ kind, chatId: ctx.chatId, toolCallId });
 	if (!existing) ctx.spawn(job, input);
-	return `Dispatched (job ${job.id}). ${ack}`;
+	return `Dispatched (job ${job.id}). ${JOB_TEXT[kind].ack}`;
 }
-
-const RESEARCH_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The researched brief arrives as a new message when ready and the lesson resumes from it; cite its sources when you use them.";
-const DEMO_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The tested demo arrives as a new message when ready and is rendered in the lesson; teach with it then.";
-const VISUAL_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The verified figure arrives as a new message when ready and is rendered in the lesson; reference it then.";
-const PDF_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The document brief arrives as a new message when ready; weave it into the lesson and cite its pages.";
-
-const RESEARCH_DESCRIPTION =
-	"Dispatch a background web-research agent: fact verification, current data, or niche specifics you are not certain about. " +
-	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the research brief arrives later " +
-	"as a new message and the lesson resumes from it. Cite the brief's sources when you use them. " +
-	"NEVER use it for things you know cold, internal reasoning, or math.";
-const DEMO_DESCRIPTION =
-	"Dispatch a background sub-agent that BUILDS and headlessly TESTS an interactive teaching instrument — a single-file HTML " +
-	"demo (parameter sweep, simulation, animation, sampling) rendered live in the lesson. Use it when the concept is DYNAMIC: " +
-	"something to sweep, animate, or sample is better experienced than described. " +
-	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the tested demo arrives later " +
-	"as a new message. Write a precise brief: concept, controls, interactions, style.";
-const VISUAL_DESCRIPTION =
-	"Dispatch a background sub-agent that hand-authors ONE precise SVG figure, renders it, LOOKS at the render, and iterates " +
-	"until correct. Use it for exact spatial pictures auto-layout diagrams can't do: coordinate geometry, number lines, vectors, " +
-	"function plots, physical layouts. For flows/relations/taxonomies write mermaid inline instead. " +
-	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the verified figure arrives later " +
-	"as a new message.";
-const PDF_DESCRIPTION =
-	"Dispatch a background sub-agent that READS a learner-provided PDF on your behalf (triage, targeted extraction, visual page " +
-	"reading for equations and diagrams) and returns a brief with page citations. Use it when the learner gives you a PDF path " +
-	"and you need its CONTENT for the lesson. The call is ASYNC and fire-and-forget — it resolves immediately and your turn " +
-	"continues; the brief arrives later as a new message. For quick looks at plain text or image files, use the read tool " +
-	"directly instead of dispatching.";
 
 /**
  * Per-request job tool registry: each tool closes over the composition root's
@@ -129,43 +96,26 @@ const PDF_DESCRIPTION =
  * existing user-toggle filtering still applies outside this registry.
  */
 export function jobTools(ctx: JobToolContext): Record<string, AppTool<any>> {
-	return {
-		research: {
-			name: "research",
-			label: "research",
-			description: RESEARCH_DESCRIPTION,
-			parameters: researchInputSchema,
-			execute: serverExecute("research", researchInputSchema, (input, { toolCallId }) =>
-				dispatch(ctx, "research", toolCallId, RESEARCH_ACK, input),
-			),
-		},
-		demo: {
-			name: "demo",
-			label: "demo",
-			description: DEMO_DESCRIPTION,
-			parameters: demoInputSchema,
-			execute: serverExecute("demo", demoInputSchema, (input, { toolCallId }) => dispatch(ctx, "demo", toolCallId, DEMO_ACK, input)),
-		},
-		visual: {
-			name: "visual",
-			label: "visual",
-			description: VISUAL_DESCRIPTION,
-			parameters: visualInputSchema,
-			execute: serverExecute("visual", visualInputSchema, (input, { toolCallId }) =>
-				dispatch(ctx, "visual", toolCallId, VISUAL_ACK, input),
-			),
-		},
-		pdf: {
-			name: "pdf",
-			label: "pdf",
-			description: PDF_DESCRIPTION,
-			parameters: pdfInputSchema,
-			execute: serverExecute("pdf", pdfInputSchema, (input, { toolCallId }) => dispatch(ctx, "pdf", toolCallId, PDF_ACK, input)),
-		},
-	};
+	return Object.fromEntries(
+		(Object.keys(JOB_INPUT_SCHEMAS) as JobKind[]).map((kind) => {
+			const parameters = JOB_INPUT_SCHEMAS[kind];
+			return [
+				kind,
+				{
+					name: kind,
+					description: JOB_TEXT[kind].description,
+					parameters,
+					execute: serverExecute(kind, parameters, (input: JobInput, { toolCallId }) => dispatch(ctx, kind, toolCallId, input)),
+				},
+			];
+		}),
+	);
 }
 
 export type ResearchInput = Static<typeof researchInputSchema>;
 export type DemoInput = Static<typeof demoInputSchema>;
 export type VisualInput = Static<typeof visualInputSchema>;
 export type PdfInput = Static<typeof pdfInputSchema>;
+export type JobInput = ResearchInput | DemoInput | VisualInput | PdfInput;
+/** Fire the background runner for a freshly created job. */
+export type SpawnJob = (job: JobRecord, input: JobInput) => void;

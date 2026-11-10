@@ -29,7 +29,8 @@ import { runningTurn, settledTurnResponse, abortTurn } from "../src/session/turn
 import { isTurnRunning } from "../src/session/turn-liveness.ts";
 import { appendRunUsage } from "../src/session/turn-service.ts";
 import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/jobs/wake.ts";
-import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from "../src/jobs/model/types.ts";
+import { buildSubagentSteer, type ResearchResult } from "../src/jobs/model/types.ts";
+import { newHandoffMessage } from "../src/session/model/transcript.ts";
 import { chatStore } from "../src/session/store.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import {
@@ -240,7 +241,6 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		const gate = new Promise<void>((r) => (release = r));
 		const slow: AppTool = {
 			name: "slow",
-			label: "slow",
 			description: "waits",
 			parameters: Type.Object({}),
 			executionMode: "sequential",
@@ -438,7 +438,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			return 200;
 		});
 		await handleChatRequest(post(chat.id, { type: "text", text: "probe me" }), { engine, tools: bareQuestionTools() });
-		const delivery = deliverJobResult(chat.id, buildProbeHandoffSteer(chat.id));
+		const delivery = deliverJobResult(chat.id, newHandoffMessage(chat.id));
 		await new Promise((r) => setTimeout(r, 900));
 		assert.equal(wakes, 0, "the handoff waits while the run is live (it must START the teacher's run)");
 		release();
@@ -466,7 +466,6 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			jobStore: stores.jobStore,
 			spawn: () => undefined,
 			deliver: () => undefined,
-			searchAvailable: () => false,
 			graphNodes: () => [],
 		});
 		const agent = await runtime.root.agent(BACKGROUND_CONTEXT);

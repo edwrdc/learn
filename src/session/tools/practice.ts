@@ -17,7 +17,7 @@
 import { Type } from "typebox";
 import { resolveTargetId } from "../../graph/model/index.ts";
 import { jobTools, type JobToolContext } from "../../jobs/index.ts";
-import { proberGraphTools, type GraphToolContext } from "../../graph/index.ts";
+import { proberGraphTools, type GraphDeps } from "../../graph/index.ts";
 import { activeProblemOf } from "../model/transcript.ts";
 import type { LhMessage } from "../model/transcript.ts";
 import { findTool, grepTool, healEncodedArguments, invalidInputResult, lsTool, readTool, type AppTool, type AppToolResult } from "../../tools/index.ts";
@@ -36,7 +36,7 @@ interface PracticeToolContext {
 	 *  behind the SAME settings gate as the prober's (graphToolsEnabled at
 	 *  the composition root); the research + pdf jobs (both keyless).
 	 *  Each absent context (tests) = absent from the registry. */
-	graph?: GraphToolContext;
+	graph?: GraphDeps;
 	jobs?: JobToolContext;
 }
 
@@ -102,7 +102,6 @@ export function problemTool(
 ): AppTool<typeof problemInputObject> {
 	return {
 		name: "problem",
-		label: "problem",
 		description:
 			"Pose one practice problem. Ends the turn — the learner works in the thinking field; their thinking " +
 			"traces and answer commits arrive back as labeled messages. The modelSolution rides this call's " +
@@ -200,7 +199,6 @@ export const concludeInputObject = Type.Object({
 export function concludeTool(gate: PracticeGate, seed?: () => Promise<void>): AppTool<typeof concludeInputObject> {
 	return {
 		name: "conclude",
-		label: "conclude",
 		description:
 			"Conclude the active problem: records the outcome + verdict, reveals the committed solution, and frees " +
 			"the learner's composer. After the result, say your closing words about the learner's work if useful, then " +

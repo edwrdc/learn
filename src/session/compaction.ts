@@ -235,6 +235,13 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	}
 }
 
+/** Register a compaction run for the chat until it ends. */
+function startCompaction(chatId: string, run: () => Promise<void>): Promise<void> {
+	const running = run().finally(() => state().inFlight.delete(chatId));
+	state().inFlight.set(chatId, running);
+	return running;
+}
+
 /**
  * The gate + trigger in one: await any in-flight compaction, then — if
  * the record is STILL over threshold — run one synchronously (the
@@ -243,41 +250,20 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
  */
 export async function ensureCompacted(deps: CompactionDeps, chatId: string): Promise<void> {
 	await awaitCompaction(chatId);
-	const record = await deps.chatStore.getChat(chatId);
-	const running = state().inFlight.get(chatId);
-	if (running) {
-		await running; // a concurrent caller started it while we awaited
-		return;
-	}
-	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-	const run = compact(deps, chatId);
-	state().inFlight.set(chatId, run);
-	try {
-		await run;
-	} finally {
-		state().inFlight.delete(chatId);
-	}
+	await (state().inFlight.get(chatId) ?? startCompaction(chatId, () => compact(deps, chatId)));
 }
 
 /**
  * The settle kick (fire-and-forget): the turn settled, the learner is
  * about to read/answer — if the projection is over threshold, the
- * summary starts NOW and finishes inside the pause. Wired at
- * chat-handler's onFinish tail; engineless or over-threshold-nothing
- * are silent no-ops. The next turn's ensureCompacted gate picks up
- * whatever this leaves running.
+ * summary starts NOW and finishes inside the pause. Engineless or
+ * under-threshold are silent no-ops. The next turn's ensureCompacted gate
+ * picks up whatever this leaves running.
  */
 export function kickCompaction(buildDeps: () => Promise<CompactionDeps | null> | CompactionDeps | null, chatId: string): void {
 	if (state().inFlight.has(chatId)) return;
-	const run = (async () => {
+	void startCompaction(chatId, async () => {
 		const deps = await buildDeps();
-		if (!deps) return;
-		const record = await deps.chatStore.getChat(chatId);
-		if (!record) return;
-		if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-		await compact(deps, chatId);
-	})();
-	state().inFlight.set(chatId, run);
-	void run.catch(() => undefined).finally(() => state().inFlight.delete(chatId));
+		if (deps) await compact(deps, chatId);
+	}).catch((err: unknown) => console.error(`[chat ${chatId}] compaction kick failed:`, err));
 }

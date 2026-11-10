@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { parseModelsRefusal, parseProviderKeyRefusal, parseModelUnavailableRefusal } from "../src/lib/chat/chat-logic.ts";
+import { parseRefusal } from "../src/lib/chat/chat-logic.ts";
 import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../src/lib/settings/setup.ts";
 import {
+	MODELS_NOT_CONFIGURED_CODE,
 	modelsNotConfigured,
 	providerKeyMissing,
 	PROVIDER_KEY_MISSING_CODE,
@@ -20,38 +21,20 @@ import type { ModelSlotName } from "../src/settings/model/settings.ts";
 
 const REFUSAL = JSON.stringify(modelsNotConfigured(["strong"]));
 
-describe("parseModelUnavailableRefusal", () => {
-	it("returns the unavailable envelope for session model recovery", () => {
-		const refusal = { code: "model_unavailable", error: "This session model is no longer available." };
-		assert.deepEqual(parseModelUnavailableRefusal(JSON.stringify(refusal)), refusal);
-		assert.deepEqual(parseModelUnavailableRefusal(JSON.stringify({ ...refusal, error: "" })), { ...refusal, error: "" });
-	});
-
-	it("leaves malformed envelopes and ordinary failures as ordinary errors", () => {
-		for (const message of [undefined, "", "not JSON", "null", "[]", "42", '"model_unavailable"',
-			REFUSAL, JSON.stringify({ code: "other", error: "Unavailable" }),
-			JSON.stringify({ code: "model_unavailable" }), JSON.stringify({ error: "Unavailable" }),
-			JSON.stringify({ code: "model_unavailable", error: null }), JSON.stringify({ code: "model_unavailable", error: 42 })]) {
-			assert.equal(parseModelUnavailableRefusal(message), null, message);
-		}
-	});
-});
-
-describe("parseModelsRefusal — the send refusal detector", () => {
-	it("reads the missing tiers from the envelope text", () => {
-		assert.deepEqual(parseModelsRefusal(REFUSAL), ["strong"]);
-		assert.deepEqual(parseModelsRefusal(JSON.stringify(modelsNotConfigured(["strong", "vision"]))), [
-			"strong",
-			"vision",
-		]);
+describe("parseRefusal — the send refusal detector", () => {
+	it("reads each envelope's code from the transport's verbatim text", () => {
+		assert.equal(parseRefusal(REFUSAL), MODELS_NOT_CONFIGURED_CODE);
+		assert.equal(parseRefusal(JSON.stringify(modelsNotConfigured(["strong", "vision"]))), MODELS_NOT_CONFIGURED_CODE);
+		assert.equal(parseRefusal(JSON.stringify(providerKeyMissing("openrouter", ["strong"]))), PROVIDER_KEY_MISSING_CODE);
+		assert.equal(parseRefusal(JSON.stringify({ code: "model_unavailable", error: "This session model is no longer available." })), "model_unavailable");
 	});
 
 	it("anything else is a real error — null, the honest banner stays", () => {
-		assert.equal(parseModelsRefusal(undefined), null);
-		assert.equal(parseModelsRefusal("Something went wrong"), null); // not JSON
-		assert.equal(parseModelsRefusal('{"error":"A turn is already running"}'), null); // JSON, wrong code
-		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":"strong"}'), null); // missing not an array
-		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":[42]}'), null); // tiers are strings
+		for (const message of [undefined, "", "not JSON", "null", "[]", "42", '"model_unavailable"', "{not json",
+			"Something went wrong", '{"error":"A turn is already running"}', JSON.stringify({ code: "other", error: "Unavailable" }),
+			JSON.stringify({ error: "Unavailable" })]) {
+			assert.equal(parseRefusal(message), null, message);
+		}
 	});
 });
 
@@ -70,21 +53,6 @@ describe("providerKeyMissing — the envelope factory (provider-key interlude, 2
 	it("an unknown provider falls back to its raw id as the label", () => {
 		const envelope = providerKeyMissing("weird", ["cheap"]);
 		assert.equal(envelope.error, "No weird key is set — add one in Settings → Keys");
-	});
-});
-
-describe("parseProviderKeyRefusal — the send refusal detector's twin (zero-keys wave)", () => {
-	it("reads the envelope's own code + invariant tail — the wording can never drift client-side", () => {
-		const REFUSED = JSON.stringify(providerKeyMissing("openrouter", ["strong"]));
-		assert.equal(parseProviderKeyRefusal(REFUSED), true);
-		assert.equal(parseProviderKeyRefusal(JSON.stringify(providerKeyMissing("anthropic", ["strong", "vision"]))), true);
-	});
-
-	it("anything else is a real error — false, the honest banner stays", () => {
-		assert.equal(parseProviderKeyRefusal(REFUSAL), false); // the models refusal is NOT this one
-		assert.equal(parseProviderKeyRefusal("FAILED: headless crashed"), false);
-		assert.equal(parseProviderKeyRefusal(undefined), false);
-		assert.equal(parseProviderKeyRefusal("{not json"), false);
 	});
 });
 

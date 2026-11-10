@@ -1,7 +1,8 @@
 import { Type } from "typebox";
 import { serverExecute } from "../../tools/index.ts";
 import type { DemoRunState, DemoVerification } from "../durable-run.ts";
-import type { DemoResult, DemoToolInput } from "../model/types.ts";
+import type { DemoResult } from "../model/types.ts";
+import type { DemoInput } from "../tools.ts";
 import type { DemoRunResult } from "../headless.ts";
 import type { JobRole } from "./role.ts";
 
@@ -105,7 +106,7 @@ function failureSummary(result: DemoVerification | null): string {
 	return details.length > 0 ? `${summarizeCounts(result)} — ${details.join(" | ")}` : summarizeCounts(result);
 }
 
-export const DEMO_ROLE: JobRole<DemoToolInput, DemoResult, DemoRunState> = {
+export const DEMO_ROLE: JobRole<DemoInput, DemoResult, DemoRunState> = {
 	kind: "demo",
 	model: "demoBuilder",
 	maxTurns: 24,
@@ -172,7 +173,6 @@ export const DEMO_ROLE: JobRole<DemoToolInput, DemoResult, DemoRunState> = {
 			"",
 			"Build the demo, test it with run_demo, iterate until PASSED, then finish with your notes.",
 		].join("\n"),
-	runInput: (input) => ({ ...input }),
 	async finish(input, { text, state }, host) {
 		if (!state.html) {
 			return DEMO_ROLE.failure(input, `the builder never wrote a demo.${text ? ` (${text.slice(0, 300)})` : ""}`);

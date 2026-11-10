@@ -14,7 +14,7 @@
  */
 
 import { isSafeId, mintId } from "../platform/model/index.ts";
-import { writeJsonAtomic } from "../platform/index.ts";
+import { readJsonFile, writeJsonAtomic } from "../platform/index.ts";
 import { keyedLock } from "../platform/model/index.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -30,9 +30,8 @@ import { phaseAt3Lh } from "./model/phases.ts";
 import {
 	appendMessages,
 	closeChatRuntime,
-	openChatRuntime,
-	projectEntries,
-	readEntries,
+	durableDir,
+	readChatMessages,
 	removeChatRuntimeFiles,
 } from "./durable.ts";
 
@@ -58,12 +57,8 @@ const withMetaLock = keyedLock("chatMeta");
  *  records (the honest downgrade refusal: a read-modify-write store must
  *  never rewrite what it does not understand). */
 function readRecord(id: string): ParsedRecord | null {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
-	} catch {
-		return null;
-	}
+	const parsed = readJsonFile(chatFile(id));
+	if (parsed === undefined) return null;
 	const v = (parsed as { version?: unknown }).version;
 	if (typeof v === "number" && v > CURRENT_CHAT_VERSION) {
 		console.error(
@@ -108,12 +103,11 @@ async function mutateMeta(id: string, update: (meta: ChatMeta) => ChatMeta | Pro
 	return meta;
 }
 
-async function readChat(id: string): Promise<ChatRecord | null> {
+/** The full record, or null if unknown / corrupt / newer-schema. */
+async function getChat(id: string): Promise<ChatRecord | null> {
 	const parsed = await withRecord(id, (record) => record);
 	if (!parsed) return null;
-	const runtime = await openChatRuntime(id);
-	const messages = projectEntries(await readEntries(runtime));
-	return { ...parsed.meta, messages };
+	return { ...parsed.meta, messages: await readChatMessages(id) };
 }
 
 function createChat(title: string, kind?: "practice"): ChatRecord {
@@ -134,11 +128,6 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 	return { ...record, version: CURRENT_CHAT_VERSION };
 }
 
-/** The full record, or null if unknown / corrupt / newer-schema. */
-async function getChat(id: string): Promise<ChatRecord | null> {
-	return readChat(id);
-}
-
 async function listChats(): Promise<ChatSummary[]> {
 	let names: string[];
 	try {
@@ -150,7 +139,10 @@ async function listChats(): Promise<ChatSummary[]> {
 	const out: ChatSummary[] = [];
 	for (let i = 0; i < names.length; i += 3) {
 		const batch = names.slice(i, i + 3);
-		const records = await Promise.all(batch.map((name) => readChat(name.slice(0, -5)).catch(() => null)));
+		const records = await Promise.all(batch.map((name) => getChat(name.slice(0, -5)).catch((error: unknown) => {
+			console.error(`[chat ${name.slice(0, -5)}] unreadable, left out of the list:`, error);
+			return null;
+		})));
 		for (const record of records) {
 			if (!record) continue;
 			// Per-record isolation: a record whose projection fails must not blank
@@ -234,7 +226,7 @@ async function renameChat(id: string, title: string): Promise<ChatRecord> {
 		title: title.trim() || UNTITLED,
 	}));
 	emit("chats-changed", {});
-	const record = await readChat(id);
+	const record = await getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
 	return { ...record, ...renamed };
 }
@@ -251,7 +243,7 @@ async function deleteChat(id: string): Promise<boolean> {
 	return withMetaLock(id, async () => {
 		const file = chatFile(id);
 		const hadRecord = fs.existsSync(file);
-		const hadRuntime = fs.existsSync(path.join(PATHS.data, "durable", id));
+		const hadRuntime = fs.existsSync(durableDir(id));
 		await closeChatRuntime(id);
 		removeChatRuntimeFiles(id);
 		if (hadRecord) fs.unlinkSync(file);

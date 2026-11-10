@@ -9,7 +9,7 @@ import type { ModelRole } from "../../settings/model/index.ts";
 import type { JobKind, SearchProvider } from "../../tools/model/index.ts";
 import type { AppTool } from "../../tools/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
-import type { GraphToolContext } from "../../graph/index.ts";
+import type { GraphDeps } from "../../graph/index.ts";
 import {
 	backgroundRun,
 	backgroundServices,
@@ -21,13 +21,13 @@ import {
 	RunFailure,
 } from "../durable-run.ts";
 import type { JobResult, JobUsage } from "../model/types.ts";
-import { getHeadless, type HeadlessApi } from "../headless.ts";
+import { realHeadless, type HeadlessApi } from "../headless.ts";
 
 /** What a role's tools and hooks may reach. */
 export interface RoleHost {
 	headless: HeadlessApi;
 	search: () => SearchProvider | null;
-	graph: () => GraphToolContext;
+	graph: () => GraphDeps;
 	onActivity?: (line: string) => void;
 }
 
@@ -69,8 +69,7 @@ export interface JobRole<I, R extends JobResult, S extends RunState> extends Dur
 	/** A reason that stops the job before any model call. */
 	precheck?(input: I, host: RoleHost): Promise<string | null>;
 	prompt(input: I): string;
-	/** The run's stored input; `workspace` adds what the run needs while it lives. */
-	runInput(input: I): JsonObject;
+	/** Adds what the run needs while it lives to the stored input. */
 	workspace?<T>(run: (extra: JsonObject) => Promise<T>): Promise<T>;
 	/** The run's outcome as the job's result (success or failure). */
 	finish(input: I, outcome: BackgroundRunResult & { state: S; maxTurns: number }, host: RoleHost): Promise<R>;
@@ -92,7 +91,7 @@ interface RoleRunOptions {
 }
 
 export function roleHeadless(headless?: HeadlessApi): HeadlessApi {
-	return headless ?? backgroundServices().headless?.() ?? getHeadless();
+	return headless ?? backgroundServices().headless?.() ?? realHeadless;
 }
 
 /** Run one job role to its result. A failure becomes the role's failure
@@ -123,7 +122,7 @@ export async function runRole<I, R extends JobResult, S extends RunState>(
 			maxTurns: options.maxTurns ?? role.maxTurns,
 			systemPrompt: role.instructions,
 			prompt: role.prompt(input),
-			input: { ...role.runInput(input), ...extra },
+			input: { ...(input as JsonObject), ...extra },
 			headless: host.headless,
 			search: host.search,
 			signal: options.signal,

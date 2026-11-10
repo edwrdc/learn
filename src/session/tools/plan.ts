@@ -63,7 +63,6 @@ export function planTools(ctx: PlanToolContext): Record<string, AppTool<any>> {
 	return {
 		plan_init: {
 			name: "plan_init",
-			label: "plan_init",
 			description:
 				"Write or REWRITE this session's plan map — the dependency graph the learner follows live in the plan window. " +
 				"Call once right after the probe concludes, to present the map; re-call whenever the map is wrong (the new block replaces the old tree). " +

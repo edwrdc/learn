@@ -21,7 +21,6 @@ import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } 
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 import { catalogModels, customEndpointState } from "./custom-endpoint.ts";
 import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "./model/custom-endpoint.ts";
-import { settingsStore } from "./store.ts";
 import { effectiveSettings } from "../stores.ts";
 import { keyValue } from "./keys.ts";
 import type { ModelChoice } from "./model/index.ts";
@@ -214,23 +213,13 @@ export function modelCatalog(): ModelCatalogResponse {
 /** One validated outcome for a settings write. */
 export type SettingsValidation =
 	| { ok: true }
-	| { ok: false; error: string; supported?: ThinkingLevel[] };
-
-/** Validate a picker write against the catalog (the settings route's gate).
- *  `settings` is replace-whole: absent fields mean "config default".
- *  - model: provider must be configured, id must exist in its catalog.
- *  - thinkingLevel: must be in the resolved model's supported list —
- *    the model the picker writes against (settings.model, else config's
- *    prober/teacher pin; one controller, so the two specs share it). */
-export function validateChatSettings(settings: ModelChoice): SettingsValidation {
-	return validateModelSettings(settings);
-}
+	| { ok: false; error: string };
 
 export function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
 		if (!slot) continue;
-		const verdict = validateModelSettings(slot);
+		const verdict = validateModelChoice(slot);
 		if (!verdict.ok) return verdict;
 	}
 	return { ok: true };
@@ -238,7 +227,7 @@ export function validateModelsSettings(settings: ModelsSettings): SettingsValida
 
 /** The one catalog gate a settings write shares: a named provider must be
  *  configured, and its model must exist in that provider's catalog. */
-function validateModelSettings(slot: { model?: { provider: string; id: string }; thinkingLevel?: ThinkingLevel }): SettingsValidation {
+export function validateModelChoice(slot: ModelChoice): SettingsValidation {
 	const catalog = catalogModels();
 	const providers = catalog.getProviders().map((p) => p.id);
 	if (slot.model) {
@@ -309,7 +298,7 @@ export function clampChatLevel(settings: ModelChoice, strong: EffectiveModelSpec
 
 /** A model choice the catalog accepts, with its thinking level clamped
  *  (levels never reject a write), or the 400 refusal. */
-type CheckedModels<T> = { ok: true; value: T } | { ok: false; error: string; supported?: string[] };
+type CheckedModels<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export function checkModelsSettings(settings: ModelsSettings): CheckedModels<ModelsSettings> {
 	const verdict = validateModelsSettings(settings);
@@ -318,6 +307,6 @@ export function checkModelsSettings(settings: ModelsSettings): CheckedModels<Mod
 
 /** A chat's level clamps against its own model, else the strong slot's. */
 export function checkChatSettings(settings: ModelChoice, strong: EffectiveModelSpec | null): CheckedModels<ModelChoice> {
-	const verdict = validateChatSettings(settings);
+	const verdict = validateModelChoice(settings);
 	return verdict.ok ? { ok: true, value: clampChatLevel(settings, strong) } : verdict;
 }

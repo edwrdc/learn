@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { piEngineForSpec, piModels } from "../src/platform/engines.ts";
-import { modelCatalog, validateChatSettings, validateModelsSettings } from "../src/settings/model-catalog.ts";
+import { modelCatalog, validateModelChoice, validateModelsSettings } from "../src/settings/model-catalog.ts";
 import { callCost } from "../src/session/model/prices.ts";
 
 const specimens = [
@@ -26,7 +26,7 @@ describe("native 1.4 OpenRouter free catalog (offline, no live discovery)", { co
 				assert.deepEqual(listed.input, input);
 				assert.deepEqual(listed.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 				const model = { provider: "openrouter", id };
-				assert.deepEqual(validateChatSettings({ model }), { ok: true });
+				assert.deepEqual(validateModelChoice({ model }), { ok: true });
 				assert.deepEqual(validateModelsSettings({ strong: { model }, cheap: { model } }), { ok: true });
 				assert.equal(validateModelsSettings({ vision: { model } }).ok, true, "server catalog validation stays provider/model based; vision filtering belongs to the picker");
 				assert.equal(catalog.models.filter((m) => m.input.includes("image")).some((m) => m.provider === "openrouter" && m.id === id), input.includes("image"));

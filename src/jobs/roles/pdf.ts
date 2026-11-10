@@ -2,7 +2,8 @@ import { Type } from "typebox";
 import * as fs from "node:fs/promises";
 import { parsePageSpec, pdfExtract, pdfInfo, pdfPageCount, pdfProbe, pdfSearch, resolveSourcePath, serverExecute } from "../../tools/index.ts";
 import type { PdfRunState } from "../durable-run.ts";
-import type { PdfResult, PdfToolInput } from "../model/types.ts";
+import type { PdfResult } from "../model/types.ts";
+import type { PdfInput } from "../tools.ts";
 import type { RenderedPdfPage } from "../headless.ts";
 import type { JobRole } from "./role.ts";
 
@@ -132,7 +133,7 @@ async function probeReadable(pdfPath: string): Promise<string | null> {
 	}
 }
 
-export const PDF_ROLE: JobRole<PdfToolInput, PdfResult, PdfRunState> = {
+export const PDF_ROLE: JobRole<PdfInput, PdfResult, PdfRunState> = {
 	kind: "pdf",
 	model: "pdfReader",
 	maxTurns: 14,
@@ -260,7 +261,6 @@ export const PDF_ROLE: JobRole<PdfToolInput, PdfResult, PdfRunState> = {
 			"",
 			"Read the document per your doctrine, then produce your final brief in the required format.",
 		].join("\n"),
-	runInput: (input) => ({ ...input }),
 	async finish(input, { text, state, capped, maxTurns }) {
 		if (state.blockedAtCap || (capped && !text.trim())) {
 			return PDF_ROLE.failure(input, `iteration limit (${maxTurns}) reached without a brief.`, state);

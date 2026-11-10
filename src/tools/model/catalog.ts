@@ -91,6 +91,17 @@ export function toolActivityLabel(name: string): string {
 	return toolInfo(name)?.activity ?? "Working…";
 }
 
+/** The argument a tool card shows beside the tool: the path a file tool
+ *  reads (home when none), a search pattern, or the session a proposition
+ *  listing is scoped to. */
+export function toolArg(name: string, input: unknown): string {
+	const args = (input ?? {}) as Record<string, unknown>;
+	if (name === "read" || name === "ls") return typeof args.path === "string" && args.path.length > 0 ? args.path : "~";
+	if (typeof args.pattern === "string") return args.pattern;
+	if (name === "list_propositions" && typeof args.session === "string") return args.session;
+	return "";
+}
+
 /** The sub-agent's name for a job kind. */
 export function jobAgentLabel(kind: JobKind): string {
 	return TOOLS[kind].agent;

@@ -14,7 +14,7 @@
  * untouched until a catalog entry adopts them).
  */
 
-import { writeFileAtomic } from "../platform/index.ts";
+import { readJsonFile, writeFileAtomic } from "../platform/index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { AUTH_FILE } from "../platform/index.ts";
@@ -22,15 +22,9 @@ import type { AuthStore } from "./model/ports.ts";
 
 /** The flat string→string map, or {} for absent/corrupt/non-object. */
 function readMap(): Record<string, string> {
-	try {
-		const raw = JSON.parse(fs.readFileSync(AUTH_FILE, "utf-8"));
-		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-		return Object.fromEntries(
-			Object.entries(raw).filter(([, v]) => typeof v === "string") as [string, string][],
-		);
-	} catch {
-		return {}; // absent or corrupt — the documented state is "no keys yet"
-	}
+	const raw = readJsonFile(AUTH_FILE);
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}; // absent or corrupt: "no keys yet"
+	return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === "string") as [string, string][]);
 }
 
 /** Write the map atomically at mode 0600: a partial write must never

@@ -139,9 +139,6 @@ function fakeHeadless(opts: {
 	const api = {
 		demoRuns: [] as string[],
 		svgRenders: [] as string[],
-		available() {
-			return true;
-		},
 		unavailableReason() {
 			return null;
 		},
@@ -162,7 +159,6 @@ function fakeHeadless(opts: {
 
 function noChromeHeadless(): HeadlessApi {
 	return {
-		available: () => false,
 		unavailableReason: () => "No Chrome/Chromium found for headless testing. Install Google Chrome or set CHROME_PATH.",
 		runDemo: async () => {
 			throw new Error("should not run");

@@ -1,9 +1,9 @@
 import type { AppTool } from "../../tools/index.ts";
 import { serverExecute } from "../../tools/index.ts";
 import { probeDoneInputSchema, PROBE_DONE_ACK_TEXT } from "../model/probe-types.ts";
-import { danglingQuestionOf, hasProbeDone, type LhMessage } from "../model/transcript.ts";
+import { danglingQuestionOf, hasProbeDone, newHandoffMessage, type LhMessage } from "../model/transcript.ts";
 import type { ChatStore } from "../model/ports.ts";
-import { buildProbeHandoffSteer, type SteerMessage } from "../../jobs/model/index.ts";
+import type { SteerMessage } from "../../jobs/model/index.ts";
 
 /** What the probe_done tool closes over. */
 export interface ProbeDoneContext {
@@ -42,7 +42,6 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AppTool<any
 	return {
 		probe_done: {
 			name: "probe_done",
-			label: "probe_done",
 			description:
 				"Conclude the probing phase and hand off to the teaching phase. Call this ONCE, when the probe is " +
 				"complete: every strand the lesson depends on is bracketed (a floor he reliably gets right AND a " +
@@ -70,7 +69,7 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AppTool<any
 					return { ok: false, error: "The probe is already concluded — probe_done fires exactly once." };
 				}
 				try {
-					ctx.deliver(buildProbeHandoffSteer(ctx.chatId));
+					ctx.deliver(newHandoffMessage(ctx.chatId));
 				} catch (err) {
 					console.error(`[chat ${ctx.chatId}] probe handoff queueing failed:`, err);
 					// The handoff is recoverable-by-design (the next client message

@@ -51,12 +51,12 @@ import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context"
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { accumulateJobUsage, type JobUsage } from "./model/types.ts";
 import { usageFromPi } from "../session/model/index.ts";
-import { auditorGraphTools, AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool, type GraphToolContext, type SubmitRunInput } from "../graph/index.ts";
+import { auditorGraphTools, AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool, type GraphDeps, type SubmitRunInput } from "../graph/index.ts";
 import { toRegistrations } from "../tools/index.ts";
 import { bindRunEngine, modelSnapshot, runsSnapshot, unbindRunEngine, type PiEngine } from "../platform/index.ts";
 import { modelKey } from "../settings/model/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
-import { openChatRuntime, type ChatRuntime } from "../session/index.ts";
+import { openChatRuntime, readConversationEntries, type ChatRuntime } from "../session/index.ts";
 import {
 	backgroundServices,
 	RunFailure,
@@ -79,7 +79,6 @@ interface RunRef {
 	requestId: string;
 	sessionId: string;
 	status: "running" | "done" | "failed";
-	kind: string;
 }
 
 
@@ -143,7 +142,7 @@ const DURABLE_ROLES: Record<BackgroundKind, DurableRole<any>> = {
 	compact: { initialState: () => ({ kind: "compact" }), tools: () => ({}) },
 };
 
-function productionGraph(): GraphToolContext {
+function productionGraph(): GraphDeps {
 	return { chatStore: stores.chatStore, graphStore: stores.graphStore };
 }
 
@@ -199,7 +198,7 @@ function roleRun(
 		turnsTaken: () => countAssistantEntries(conversation),
 		markCapped: () => markCapped(conversation),
 		hasUserMessage: async (text) =>
-			(await readRunEntries(conversation)).some((entry) => {
+			(await readConversationEntries(conversation)).some((entry) => {
 				const message = entry.model?.[0] as { role?: string; content?: unknown } | undefined;
 				return message?.role === "user" && message.content === text;
 			}),
@@ -266,27 +265,7 @@ async function markCapped(conversation: Conversation): Promise<void> {
 }
 
 async function countAssistantEntries(conversation: Conversation): Promise<number> {
-	let count = 0;
-	let cursor: Record<string, unknown> | undefined;
-	for (;;) {
-		const page = await conversation.entries({ order: "ascending" }, 256, cursor as never, BACKGROUND_CONTEXT);
-		for (const entry of page.items) {
-			if ((entry.model?.[0] as { role?: string } | undefined)?.role === "assistant") count++;
-		}
-		if (!page.next) return count;
-		cursor = page.next as Record<string, unknown>;
-	}
-}
-
-async function readRunEntries(conversation: Conversation): Promise<EntryRecord[]> {
-	const out: EntryRecord[] = [];
-	let cursor: Record<string, unknown> | undefined;
-	for (;;) {
-		const page = await conversation.entries({ order: "ascending" }, 256, cursor as never, BACKGROUND_CONTEXT);
-		out.push(...page.items);
-		if (!page.next) return out;
-		cursor = page.next as Record<string, unknown>;
-	}
+	return (await readConversationEntries(conversation)).filter(isAssistant).length;
 }
 
 function isAssistant(entry: EntryRecord): boolean {
@@ -314,8 +293,8 @@ async function foldUsage(
 	conversation: Conversation,
 	model: string,
 	onUsage: (usage: JobUsage) => void,
-): Promise<JobUsage | undefined> {
-	const entries = await readRunEntries(conversation);
+): Promise<void> {
+	const entries = await readConversationEntries(conversation);
 	let total: JobUsage | undefined;
 	for (const entry of entries) {
 		const message = entry.model?.[0] as { role?: string; stopReason?: string; usage?: Usage } | undefined;
@@ -324,7 +303,6 @@ async function foldUsage(
 		total = accumulateJobUsage(total, model, usageFromPi(message.usage));
 	}
 	if (total) onUsage(total);
-	return total;
 }
 
 /** A settled-submission stand-in for an abort that lands around admission. */
@@ -403,7 +381,6 @@ function descriptorOf(
 	request: BackgroundRunRequest,
 	engine: PiEngine,
 	sessionId: string,
-	pdfDir: string | undefined,
 ): RunDescriptor {
 	return {
 		runId: randomUUID(),
@@ -416,10 +393,7 @@ function descriptorOf(
 		maxTurns: request.maxTurns,
 		systemPrompt: request.systemPrompt,
 		prompt: request.prompt,
-		input: {
-			...(request.input ?? {}),
-			...(pdfDir ? { pdfDir } : {}),
-		} as JsonObject,
+		input: request.input ?? {},
 		state: DURABLE_ROLES[request.kind].initialState(),
 	};
 }
@@ -457,13 +431,12 @@ async function ensureRun(
 	// retry on its next entry instead of re-reading a settled failure.
 	if (index.runs[request.jobId]) await updateIndex(runtime, request.jobId, null);
 	const sessionId = randomUUID();
-	const descriptor = descriptorOf(request, engine, sessionId, request.attachments?.pdfDir);
+	const descriptor = descriptorOf(request, engine, sessionId);
 	const ref: RunRef = {
 		conversationId: 0,
 		requestId: `run:${request.jobId}`,
 		sessionId,
 		status: "running",
-		kind: request.kind,
 	};
 	const conversationId = await runtime.root.commit(async (tx) => {
 		const created = await tx.createConversation({ ownership: { kind: "ownerless" } });
@@ -532,7 +505,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		const reportProgress = async () => {
 			await foldUsage(conversation, model, request.onUsage ?? (() => undefined)).catch(() => undefined);
 			if (!request.onStep) return;
-			const steps = runSteps(await readRunEntries(conversation)).slice(emittedSteps);
+			const steps = runSteps(await readConversationEntries(conversation)).slice(emittedSteps);
 			for (const step of steps) request.onStep(step);
 			emittedSteps += steps.length;
 		};
@@ -570,7 +543,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 			}
 			throw new Error("reason" in settled ? settled.reason : "no answer");
 		}
-		const entries = await readRunEntries(conversation);
+		const entries = await readConversationEntries(conversation);
 		const lastAssistant = [...entries].reverse().find(isAssistant);
 		const last = lastAssistant?.model?.[0] as { stopReason?: string; errorMessage?: string } | undefined;
 		if (last?.stopReason === "error") throw new Error(last.errorMessage ?? "model error");

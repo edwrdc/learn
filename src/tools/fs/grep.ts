@@ -48,7 +48,6 @@ const grepInput = Type.Object({
 
 export const grepTool: AppTool<typeof grepInput> = {
 	name: "grep",
-	label: "grep",
 	description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Ignores node_modules, .git, and Library directories. Output is truncated to ${DEFAULT_LIMIT} matches or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
 	parameters: grepInput,
 	execute: serverExecute("grep", grepInput, async (input, ctx) => {

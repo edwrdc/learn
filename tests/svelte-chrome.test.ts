@@ -80,15 +80,11 @@ describe("phase chrome", () => {
 		}
 	});
 
-	it("the plan seam renders dotted rules + node count, singular and absent", async () => {
-		const plan = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 3 });
+	it("the plan seam renders dotted rules and its label", async () => {
+		const plan = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan" });
 		assert.ok(plan.includes('data-testid="phase-divider-plan"'));
-		assert.match(plan, /Plan · 3 nodes/);
 		assert.ok(plan.includes("border-dotted"));
-		const singular = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 1 });
-		assert.match(singular, /Plan · 1 node\b/);
-		const uncounted = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan" });
-		assert.match(uncounted, /Planning/);
+		assert.match(plan, /Planning/);
 	});
 
 	it("the teach seam labels itself with no count and no phase color", async () => {

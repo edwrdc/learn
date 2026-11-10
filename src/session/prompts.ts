@@ -35,25 +35,6 @@ function overrideFileFor(segmentPath: string): string {
 
 /** The override files: only valid segment paths are read or written. */
 export const promptOverrides = {
-	/** Every override path on disk, POSIX-relative, sorted. */
-	listOverrides(): string[] {
-		const out: string[] = [];
-		const walk = (dir: string, prefix: string) => {
-			let entries: fs.Dirent[];
-			try {
-				entries = fs.readdirSync(dir, { withFileTypes: true });
-			} catch {
-				return; // no dir yet = no overrides
-			}
-			for (const entry of entries) {
-				const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-				if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
-				else if (entry.isFile() && entry.name.endsWith(".md") && isValidSegmentPath(rel)) out.push(rel);
-			}
-		};
-		walk(PROMPTS_OVERRIDE_DIR, "");
-		return out.sort();
-	},
 	readOverride(segmentPath: string): string | null {
 		if (!isValidSegmentPath(segmentPath)) return null;
 		try {

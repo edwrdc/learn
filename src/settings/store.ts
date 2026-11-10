@@ -10,31 +10,18 @@
  * silently shift a knob.
  */
 
-import { writeJsonAtomic } from "../platform/index.ts";
+import { readJsonFile, writeJsonAtomic } from "../platform/index.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { SETTINGS_FILE } from "../platform/index.ts";
 import { sanitizeUserSettings, type SettingsSection } from "./model/schema.ts";
 import { CURRENT_SETTINGS_VERSION, type UserSettings } from "./model/settings.ts";
-import type { SettingsStore } from "./model/ports.ts";
 
 /** The persisted record, or null when none exists (first boot). */
 export function readSettings(): UserSettings | null {
-	let raw: string;
-	try {
-		raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
-	} catch {
-		return null; // no settings.json yet — first boot, all factory defaults
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return null; // corrupt → first-boot semantics (all factory defaults)
-	}
-	const record = sanitizeUserSettings(parsed);
-	if (!record) return null;
-	return record;
+	const parsed = readJsonFile(SETTINGS_FILE);
+	if (parsed === undefined) return null; // absent or corrupt: first-boot factory defaults
+	return sanitizeUserSettings(parsed) ?? null;
 }
 
 /** Persist the record (sanitized). Returns what was written. */
@@ -45,13 +32,12 @@ export function writeSettings(raw: unknown): UserSettings {
 	return settings;
 }
 
-/** Replace one section; the other sections ride along untouched. */
-export function writeSettingsSection(section: SettingsSection, value: unknown): UserSettings {
-	return writeSettings({ ...(readSettings() ?? { version: CURRENT_SETTINGS_VERSION }), [section]: value });
+/** Read the record (or a fresh one), change it, write it back. */
+export function updateSettings(change: (record: UserSettings) => unknown): UserSettings {
+	return writeSettings(change(readSettings() ?? { version: CURRENT_SETTINGS_VERSION }));
 }
 
-/** The typed adapter (core/ports.ts SettingsStore), for the composition root. */
-export const settingsStore: SettingsStore = {
-	readSettings,
-	writeSettings,
-};
+/** Replace one section; the other sections ride along untouched. */
+export function writeSettingsSection(section: SettingsSection, value: unknown): UserSettings {
+	return updateSettings((record) => ({ ...record, [section]: value }));
+}

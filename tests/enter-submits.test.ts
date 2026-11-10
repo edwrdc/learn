@@ -42,12 +42,8 @@ describe("buttonKeepsNativeEnter (the pointer/keyboard Enter split)", () => {
 		assert.equal(buttonKeepsNativeEnter(b), true);
 	});
 
-	it("buttons inside overlays keep native Enter: hand-rolled menu, Radix popper, dialog, menu role", () => {
+	it("buttons inside overlays keep native Enter: hand-rolled menu, dialog, menu role", () => {
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ "data-lh-menu": "" })), true);
-		assert.equal(
-			buttonKeepsNativeEnter(buttonIn({ "data-radix-popper-content-wrapper": "" })),
-			true,
-		);
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "dialog" })), true);
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "menu" })), true);
 	});

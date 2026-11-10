@@ -29,7 +29,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
-import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult, buildProbeHandoffSteer } from "../src/jobs/model/types.ts";
+import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult } from "../src/jobs/model/types.ts";
+import { newHandoffMessage } from "../src/session/model/transcript.ts";
 import { composeInstructions } from "../src/session/prompts.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { createWebTools } from "../src/tools/web/web.ts";
@@ -384,7 +385,7 @@ describe("steer helpers (contracts.ts)", () => {
 		assert.equal(steerDelivered([steer], steer.id), true);
 		assert.equal(steerDelivered([steer], "steer_job_z"), false);
 		// the probe handoff shares the id-space contract
-		const handoff = buildProbeHandoffSteer("chat_q");
+		const handoff = newHandoffMessage("chat_q");
 		assert.equal(handoff.id, "steer_probe_chat_q");
 		assert.equal(steerDelivered([handoff], handoff.id), true);
 		assert.equal(steerDelivered([steer], handoff.id), false);
@@ -927,7 +928,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 		// native seam the chat-handler's construction branch keys on) and no
 		// open question.
 		await chatStore.saveMessages(chat.id, nativeToolMessages("teach me calc", "probe_done", "call-pd", { ok: true }));
-		const handoff = buildProbeHandoffSteer(chat.id);
+		const handoff = newHandoffMessage(chat.id);
 		let seen: { chatId: string; steers: SteerMessage[] } | undefined;
 		setTurnRunner(async (cid, input) => {
 			seen = { chatId: cid, steers: (input as SteerInput).steers as SteerMessage[] };
@@ -945,7 +946,7 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 	it("a redelivered handoff dedupes via the transcript (idempotent by steer id)", async () => {
 		const chat = await chatStore.createChat("Test: handoff idempotent");
 		trackChat(chat.id);
-		const handoff = buildProbeHandoffSteer(chat.id);
+		const handoff = newHandoffMessage(chat.id);
 		// The transcript already carries the steer (a previous wake completed).
 		await chatStore.saveMessages(chat.id, [handoff as never]);
 		let fired = 0;

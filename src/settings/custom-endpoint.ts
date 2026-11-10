@@ -19,7 +19,7 @@ import {
 import { genericProviderKeyGuard } from "./model/auth-keys.ts";
 import { setCustomEndpointProvider, piEngineForSpec, piModels, runsSnapshot, type ModelSnapshot, type PiEngine, type ResolvedModelSpec } from "../platform/index.ts";
 import { modelKey, providerKeyMissing, type ModelSlotName, type ProviderKeyMissing } from "./model/index.ts";
-import { settingsStore } from "./store.ts";
+import { readSettings, updateSettings } from "./store.ts";
 import { authStore } from "./auth-store.ts";
 import {
 	deleteSecretVar,
@@ -67,7 +67,7 @@ function signature(endpoint: CustomEndpointConfig | null, key: string | undefine
  * endpoint it synced from.
  */
 function syncCustomEndpointProvider(): CustomEndpointConfig | null {
-	const endpoint = settingsStore.readSettings()?.customEndpoint ?? null;
+	const endpoint = readSettings()?.customEndpoint ?? null;
 	const key = endpoint ? activeKeyFor(endpoint)?.key : undefined;
 	const next = signature(endpoint, key);
 	const registered = piModels().getProvider(CUSTOM_ENDPOINT_PROVIDER_ID) !== undefined;
@@ -98,6 +98,19 @@ export function missingProviderKey(provider: string, slots: ModelSlotName[]): Pr
 	return present ? null : providerKeyMissing(provider, slots);
 }
 
+/** The optional pasted key in a save or discovery body: "" when absent,
+ *  else a trimmed key that passed the shape check. */
+function submittedKeyOf(raw: unknown): { ok: true; key: string } | { ok: false; error: string } {
+	const apiKey = (raw as { apiKey?: unknown }).apiKey;
+	if (apiKey !== undefined && typeof apiKey !== "string") return { ok: false, error: "apiKey must be a string" };
+	const key = apiKey?.trim() ?? "";
+	if (key) {
+		const shape = genericProviderKeyGuard(CUSTOM_ENDPOINT_KEY_ID, key);
+		if (!shape.ok) return shape;
+	}
+	return { ok: true, key };
+}
+
 type CustomEndpointWriteResult =
 	| { ok: true; state: CustomEndpointState }
 	| { ok: false; error: string };
@@ -125,17 +138,11 @@ function pruneEndpointKeys(keepId?: string): void {
 export function saveCustomEndpoint(raw: unknown): CustomEndpointWriteResult {
 	const config = validateCustomEndpointConfig(raw);
 	if (!config.ok) return config;
-	const body = raw as { apiKey?: unknown };
-	if (body.apiKey !== undefined && typeof body.apiKey !== "string") {
-		return { ok: false, error: "apiKey must be a string" };
-	}
-	const submittedKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-	if (submittedKey) {
-		const shape = genericProviderKeyGuard(CUSTOM_ENDPOINT_KEY_ID, submittedKey);
-		if (!shape.ok) return shape;
-	}
+	const submitted = submittedKeyOf(raw);
+	if (!submitted.ok) return submitted;
+	const submittedKey = submitted.key;
 
-	const stored = settingsStore.readSettings()?.customEndpoint ?? null;
+	const stored = readSettings()?.customEndpoint ?? null;
 	const envOwned = secretFromRealEnv(CUSTOM_ENDPOINT_KEY_ID);
 	const baseChanged = !stored || stored.baseUrl !== config.value.baseUrl;
 
@@ -157,11 +164,8 @@ export function saveCustomEndpoint(raw: unknown): CustomEndpointWriteResult {
 	}
 
 	const targetKeyId = originKeyId(config.value.baseUrl);
-	const record = settingsStore.readSettings() ?? { version: 1 };
-	const writeConfig = () => settingsStore.writeSettings({ ...record, customEndpoint: config.value });
-
 	if (submittedKey && baseChanged) saveSecretVar(targetKeyId, submittedKey);
-	writeConfig();
+	updateSettings((record) => ({ ...record, customEndpoint: config.value }));
 	if (submittedKey && !baseChanged) saveSecretVar(targetKeyId, submittedKey);
 	if (!envOwned) {
 		pruneEndpointKeys(targetKeyId);
@@ -176,10 +180,7 @@ export function saveCustomEndpoint(raw: unknown): CustomEndpointWriteResult {
  * fallback. A settings failure leaves the prior config+key working.
  */
 export function removeCustomEndpoint(): CustomEndpointState {
-	const record = settingsStore.readSettings() ?? { version: 1 };
-	const next = { ...record };
-	delete next.customEndpoint;
-	settingsStore.writeSettings(next);
+	updateSettings(({ customEndpoint: _removed, ...rest }) => rest);
 	pruneEndpointKeys();
 	return customEndpointState();
 }
@@ -215,18 +216,12 @@ export async function discoverCustomEndpointModels(raw: unknown): Promise<Discov
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
 		return { ok: false, status: 400, error: "body must be {baseUrl, apiKey?}" };
 	}
-	const body = raw as { baseUrl?: unknown; apiKey?: unknown };
-	if (body.apiKey !== undefined && typeof body.apiKey !== "string") {
-		return { ok: false, status: 400, error: "apiKey must be a string" };
-	}
-	const baseUrl = normalizeCustomEndpointBaseUrl(body.baseUrl);
+	const submitted = submittedKeyOf(raw);
+	if (!submitted.ok) return { ok: false, status: 400, error: submitted.error };
+	const baseUrl = normalizeCustomEndpointBaseUrl((raw as { baseUrl?: unknown }).baseUrl);
 	if (!baseUrl.ok) return { ok: false, status: 400, error: baseUrl.error };
-	const submittedKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-	if (submittedKey) {
-		const shape = genericProviderKeyGuard(CUSTOM_ENDPOINT_KEY_ID, submittedKey);
-		if (!shape.ok) return { ok: false, status: 400, error: shape.error };
-	}
-	const stored = settingsStore.readSettings()?.customEndpoint ?? null;
+	const submittedKey = submitted.key;
+	const stored = readSettings()?.customEndpoint ?? null;
 	const envOwned = secretFromRealEnv(CUSTOM_ENDPOINT_KEY_ID);
 
 	let key: string | undefined;

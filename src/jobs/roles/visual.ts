@@ -1,7 +1,8 @@
 import { Type } from "typebox";
 import { serverExecute } from "../../tools/index.ts";
 import type { VisualRunState } from "../durable-run.ts";
-import type { VisualResult, VisualToolInput } from "../model/types.ts";
+import type { VisualResult } from "../model/types.ts";
+import type { VisualInput } from "../tools.ts";
 import type { JobRole } from "./role.ts";
 
 /**
@@ -79,7 +80,7 @@ function imageOf(png: Buffer): { type: "image"; data: string; mimeType: string }
 	return { type: "image", data: png.toString("base64"), mimeType: "image/png" };
 }
 
-export const VISUAL_ROLE: JobRole<VisualToolInput, VisualResult, VisualRunState> = {
+export const VISUAL_ROLE: JobRole<VisualInput, VisualResult, VisualRunState> = {
 	kind: "visual",
 	model: "visualMaker",
 	maxTurns: 8,
@@ -202,7 +203,6 @@ export const VISUAL_ROLE: JobRole<VisualToolInput, VisualResult, VisualRunState>
 			"",
 			"Author the SVG, render it, look at it, iterate until correct, then finish with your notes.",
 		].join("\n"),
-	runInput: (input) => ({ ...input }),
 	async finish(input, { text, state, capped, maxTurns }) {
 		if (state.renderError) return VISUAL_ROLE.failure(input, `rendering the final SVG failed — ${state.renderError}`);
 		if (!state.currentSvg) {

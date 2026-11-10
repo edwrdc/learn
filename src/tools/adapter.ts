@@ -27,7 +27,6 @@ export interface AppToolResult<D = unknown> {
 /** The app's tool shape: everything a registration needs, nothing else. */
 export interface AppTool<P extends TSchema = TSchema> {
 	name: string;
-	label?: string;
 	description: string;
 	parameters: P;
 	prepareArguments?(args: unknown): Static<P>;

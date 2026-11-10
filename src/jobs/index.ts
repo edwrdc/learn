@@ -6,6 +6,6 @@ export { createJobRunner } from "./runner.ts";
 export { resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
 export { jobStore } from "./store.ts";
 export { jobTools } from "./tools.ts";
-export type { DemoInput, JobToolContext, PdfInput, ResearchInput, VisualInput } from "./tools.ts";
-export { abortJob, deliverJobResult, listJobs, markSteerDelivered, noteSteerVisible, recoverStaleJobs, repumpSteers, setJobRespawn, setTurnRunner, settleSteers, steerLiveChat } from "./wake.ts";
+export type { JobToolContext, SpawnJob } from "./tools.ts";
+export { abortJob, deliverJobResult, markSteerDelivered, noteSteerVisible, recoverStaleJobs, repumpSteers, setJobRespawn, setTurnRunner, settleSteers, steerLiveChat } from "./wake.ts";
 export type { JobRunner } from "./runner.ts";

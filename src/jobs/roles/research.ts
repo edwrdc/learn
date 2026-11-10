@@ -13,7 +13,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createPdfReadTools, createWebTools, type AppTool } from "../../tools/index.ts";
 import type { ResearchRunState } from "../durable-run.ts";
-import type { ResearchResult, ResearchToolInput } from "../model/types.ts";
+import type { ResearchResult } from "../model/types.ts";
+import type { ResearchInput } from "../tools.ts";
 import type { JobRole } from "./role.ts";
 
 const RESEARCHER_INSTRUCTIONS = `You are a research specialist. You work for a teacher agent inside a learning
@@ -110,7 +111,7 @@ function parseSources(brief: string, fetchedUrls: string[]): ResearchResult["sou
 	return sources.slice(0, 10);
 }
 
-export const RESEARCH_ROLE: JobRole<ResearchToolInput, ResearchResult, ResearchRunState> = {
+export const RESEARCH_ROLE: JobRole<ResearchInput, ResearchResult, ResearchRunState> = {
 	kind: "research",
 	model: "researcher",
 	maxTurns: 12,
@@ -155,7 +156,6 @@ export const RESEARCH_ROLE: JobRole<ResearchToolInput, ResearchResult, ResearchR
 		]
 			.filter(Boolean)
 			.join("\n\n"),
-	runInput: (input) => ({ ...input }),
 	/** web_fetch_pdf downloads land in a per-job directory that dies with the job. */
 	async workspace(run) {
 		const pdfDir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-research-"));

@@ -21,3 +21,21 @@ export function writeFileAtomic(file: string, data: string, options: { mode?: nu
 export function writeJsonAtomic(file: string, value: unknown, options: { mode?: number } = {}): void {
 	writeFileAtomic(file, JSON.stringify(value, null, "\t"), options);
 }
+
+/** A JSON file's parsed value, or undefined when the file is absent. A file
+ *  that exists but can't be read or parsed is logged and reads as absent. */
+export function readJsonFile(file: string): unknown {
+	let raw: string;
+	try {
+		raw = fs.readFileSync(file, "utf-8");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error(`[fs] cannot read ${file}:`, error);
+		return undefined;
+	}
+	try {
+		return JSON.parse(raw);
+	} catch (error) {
+		console.error(`[fs] corrupt JSON in ${file}:`, error);
+		return undefined;
+	}
+}

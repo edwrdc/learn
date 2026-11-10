@@ -27,7 +27,7 @@ export async function PUT({ request: req, params }: RequestEvent) {
 	const parsed = parseModelChoice(json.body);
 	if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 	const checked = checkChatSettings(parsed.value, effectiveSettings().models.strong);
-	if (!checked.ok) return Response.json({ error: checked.error, supported: checked.supported }, { status: 400 });
+	if (!checked.ok) return Response.json({ error: checked.error }, { status: 400 });
 	// Replace-whole: no merges, so a stale client can never resurrect a
 	// cleared override.
 	const settings = checked.value;

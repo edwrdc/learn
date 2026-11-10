@@ -19,15 +19,11 @@
  * from the pipeline's module for the abort route to call.
  */
 
-import { extractionStatuses } from "../graph/index.ts";
-import { chatStore } from "../session/index.ts";
-import { graphRevision } from "../graph/index.ts";
+import { extractionStatuses, graphRevision } from "../graph/index.ts";
+import { stores } from "../stores.ts";
 import { catalogContextLimits } from "../settings/index.ts";
-import { listJobs } from "./wake.ts";
 import type { ActivityExtraction, ActivityFeed, ActivityJob } from "./model/types.ts";
 
-export { abortExtraction, extractionStatuses, type RunningExtraction } from "../graph/index.ts";
-export { chatStore } from "../session/index.ts";
 
 /** The dock's whole world in one payload: every running process, every view.
  *  Jobs are RUNNING-ONLY — finished jobs belong to their chat's transcript;
@@ -41,11 +37,11 @@ export { chatStore } from "../session/index.ts";
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
 export async function activityFeed(): Promise<ActivityFeed> {
-	const chats = await chatStore.listChats();
+	const chats = await stores.chatStore.listChats();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];
 	for (const chat of chats) {
-		for (const job of listJobs(chat.id)) {
+		for (const job of stores.jobStore.listJobs(chat.id)) {
 			if (job.status === "running") {
 				jobs.push({
 					...job,
@@ -62,7 +58,7 @@ export async function activityFeed(): Promise<ActivityFeed> {
 		// The run's own label (a notes file path), else the chat's title,
 		// plus the chunk suffix when the source fanned out.
 		title:
-			(run.label ?? (await chatStore.getChat(run.chatId))?.title ?? run.chatId) +
+			(run.label ?? (await stores.chatStore.getChat(run.chatId))?.title ?? run.chatId) +
 			(run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
 		phase: run.phase,
 		startedAt: run.startedAt,

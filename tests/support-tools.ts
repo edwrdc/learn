@@ -10,7 +10,6 @@ import { newMessageId, type LhMessage } from "../src/session/model/transcript.ts
 export function bareQuestionTools(): Record<string, AppTool<any>> {
 	const quiz: AppTool<typeof quizInputObject> = {
 		name: "quiz",
-		label: "quiz",
 		description: "Ask the learner a graded question.",
 		parameters: quizInputObject,
 		executionMode: "sequential",

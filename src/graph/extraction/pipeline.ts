@@ -21,7 +21,6 @@ import { emit, processState } from "../../platform/model/index.ts";
 import { settleGraphLayout } from "../layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../coverage.ts";
 import type { LhMessage } from "../../session/model/index.ts";
-import type { GraphToolContext } from "./graph-tools.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
 
 /**
@@ -301,7 +300,7 @@ function runAuditor(
 	prompt: string,
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
-	graph: GraphToolContext,
+	graph: GraphDeps,
 ): Promise<AuditVerdicts> {
 	return runSubmitAgent({
 		role: "auditor",
