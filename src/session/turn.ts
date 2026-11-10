@@ -125,7 +125,7 @@ function compactionDeps(profile: TurnProfile): CompactionDeps {
 
 /** What turns need from the app (boot passes its own services object, so a
  *  test that flips `upkeep` on it reaches the turns too). */
-export interface TurnServices {
+interface TurnServices {
 	jobRunner: Pick<JobRunner, "runJob">;
 	extraction: ExtractionPipeline;
 	upkeep: boolean;

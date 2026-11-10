@@ -131,14 +131,14 @@ export interface SubmitRunInput {
 	existingIds: string[];
 }
 
-export const FINDINGS_TOOL = "submit_findings";
-export const AUDIT_TOOL = "submit_review";
+const FINDINGS_TOOL = "submit_findings";
+const AUDIT_TOOL = "submit_review";
 
 /** One submit tool: validates, commits the accepted value into the run's
  *  role state BEFORE the tool result, and asks the run to stop (a clean
  *  submit ends the loop; a refused one is an error result the model may
  *  retry). */
-export function submitRoleTool(
+function submitRoleTool(
 	input: SubmitRunInput,
 	io: RoleStateIo<SubmitRunState>,
 ): AppTool<any> {

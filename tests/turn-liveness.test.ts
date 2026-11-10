@@ -8,17 +8,18 @@
  * the settle services made the record current.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	beginTurn,
-	endTurn,
-	isTurnRunning,
-	noteTurnSettled,
-} from "../src/session/turn-liveness.ts";
-import { registerTurn, runningTurn } from "../src/session/turn-runs.ts";
-import type { PiTurnHandle } from "../src/session/pi/durable-turn.ts";
-import { subscribe, type ServerEvent } from "../src/platform/model/events.ts";
+import { createFauxCore, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import "./support-durable.ts";
+import { beginTurn, endTurn, isTurnRunning } from "../src/session/turn-liveness.ts";
+import { runningTurn } from "../src/session/turn-runs.ts";
+import { handleChatInput } from "../src/session/turn.ts";
+import { chatStore } from "../src/session/store.ts";
+import { subscribe } from "../src/platform/model/events.ts";
+
+process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
 describe("turn claim", () => {
 	it("begin/end round trip; a second begin is rejected until the turn ends", async () => {
@@ -35,28 +36,39 @@ describe("turn claim", () => {
 });
 
 describe("turn lifecycle events", () => {
-	it("registering the handle announces the turn; the rejected double-begin stays silent; endTurn drops the handle", () => {
-		const id = "chat_events_begin";
-		const got: ServerEvent[] = [];
-		const off = subscribe((e) => got.push(e));
-		assert.equal(beginTurn(id), true, "fresh chat accepts the turn");
-		assert.equal(beginTurn(id), false, "the rejected double-begin");
-		registerTurn(id, {} as PiTurnHandle);
-		assert.deepEqual(got, [{ type: "turn-started", chatId: id }], "exactly one event");
-		endTurn(id);
-		assert.equal(runningTurn(id), undefined, "the claim release drops the handle");
-		off();
-	});
-
-	it("noteTurnSettled announces only after the settle services ran", () => {
-		const id = "chat_events_end";
-		const got: ServerEvent[] = [];
-		const off = subscribe((e) => got.push(e));
-		beginTurn(id);
-		endTurn(id); // the mutex release is silent
-		assert.deepEqual(got, [], "no event from the claim alone");
-		noteTurnSettled(id);
-		assert.deepEqual(got, [{ type: "turn-settled", chatId: id }]);
-		off();
+	it("a turn announces turn-started once, and turn-settled only once the record is current and the handle is gone", { timeout: 15_000 }, async () => {
+		const chat = await chatStore.createChat("liveness events");
+		await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		const faux = createFauxCore({});
+		faux.setResponses([fauxAssistantMessage([fauxText("settled reply")])]);
+		const events: string[] = [];
+		let settled!: (snapshot: Promise<{ handleGone: boolean; replied: boolean; running: boolean }>) => void;
+		const atSettle = new Promise<Promise<{ handleGone: boolean; replied: boolean; running: boolean }>>((resolve) => (settled = resolve));
+		const off = subscribe((e) => {
+			if ((e as { chatId?: string }).chatId !== chat.id) return;
+			if (e.type !== "turn-started" && e.type !== "turn-settled") return;
+			events.push(e.type);
+			if (e.type === "turn-settled") {
+				const handleGone = runningTurn(chat.id) === undefined;
+				settled(
+					(async () => ({
+						handleGone,
+						replied: JSON.stringify((await chatStore.getChat(chat.id))!.messages).includes("settled reply"),
+						running: await isTurnRunning(chat.id),
+					}))(),
+				);
+			}
+		});
+		try {
+			const res = await handleChatInput(chat.id, { type: "text", text: "hello" }, { engine: { model: faux.getModel(), streamFn: faux.streamSimple } });
+			assert.equal(res.status, 200);
+			const snapshot = await (await atSettle);
+			assert.deepEqual(events, ["turn-started", "turn-settled"], "exactly one of each, in order");
+			assert.equal(snapshot.handleGone, true, "the handle is unregistered before the announcement");
+			assert.equal(snapshot.replied, true, "the record carries the reply when turn-settled fires");
+			assert.equal(snapshot.running, false, "readers see the chat idle");
+		} finally {
+			off();
+		}
 	});
 });

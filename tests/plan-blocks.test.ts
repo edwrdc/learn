@@ -154,13 +154,6 @@ test("the block renders IN FLOW immediately after the plan_init part — not app
 	// Real-world shape (user session chat_mtwgb9lj): the authoring turn
 	// carries plan_init + prose + a quiz call — emission runs at persistTurn
 	// AFTER all of that exists.
-	const turn = [
-		assistantWithCall("m1", "plan_init", { tree: TREE }),
-		resultOf("m1", "plan_init", { ok: true, tree: TREE }),
-		assistantWithCall("m1b", "quiz", { question: "q?" }, "Here's the plan."),
-		resultOf("m1", "plan_init", { ok: true, tree: TREE }), // (kept out via emitted set — see next test)
-	];
-	turn.pop(); // drop the stray duplicate — build the real shape below
 	const real = [
 		assistantWithCall("m1", "plan_init", { tree: TREE }),
 		resultOf("m1", "plan_init", { ok: true, tree: TREE }),

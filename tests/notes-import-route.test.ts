@@ -1,3 +1,5 @@
+import "./support-tmp-data.ts";
+
 import assert from "node:assert/strict";
 import { after, it } from "node:test";
 import { POST } from "../src/routes/api/graph/import/+server.ts";

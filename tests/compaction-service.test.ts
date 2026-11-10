@@ -70,9 +70,8 @@ const depsOf = (chatId: string, thresholdTokens: number): CompactionDeps => ({
 	kind: "teach",
 	thresholdTokens,
 	systemPromptTokens: 100,
-	summarize: async (prompt) => {
+	summarize: async () => {
 		summarizeCalls++;
-		assert.ok(prompt.includes("TRANSCRIPT") || prompt.length > 0);
 		return {
 			summary: `SUMMARY #${summarizeCalls}: the learner knows X.`,
 			usage: { input: 1_000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 1_500, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -247,6 +246,7 @@ describe("the compaction service", () => {
 			built++;
 			return depsOf(chatId, 40_000);
 		}, chatId);
+		await awaitCompaction(chatId);
 		assert.equal(summarizeCalls, afterFirst, "post-compaction record is under threshold — no run");
 		// a null deps build (engineless) is a silent no-op
 		kickCompaction(() => null, chatId);

@@ -72,8 +72,7 @@ describe("chain table overlay", () => {
 
 	it("unnameable conclusion births form one muted unlabeled group", async () => {
 		const body = await html("/src/lib/home/ChainTableOverlay.svelte", props);
-		assert.ok(body.includes("unlabeled"));
-		assert.ok(body.includes("cluster-group-"));
+		assert.match(body, />unlabeled</);
 	});
 
 	it("cluster rows carry checkbox, counts, newest date and the notes kind", async () => {

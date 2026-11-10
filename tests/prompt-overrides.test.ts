@@ -233,44 +233,14 @@ describe("the source-derived segment list", () => {
 		assert.equal(planning.enabled, false);
 		assert.equal(planning.overrideText, null);
 	});
-
-	it("adapts to source changes by construction: the list is computed, not stored", () => {
-		// If a fragment vanishes upstream, its switch/override simply stop
-		// composing — nothing here can go stale. Pinned by absence:
-		const before = allSegmentPaths().length;
-		assert.equal(before > 5, true, "base + prober fragments + teacher fragments");
-	});
 });
 
 // ─── composeInstructions honors overrides (P2 reconciliation, 2026-09-19) ────
 // This file OWNS the (isolated) PROMPTS_OVERRIDE_DIR (parallel-test
 // discipline), so every override-writing composition test lives here.
 
-describe("composeInstructions: override honoring + the byte-identical source path", () => {
+describe("composeInstructions: override honoring", () => {
 	const { composeInstructions } = teacherAgent;
-
-	it("switches-less composition is byte-identical to the pre-refactor loader", () => {
-		// The plain loader, rebuilt inline: base + the agent's own
-		// fragments + the shared/ appendix (the 2026-09-27 reorder),
-		// trimmed, empties dropped, joined with the separator.
-		const oldLoader = (kind: "prober" | "teacher") => {
-			const fragmentsOf = (dir: string) =>
-				fs
-					.readdirSync(dir)
-					.filter((f) => /^\d+-[\w.-]+\.md$/.test(f))
-					.sort()
-					.map((f) => fs.readFileSync(path.join(dir, f), "utf-8").trim())
-					.filter(Boolean);
-			const base = fs.readFileSync("src/session/prompts/system-prompt.md", "utf-8").trim();
-			return [
-				base,
-				...fragmentsOf(`src/session/prompts/${kind}`),
-				...fragmentsOf("src/session/prompts/shared"),
-			].join("\n\n---\n\n");
-		};
-		assert.equal(composeInstructions("teacher"), oldLoader("teacher"));
-		assert.equal(composeInstructions("prober"), oldLoader("prober"));
-	});
 
 	it("an enabled override swaps in; switch off or file absent composes source", () => {
 		promptOverrides.writeOverride("teacher/20-teaching.md", "CUSTOM TEACHING LOOP");

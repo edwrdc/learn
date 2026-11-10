@@ -1,37 +1,16 @@
 /**
- * Tests for the settings STORE (settings-storage wave, 2026-09-19):
- * src/store/settings.ts — the record's fs adapter. Writes the real repo
- * data/ files (npm test's shared data/, disposable scratch by doctrine)
- * and cleans up after itself; a pre-existing settings.json is snapshotted
- * and restored so the worktree's own dev state survives the run.
- *
- * (The legacy default-settings.json fold and the chat-section facade died
- * with per-session models, owner 2026-09-28 — sessions own their model
- * from birth, stamped from the strong slot server-side.)
+ * Tests for the settings STORE: the record's fs adapter, under a disposable
+ * LH_DATA_DIR so a run never touches the checkout's data/settings.json.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { after, afterEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import { SETTINGS_FILE } from "../src/platform/config.ts";
 import { readSettings, writeSettings } from "../src/settings/store.ts";
 import { resolveSettings } from "../src/settings/model/resolution.ts";
-
-// Snapshot any pre-existing record; restore in after() so the worktree's
-// own dev state survives a test run.
-let hadSettings = false;
-let savedSettings = "";
-try {
-	savedSettings = fs.readFileSync(SETTINGS_FILE, "utf-8");
-	hadSettings = true;
-} catch {
-	/* first boot — nothing to snapshot */
-}
-after(() => {
-	if (hadSettings) fs.writeFileSync(SETTINGS_FILE, savedSettings, "utf-8");
-	else fs.rmSync(SETTINGS_FILE, { force: true });
-});
 
 afterEach(() => {
 	fs.rmSync(SETTINGS_FILE, { force: true });

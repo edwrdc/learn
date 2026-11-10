@@ -50,7 +50,7 @@ function viewTokens(lines: string[]): number {
  * teacher prose, with the message id as the tag). Changes exactly when
  * the teacher prose of the message changes — nothing else can re-open it.
  */
-export function messageFingerprint(message: LhMessage): string {
+function messageFingerprint(message: LhMessage): string {
 	const h = createHash("sha256");
 	h.update(JSON.stringify([(message as { role?: string }).role, messageViewLines(message, message.id)]));
 	return h.digest("hex");
@@ -64,7 +64,7 @@ interface CoverageSlot {
 
 /** Fingerprint a whole transcript, in order (used by the trigger, the run,
  *  and the coverage view — one derivation everywhere). */
-export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[] {
+function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[] {
 	return messages.map((message) => ({ message, fp: messageFingerprint(message), tokens: viewTokens(messageViewLines(message, message.id)) }));
 }
 

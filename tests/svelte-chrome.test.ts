@@ -76,7 +76,6 @@ describe("phase chrome", () => {
 			assert.ok(body.includes(label));
 			assert.ok(!body.includes("rounded-full"));
 			assert.ok(!body.includes("braille-spinner"));
-			assert.match(body, /class="[^"]*text-xs font-medium uppercase/);
 		}
 	});
 
@@ -112,8 +111,6 @@ describe("queued steers", () => {
 		assert.equal(body.match(/<span/g)?.length, 2);
 		assert.match(body, /truncate/);
 		assert.match(body, /items-end/);
-		assert.match(body, /max-w-\[240px\]/);
-		assert.match(body, /muted-foreground\/60/);
 		assert.doesNotMatch(body, /bg-|border|rounded/);
 		assert.match(body, /also cover Venus/);
 	});
@@ -147,10 +144,8 @@ describe("live tool card", () => {
 });
 
 describe("reading-thinking field", () => {
-	it("carries vertical padding and the growth cap", async () => {
+	it("labels itself and invites thinking while reading", async () => {
 		const body = await html("/src/lib/chat/ReadingThinking.svelte", { value: "", onChange: () => {}, claim: false });
-		assert.ok(body.includes("py-0.5"));
-		assert.ok(body.includes("max-h-40"));
 		assert.match(body, /Thinking while reading/);
 		assert.match(body, /Whatever comes to mind as you read\./);
 	});

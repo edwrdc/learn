@@ -120,7 +120,6 @@ test("phaseTimeline: folds messages into phase spans for the dividers", () => {
 		assistantQuiz({ question: "q2", nodeId: "n2", correctAnswer: "a" }),
 	]);
 	assert.deepEqual(timeline satisfies Phase3[], ["probe", "probe", "plan", "plan", "plan", "plan", "teach", "teach"]);
-	assert.equal(timeline.length, 8);
 });
 
 test("phaseAt3: empty transcript is probe", () => {

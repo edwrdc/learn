@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { parseRefusal } from "../src/lib/chat/chat-logic.ts";
-import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../src/lib/settings/setup.ts";
+import { prefillFromSlots, prefillLevelFromPin } from "../src/lib/settings/setup.ts";
 import {
 	MODELS_NOT_CONFIGURED_CODE,
 	modelsNotConfigured,
@@ -118,13 +118,5 @@ describe("prefillLevelFromPin — the setup dialog's level prefill (chunk 2)", (
 	it("a legacy pin with no stored level prefills the ordering's level", () => {
 		assert.equal(prefillLevelFromPin(entry(["low", "medium"]), {}), "medium");
 		assert.equal(prefillLevelFromPin(entry(["low", "medium"]), null), "medium");
-	});
-});
-
-describe("setupStage — unchanged by the BYOK wave", () => {
-	it("keys first (owner ordering), pickers when a provider is keyed", () => {
-		assert.equal(setupStage(null), "keys");
-		assert.equal(setupStage([{ id: "x", keyPresent: false }]), "keys");
-		assert.equal(setupStage([{ id: "x", keyPresent: true }]), "pickers");
 	});
 });

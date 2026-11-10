@@ -165,7 +165,7 @@ describe("compactionCutIndex", () => {
 		assert.ok(kept.some((m) => m.id === "a_pending"), "the pending pose is never dropped");
 	});
 
-	it("zero budget summarizes everything; whole-history-in-budget returns 0 only when nothing precedes", () => {
+	it("a lone message is never cut: the index is 0 when nothing precedes it", () => {
 		assert.equal(compactionCutIndex([newUserMessage("hi")], 100), 0);
 	});
 
@@ -372,34 +372,5 @@ describe("projectView compaction dividers", () => {
 		// the tail — where the user is when it happens)
 		const keptIdx = view.findIndex((m) => m.parts.some((p) => p.type === "text" && p.text === "recent"));
 		assert.ok(view.indexOf(moment!) > keptIdx);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// THE CHROME LAW (the OpenRouter no-tools incident, owner 2026-10-05):
-// a native caller's message list can lead with a SystemMessage (prompt +
-// tool declarations); the record never persists it. The
-// cut slices the RECORD's history — the chrome carries through ahead of
-// the compaction head, exactly as pi's prepareRequest re-applies
-// context.systemPrompt + context.tools around its projection.
-// ---------------------------------------------------------------------------
-describe("toLlmMessages applies the compaction cut", () => {
-	const record = (): LhMessage[] => [
-		{ id: "old", role: "user", content: "dropped history", timestamp: 1 },
-		{ id: "kept", role: "user", content: "kept tail", timestamp: 2 },
-		newCompactionMarker("SUMMARY", {
-			firstKeptMessageId: "kept",
-			tokensBefore: 99,
-			at: new Date(0).toISOString(),
-		}) as unknown as LhMessage,
-	];
-
-	it("the summary head comes first, the dropped span never", () => {
-		const out = toLlmMessages(record());
-		const headText =
-			typeof out[0]!.content === "string"
-				? out[0]!.content
-				: ((out[0]!.content as { text?: string }[])[0]?.text ?? "");
-		assert.ok(headText.includes("SUMMARY"));
 	});
 });

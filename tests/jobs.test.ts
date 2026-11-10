@@ -23,6 +23,8 @@
  * finally blocks / the after() hook.
  */
 
+import "./support-tmp-data.ts";
+
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -1172,9 +1174,11 @@ describe("prompt composition", () => {
 		// every numeric fragment DOES compose, verbatim, after the base prompt
 		const base = fs.readFileSync("src/session/prompts/system-prompt.md", "utf-8").trim();
 		assert.ok(instructions.startsWith(base), "base prompt first");
-		for (const f of fs.readdirSync("src/session/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f)).sort()) {
-			const body = fs.readFileSync(`src/session/prompts/${f}`, "utf-8").trim();
-			assert.ok(instructions.includes(body), `fragment ${f} must compose verbatim`);
+		for (const dir of ["teacher", "shared"]) {
+			for (const f of fs.readdirSync(`src/session/prompts/${dir}`).filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
+				const body = fs.readFileSync(`src/session/prompts/${dir}/${f}`, "utf-8").trim();
+				assert.ok(instructions.includes(body), `fragment ${dir}/${f} must compose verbatim`);
+			}
 		}
 	});
 
@@ -1255,9 +1259,11 @@ describe("prompt composition", () => {
 		// catches the sibling failure mode — an accidental dump pasted into a
 		// fragment. Thresholds: largest real fragment is 40-demos.md at ~3.2k
 		// chars; 8k is generous headroom. Composed total ≤ 60k chars.
-		for (const f of fs.readdirSync("src/session/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
-			const body = fs.readFileSync(`src/session/prompts/${f}`, "utf-8").trim();
-			assert.ok(body.length <= 8_000, `fragment ${f} is ${body.length} chars — over the 8k guard`);
+		for (const dir of ["teacher", "prober", "shared"]) {
+			for (const f of fs.readdirSync(`src/session/prompts/${dir}`).filter((f) => /^\d+-[\w.-]+\.md$/.test(f))) {
+				const body = fs.readFileSync(`src/session/prompts/${dir}/${f}`, "utf-8").trim();
+				assert.ok(body.length <= 8_000, `fragment ${dir}/${f} is ${body.length} chars — over the 8k guard`);
+			}
 		}
 		assert.ok(composeInstructions("teacher").length <= 60_000, "composed system prompt over the 60k guard");
 	});

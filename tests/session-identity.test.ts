@@ -1,3 +1,4 @@
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { Type } from "typebox";

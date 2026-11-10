@@ -7,7 +7,7 @@
  * the auth.json key and the env var, one name everywhere.
  */
 
-export interface AuthKeyInfo {
+interface AuthKeyInfo {
 	id: string;
 	/** Human label for the settings page. */
 	label: string;

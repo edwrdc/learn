@@ -8,6 +8,7 @@
  * delete/metadata single-owner boundary.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -1039,8 +1040,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" },
 		});
 		const deleted = chatStore.deleteChat(chat.id);
-		const [mutation] = await Promise.allSettled([changed, deleted]);
-		assert.ok(mutation.status === "fulfilled" || mutation.status === "rejected", "the mutation settles either way");
+		await Promise.allSettled([changed, deleted]);
 		assert.equal(fs.existsSync(path.join(PATHS.chats, `${chat.id}.json`)), false, "no metadata file survives");
 		assert.equal(fs.existsSync(durableDir(chat.id)), false, "no runtime directory survives");
 		assert.equal(await chatStore.getChat(chat.id), null, "the chat is gone");

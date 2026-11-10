@@ -85,8 +85,6 @@ describe("resolveSettings", () => {
 		const eff = resolveSettings({ version: 1, graph: { rendering: false } });
 		assert.equal(eff.graph.rendering, false, "stored off wins");
 		assert.equal(eff.graph.enabled, true, "the data channel is untouched");
-		assert.equal(eff.graph.rendering, false);
-		assert.equal(eff.graph.enabled, true);
 		// absent = factory ON (the home defaults to the canvas)
 		assert.equal(resolveSettings({ version: 1, graph: {} }).graph.rendering, true);
 	});
@@ -234,18 +232,6 @@ describe("resolveConversationSpec (the turn gate's chain)", () => {
 });
 
 describe("the graph channel gates (the wave's seam honoring)", () => {
-	it("WRITE channel (extraction): dies with the master switch — the ONLY graph setting since wave 7", () => {
-		assert.equal({ enabled: true }.enabled, true);
-		assert.equal({ enabled: false }.enabled, false);
-	});
-
-	it("the write gate rides resolveSettings' factory defaults (all on → open)", () => {
-		const eff = resolveSettings(null);
-		assert.equal(eff.graph.enabled, true);
-		const off = resolveSettings({ version: 1, graph: { enabled: false } });
-		assert.equal(off.graph.enabled, false);
-	});
-
 	it("PROBER GRAPH TOOLS gate (wave 7, owner ruling 2026-09-23): the agent toggle AND the graph master switch compose", () => {
 		const graph = { enabled: true };
 		assert.equal(graphToolsEnabled({ graph, agent: { graphTools: {} } }), true, "absent subsection = ON");

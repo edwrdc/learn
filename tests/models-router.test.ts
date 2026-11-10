@@ -22,7 +22,6 @@ import {
 	type Api,
 } from "@earendil-works/pi-ai";
 import {
-	APP_IDENTITY,
 	bindRunEngine,
 	piEngineForSpec,
 	routedModels,
@@ -189,7 +188,6 @@ describe("the per-session Models router", () => {
 			"normalized events are a different shape entirely",
 		);
 		assert.ok(normalized.includes("text_delta"), "the normalized stream still reaches the consumer");
-		assert.equal(APP_IDENTITY.attribution.name, "learnharness", "provider identity is the app's");
 		setCustomEndpointProvider(null);
 	});
 });

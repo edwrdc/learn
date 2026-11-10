@@ -33,9 +33,6 @@ test.after(() => {
 // ── chats: lazy stamp at the write choke point ──────────────────────────────
 
 test("chats: createChat stamps the current version on disk", async () => {
-	// v2 is the metadata-only shape: an old build (max v1) refuses it on read
-	// instead of mistaking a transcript-less record for its own format.
-	assert.equal(CURRENT_CHAT_VERSION, 2, "the transcript-less record is a new on-disk version");
 	const r = await chatStore.createChat("stamp test");
 	assert.equal(r.version, CURRENT_CHAT_VERSION, "the in-memory twin is stamped");
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${r.id}.json`), "utf8"));

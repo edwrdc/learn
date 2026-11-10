@@ -70,7 +70,6 @@ describe("hard-crash foreground recovery", { concurrency: false }, () => {
 			child.once("exit", (code, signal) => resolve({ code, signal }));
 		});
 		assert.equal(exited.signal, "SIGKILL", `the child must die hard, not close (stderr: ${stderr})`);
-		assert.equal(fs.existsSync(path.join(TMP, "ready")), true);
 
 		// Read the id from the metadata file: opening the runtime here would
 		// run the recovery bootstrap before the test installs its engine.

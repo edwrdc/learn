@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseSection, SETTINGS_SECTIONS } from "../src/settings/model/schema.ts";
+import { parseSection } from "../src/settings/model/schema.ts";
 
 const parseAgentSettingsBody = (body: unknown) => parseSection("agent", body);
 const parseModelsSettingsBody = (body: unknown) => parseSection("models", body);
@@ -118,13 +118,13 @@ describe("parseAppearanceSettingsBody", () => {
 			assert.equal(parseAppearanceSettingsBody(body).ok, false, JSON.stringify(body));
 		}
 		// boundary values that MUST pass: 12 and 24, 100 and 900, #fff
-		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }));
-		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
-		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }));
+		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }).ok);
+		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }).ok);
+		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }).ok);
+		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }).ok);
 		// null = "the mode's default" — explicit, valid
-		assert.ok(parseAppearanceSettingsBody({ background: null, fontFamily: null }));
+		assert.ok(parseAppearanceSettingsBody({ background: null, fontFamily: null }).ok);
 	});
 
 	it("rejects non-object bodies and non-object mdRendering", () => {
@@ -213,12 +213,6 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 		const r = parseCompactionSettingsBody({ thresholdTokens: "big" });
 		assert.ok(!r.ok);
 		assert.match(r.error ?? "", /must be a number/);
-	});
-});
-
-describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the writable record sections", () => {
-		assert.deepEqual(Object.keys(SETTINGS_SECTIONS).sort(), ["agent", "appearance", "compaction", "graph", "graphRender", "models"]);
 	});
 });
 

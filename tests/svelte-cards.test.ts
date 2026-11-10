@@ -62,7 +62,7 @@ describe("question dock", () => {
 		assert.ok(body.includes('data-testid="other-option"'));
 		assert.match(body, /Type your own answer/);
 		assert.ok(body.includes('role="radio"'));
-		assert.ok(body.includes("think"));
+		assert.ok(body.includes('data-testid="thinking-field"'));
 	});
 
 	it("multi-select ask: select-all hint, checkbox rows incl. Other", async () => {
@@ -256,7 +256,6 @@ describe("practice surface", () => {
 		assert.ok(body.includes('data-testid="practice-dock"'));
 		assert.match(body, /Show that the sum is even\./);
 		assert.match(body, /Problem/);
-		assert.match(body, /--dock-max-h/);
 		assert.match(body, /YOUR THINKING/);
 		assert.ok(body.includes('data-testid="practice-send"'));
 		assert.ok(body.includes("disabled"));
@@ -324,13 +323,11 @@ describe("practice surface", () => {
 		assert.equal(hasPracticeMeta({ conclude: { retest: false }, problem: {} }), true);
 	});
 
-	it("thinking card arrives expanded with the card band and rail", async () => {
+	it("thinking card arrives expanded, showing the learner's thinking", async () => {
 		const body = await html("/src/lib/chat/ThinkingBlock.svelte", { testId: "thinking-card", label: "YOUR THINKING", text: "stuck at step two", defaultOpen: true });
 		assert.match(body, /YOUR THINKING/);
 		assert.ok(body.includes("stuck at step two"));
 		assert.ok(body.includes('aria-expanded="true"'));
-		assert.ok(body.includes("bg-card"));
-		assert.ok(body.includes("border-l-[calc(3ch-14px)]"));
 	});
 
 	it("graph context collapses to counts and hides statements", async () => {

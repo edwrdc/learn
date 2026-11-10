@@ -47,12 +47,6 @@ describe("buttonKeepsNativeEnter (the pointer/keyboard Enter split)", () => {
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "dialog" })), true);
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "menu" })), true);
 	});
-
-	it("a selector engine without :focus-visible degrades to pointer-focus, never throws", () => {
-		const b = buttonIn({});
-		assert.doesNotThrow(() => buttonKeepsNativeEnter(b));
-		assert.equal(buttonKeepsNativeEnter(b), false);
-	});
 });
 
 describe("blurAfterPointerClick (focus hygiene)", () => {

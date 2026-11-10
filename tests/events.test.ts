@@ -38,17 +38,14 @@ describe("event bus", () => {
 
 	it("one listener throwing NEVER breaks the others (error isolation)", () => {
 		const got: string[] = [];
-		subscribe(() => {
+		const offThrowing = subscribe(() => {
 			throw new Error("listener bug");
 		});
 		const off = subscribe((e) => got.push(e.type));
 		emit("turn-settled", { chatId: "chat_b" });
+		offThrowing();
 		off();
 		assert.deepEqual(got, ["turn-settled"]);
-	});
-
-	it("emit with zero subscribers is a silent no-op", () => {
-		assert.doesNotThrow(() => emit("chats-changed", {}));
 	});
 
 	it("an unsubscribe DURING emit is safe (snapshot iteration)", () => {

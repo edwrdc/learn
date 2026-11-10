@@ -154,7 +154,6 @@ describe("pdf-reader loop (faux engine)", () => {
 	});
 
 	it("the unread-finish gate: a brief with zero consultation is bounced, not delivered", async () => {
-		let nudged = false;
 		const engine = fauxEngine([
 			// first finish attempt with NOTHING read — the loop must inject the
 			// nudge and keep going rather than deliver invention
@@ -167,7 +166,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			fauxAssistantMessage([fauxText("Found it on page 1 (p. 1): the integral of x dx.")]),
 		]);
 		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "integral of x?" }),
-			{ engine, run: roleRun(), onActivity: (line) => void (line && (nudged ||= line.startsWith("pdf_search"))) },
+			{ engine, run: roleRun() },
 		);
 		assert.match(result.brief, /Found it on page 1/);
 		assert.deepEqual(result.pagesRead, [], "search hits consult but do not read (the split)");

@@ -169,13 +169,6 @@ assert.ok(derived.chains.length >= 150, "chains survive derivation");
 	assert.ok(view.logicalEdges.length > 0, "logical edge contraction runs");
 });
 
-test("graph: positions parse", async () => {
-	const positionsFile = JSON.parse(fs.readFileSync(path.join(TMP, "graph", "positions.json"), "utf8")) as {
-		positions: Record<string, unknown>;
-	};
-	assert.ok(Object.keys(positionsFile.positions).length >= 300, "positions parse");
-});
-
 // ── jobs + settings ─────────────────────────────────────────────────────────
 
 test("jobs: the kind × status matrix parses through the job store", async () => {

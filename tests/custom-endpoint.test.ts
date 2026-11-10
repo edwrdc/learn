@@ -22,7 +22,7 @@ const {
 	removeCustomEndpoint,
 	saveCustomEndpoint,
 } = await import("../src/settings/custom-endpoint.ts");
-const { modelCatalog, validateModelsSettings } = await import("../src/settings/model-catalog.ts");
+const { checkModelsSettings, modelCatalog } = await import("../src/settings/model-catalog.ts");
 const { keyStatuses } = await import("../src/settings/keys.ts");
 const { setCustomEndpointProvider, piEngineForSpec } = await import("../src/platform/engines.ts");
 const { stores } = await import("../src/stores.ts");
@@ -238,7 +238,7 @@ describe("custom endpoint E2E", () => {
 			"builtin providers keep their priced catalog",
 		);
 		const customPin = { model: { provider: "custom-endpoint", id: MODEL_ID } };
-		assert.deepEqual(validateModelsSettings({ strong: customPin, cheap: customPin, vision: customPin }), { ok: true });
+		assert.equal(checkModelsSettings({ strong: customPin, cheap: customPin, vision: customPin }).ok, true);
 		const record = readSettings()!;
 		const roleSpec = resolveRoleSpec("researcher", {
 			...record,

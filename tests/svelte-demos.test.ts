@@ -86,13 +86,11 @@ describe("demo output card", () => {
 describe("visual output card", () => {
 	const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
 
-	it("renders the SVG image, figure caption below, hug sizing and invert/download", async () => {
+	it("renders the SVG image, figure caption below and invert/download", async () => {
 		const body = await html("/src/lib/artifacts/VisualOutputCard.svelte", { output: { svg } });
-		assert.ok(body.includes(encodeURIComponent(svg)) || body.includes(encodeURIComponent(svg).replace(/%20/g, "%20")));
+		assert.ok(body.includes(encodeURIComponent(svg)));
 		assert.ok(body.includes('data-testid="visual-card"'));
 		assert.ok(body.includes('data-testid="visual-svg"'));
-		assert.ok(body.includes("w-fit"));
-		assert.match(body, /class="block h-auto max-w-full"/);
 		const svgAt = body.indexOf('data-testid="visual-svg"');
 		const captionAt = body.indexOf(">Figure<");
 		assert.ok(svgAt !== -1 && captionAt !== -1 && svgAt < captionAt);

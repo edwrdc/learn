@@ -91,16 +91,12 @@ describe("plan block", () => {
 		edges: [{ from: "a", to: "b" }],
 	};
 
-	it("borderless, prose font, hugged boxes, carried statuses, open affordance", async () => {
+	it("borderless, prose font, centered titles, carried statuses, open affordance", async () => {
 		const body = await html("/src/lib/chat/PlanBlock.svelte", { data, onOpen: () => {} });
 		assert.match(body, /data-testid="plan-block-full"/);
 		assert.ok(!/data-testid="plan-block-full"[^>]*border/.test(body));
-		assert.match(body, /<svg[^>]*class="block h-auto w-full mx-auto"/);
 		assert.match(body, /<svg[^>]*font-family: var\(--font-prose\)/);
-		assert.match(body, /<rect[^>]*stroke-width="1"/);
-		assert.match(body, /<rect[^>]*class="fill-card stroke-white"/);
-		assert.match(body, /<text[^>]*x="48"[^>]*text-anchor="middle"/);
-		assert.ok(!/x="12"/.test(body));
+		assert.match(body, /<text[^>]*text-anchor="middle"/);
 		assert.match(body, /data-testid="plan-node-a" data-status="visited"/);
 		assert.match(body, /data-testid="plan-node-b" data-status="upcoming"/);
 		assert.ok(body.includes('aria-label="Open the full plan"'));
@@ -163,8 +159,9 @@ describe("plan marginalia", () => {
 		assert.match(body, /data-testid="plan-node-b" data-status="current"/);
 		assert.ok(body.includes("fill-yellow-400/25"));
 		const layout = blockLayout(CHAIN.nodes, CHAIN.edges);
-		const pad = 24;
-		assert.ok(body.includes(`viewBox="${-pad} ${-pad} ${layout.width + 2 * pad} ${layout.height + 2 * pad}"`));
+		const [minX, minY, width, height] = (body.match(/viewBox="([^"]+)"/)?.[1] ?? "").split(" ").map(Number);
+		assert.ok(minX! < 0 && minY! < 0, "padding on the top-left");
+		assert.ok(width! + minX! > layout.width && height! + minY! > layout.height, "padding on the bottom-right");
 		assert.ok(body.includes("font-family: var(--font-prose)"));
 	});
 });

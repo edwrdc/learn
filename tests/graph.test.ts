@@ -16,8 +16,8 @@
  * tests/extraction.test.ts with mock models.
  */
 
+import "./support-tmp-data.ts";
 import type { SessionFindings } from "../src/graph/model/findings.ts";
-import { processState } from "../src/platform/model/index.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { after, describe, it } from "node:test";
@@ -25,7 +25,10 @@ import type { AuditVerdicts, GraphChain, GraphNode } from "../src/graph/model/ty
 import type { QuestionAnswerData } from "../src/session/model/questions.ts";
 import type { LhMessage } from "../src/session/model/transcript.ts";
 import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/graph/snapshot.ts";
-import { coverageSlots } from "../src/graph/coverage.ts";
+import { coverageOf } from "../src/graph/coverage.ts";
+import { abortExtraction, createExtractionPipeline } from "../src/graph/extraction/pipeline.ts";
+import { createFauxCore } from "@earendil-works/pi-ai";
+import { configureBackgroundRuns } from "../src/jobs/durable-run.ts";
 import { graphStore } from "../src/graph/store.ts";
 import { chatStore } from "../src/session/store.ts";
 import { PATHS } from "../src/platform/config.ts";
@@ -278,15 +281,42 @@ function scopedGraph(chatIds: string[]) {
 }
 
 
-/** Swap the extraction run registry's entries for fakes; returns the restore. */
-function fakeExtractionRuns(entries: Array<[string, unknown]>): () => void {
-	const runs = processState<{ running: Map<string, unknown> }>("extractionRuns", () => ({ running: new Map() }));
-	const saved = [...runs.running];
-	runs.running.clear();
-	for (const [key, run] of entries) runs.running.set(key, run);
-	return () => {
-		runs.running.clear();
-		for (const [key, run] of saved) runs.running.set(key, run);
+/** Start a real extraction run on `chatId` whose extractor parks until
+ *  aborted (the background-run seam stands in for the model conversation);
+ *  resolves once the run is registered, to a release that aborts the run
+ *  and waits for it to settle. */
+async function holdExtraction(chatId: string): Promise<() => Promise<void>> {
+	let entered!: () => void;
+	const parked = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	configureBackgroundRuns({
+		run: ({ signal }) =>
+			new Promise((_resolve, reject) => {
+				entered();
+				const die = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+				if (signal?.aborted) die();
+				else signal?.addEventListener("abort", die, { once: true });
+			}),
+	});
+	const faux = createFauxCore({});
+	const engine = { model: faux.getModel(), streamFn: faux.streamSimple };
+	const run = createExtractionPipeline({
+		chatStore,
+		graphStore,
+		engineFor: () => engine,
+		providerKeyMissing: () => null,
+		getChunkTokens: () => 4096,
+	})
+		.runExtraction(chatId)
+		.catch((error: unknown) => error);
+	await Promise.race([
+		parked,
+		run.then((outcome) => assert.fail(`the run settled before its extractor parked: ${String(outcome)}`)),
+	]);
+	return async () => {
+		abortExtraction(chatId);
+		await run;
 	};
 }
 
@@ -954,11 +984,9 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 
 		// 409 — ANY registered extraction run: a mid-flight run could
 		// re-reference the dying node; the run is never aborted (its spend
-		// belongs to another session), the caller retries. A fake registry
-		// entry pins the gate without staging a real run.
-		const restore = fakeExtractionRuns([
-			["chat_busy", { chatId: "chat_busy", kind: "chat", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
-		]);
+		// belongs to another session), the caller retries.
+		const busy = await fixtureChat("node delete gate", teacher("gate_t1", "a run is extracting this"));
+		const release = await holdExtraction(busy.id);
 		try {
 			assert.deepEqual(deleteGraphNode("n_gate_probe"), {
 				ok: false,
@@ -967,7 +995,7 @@ describe("single-node deletion (deleteNodeTraces + deleteGraphNode, node interlu
 				error: "An extraction is running — try again when it finishes",
 			});
 		} finally {
-			restore();
+			await release();
 		}
 
 		// Success — the node dies, the version stamp moves.
@@ -1013,7 +1041,7 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 
 		// Fold the first two messages: the read derives the split + the
 		// newest fold timestamp from the ledger rows.
-		const slots = coverageSlots((await chatStore.getChat(chat.id))!.messages);
+		const { slots } = coverageOf((await chatStore.getChat(chat.id))!.messages, [], chat.id);
 		graphStore.appendCoverage({ chatId: chat.id, fp: slots[0]!.fp, tokens: slots[0]!.tokens, foldedAt: "2026-09-24T10:00:00.000Z" });
 		graphStore.appendCoverage({ chatId: chat.id, fp: slots[1]!.fp, tokens: slots[1]!.tokens, foldedAt: "2026-09-24T11:30:00.000Z" });
 		// Another session's row must not leak into this read.
@@ -1028,23 +1056,22 @@ describe("session coverage read (extraction-UX redesign, 2026-09-24)", () => {
 		assert.equal(cov.lastFoldedAt, "2026-09-24T11:30:00.000Z", "the NEWEST fold, and scoped to this session's rows");
 	});
 
-	it("running: true only for THIS session's chat-kind run (the registry pin)", async () => {
-		const chat = await fixtureChat("coverage running", [user("cov_r1", "running pin")].flat());
-		let restore = fakeExtractionRuns([
-			// a notes run for the same id is NOT this session's chat run
-			["src_notes", { chatId: "src_notes", kind: "notes", phase: "extracting", startedAt: 1, usage: {}, controller: new AbortController() }],
-			["other_chat", { chatId: "other_chat", kind: "chat", phase: "auditing", startedAt: 2, usage: {}, controller: new AbortController() }],
-		]);
+	it("running: true only while THIS session's own run is registered", async () => {
+		const chat = await fixtureChat("coverage running", teacher("cov_r1", "running pin"));
+		const other = await fixtureChat("coverage running other", teacher("cov_o1", "another session's run"));
+		let release = await holdExtraction(other.id);
 		try {
-			assert.equal((await sessionCoverage(chat.id))!.running, false, "no chat-kind run for this id");
-			restore();
-			restore = fakeExtractionRuns([
-				[chat.id, { chatId: chat.id, kind: "chat", phase: "extracting", startedAt: 3, usage: {}, controller: new AbortController() }],
-			]);
+			assert.equal((await sessionCoverage(chat.id))!.running, false, "another session's run is not this one");
+		} finally {
+			await release();
+		}
+		release = await holdExtraction(chat.id);
+		try {
 			assert.equal((await sessionCoverage(chat.id))!.running, true);
 		} finally {
-			restore();
+			await release();
 		}
+		assert.equal((await sessionCoverage(chat.id))!.running, false, "the settled run clears");
 	});
 
 	it("unknown chat → null (the caller owns the 404)", async () => {

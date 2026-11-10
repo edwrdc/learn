@@ -107,7 +107,7 @@ function isManagedName(name: string): boolean {
 
 /** The pure status projection. `env` is the live process env; `realEnv`
  *  the boot snapshot. */
-export function resolveKeyStatuses(
+function resolveKeyStatuses(
 	fileVars: Record<string, string>,
 	env: Record<string, string | undefined>,
 	realEnv: ReadonlySet<string>,

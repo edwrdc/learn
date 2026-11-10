@@ -73,7 +73,7 @@ export function birthSessionPartition(nodes: readonly GraphNode[]): BirthSession
  *  the unanimous common case anyway). Imp nodes are always re-derived,
  *  never birthed, so their cluster must be a function of the derivation
  *  — this is that function. */
-export function impClusterKey(
+function impClusterKey(
 	chain: Pick<GraphChain, "premises" | "provenance">,
 	birthOf: (nodeId: string) => string | null,
 ): string | null {

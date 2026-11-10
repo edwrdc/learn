@@ -43,10 +43,10 @@ export interface ModelPin {
 
 /** Each background role's resolved pin: role override → tier slot →
  *  nothing (BYOK). Null = the chain is empty and the role's work is refused. */
-export type RolePins = Record<BackgroundModelRole, ModelPin | null>;
+type RolePins = Record<BackgroundModelRole, ModelPin | null>;
 
 /** Each slot tier's resolved pin; null = the tier holds no model. */
-export type SlotPins = Record<ModelSlotName, ModelPin | null>;
+type SlotPins = Record<ModelSlotName, ModelPin | null>;
 
 /** GET /api/models response. */
 export interface ModelCatalogResponse {

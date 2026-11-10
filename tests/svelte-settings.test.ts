@@ -164,9 +164,6 @@ describe("keyboard section", () => {
 		for (const def of KEYBOARD_ACTIONS) assert.ok(body.includes(`data-testid="kbd-row-${def.id}"`), def.id);
 		assert.ok(body.includes("kbd-scope-global"));
 		assert.ok(body.includes("kbd-scope-chat"));
-		const openSettings = KEYBOARD_ACTIONS.find((action) => action.id === "open-settings");
-		assert.equal(openSettings?.scope, "global");
-		assert.equal(openSettings?.binding, "mod+,");
 		assert.ok(body.includes("Fixed — part of this screen"));
 		assert.ok(!body.includes('data-testid="kbd-rebind-question-next-row"'));
 		assert.ok(!body.includes("Model menu"));

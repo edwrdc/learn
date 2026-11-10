@@ -167,14 +167,6 @@ describe("list_propositions", () => {
 		assert.ok(!out.includes("statement of"));
 	});
 
-	it("no evaluation machinery at all — the covered list is the whole output", async () => {
-		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
-		const out = (await tools.list_propositions!.execute!("tc", { session: "c1" })).details as string;
-		assert.match(out, /- Water cycle/);
-		assert.ok(!out.includes("never evaluated"));
-	});
-
 	it("an unknown session id — honest redirect, not a throw", async () => {
 		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
 		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });

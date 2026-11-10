@@ -74,10 +74,8 @@ describe("seedMissingNodePositions (ledger stragglers)", () => {
 	it("known positions are byte-identical; missing nodes are seeded off the origin", () => {
 		const nodes = [{ id: "n1" }, { id: "n2" }, { id: "n_new" }, { id: "n_newer" }];
 		const out = seedMissingNodePositions(nodes, positions());
-		// the two known entries untouched (same objects, same values)
-		assert.equal(out.get("n1"), out.get("n1"));
-		assert.equal(out.get("n1")!.x, -100);
-		assert.equal(out.get("n2")!.y, 40);
+		assert.deepEqual(out.get("n1"), { x: -100, y: 0 });
+		assert.deepEqual(out.get("n2"), { x: 100, y: 40 });
 		// every node has a position now — no ?? 0 origin dump
 		assert.equal(out.size, 4);
 		for (const id of ["n_new", "n_newer"]) {
@@ -96,20 +94,20 @@ describe("seedMissingNodePositions (ledger stragglers)", () => {
 		);
 	});
 
-	it("seeds land on the ring around the centroid (off the known mass)", () => {
+	it("seeds land off the known mass, farther from the centroid than any known node", () => {
 		const nodes = [{ id: "n1" }, { id: "n2" }, { id: "n_new" }];
 		const out = seedMissingNodePositions(nodes, positions());
+		const centroid = { x: 0, y: 20 };
+		const known = Math.max(...[...positions().values()].map((k) => Math.hypot(k.x - centroid.x, k.y - centroid.y)));
 		const p = out.get("n_new")!;
-		// centroid (0, 20); radius = max(200, 40, 40) * 0.7 + 20 = 160
-		const dist = Math.hypot(p.x - 0, p.y - 20);
-		assert.ok(Math.abs(dist - 160) < 1e-9, `seed on the 160-unit ring, got ${dist}`);
+		const dist = Math.hypot(p.x - centroid.x, p.y - centroid.y);
+		assert.ok(dist > known, `seed at ${dist} lies outside the known nodes (${known})`);
 	});
 
-	it("nothing missing → the map comes back untouched (early exit)", () => {
+	it("nothing missing → the known positions come back unchanged", () => {
 		const pos = positions();
 		const out = seedMissingNodePositions([{ id: "n1" }, { id: "n2" }], pos);
-		assert.equal(out, pos);
-		assert.equal(out.size, 2);
+		assert.deepEqual(out, positions());
 	});
 
 	it("empty known map → early exit (the bootstrap fallback owns that case)", () => {

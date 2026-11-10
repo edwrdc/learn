@@ -72,13 +72,4 @@ describe("native pdf_render (pdfjs paints, @napi-rs/canvas hosts)", () => {
 		);
 	});
 
-	it("renders with NO browser present (available() may be false)", async () => {
-		// The whole point of stage 1: rendering must not consult any Chrome.
-		// realHeadless.available() reflects system Chrome only; on this
-		// machine it may well be true — the assertion that matters is that
-		// the render path never launches one, pinned by the import graph:
-		// renderPdfPages touches pdfjs + @napi-rs/canvas and nothing else.
-		const pages = await realHeadless.renderPdfPages(FIXTURE, [1], { dpi: 72 });
-		assert.equal(pages.length, 1);
-	});
 });

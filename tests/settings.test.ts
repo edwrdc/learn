@@ -12,7 +12,6 @@ import { describe, it } from "node:test";
 import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
-	BACKGROUND_MODEL_ROLES,
 } from "../src/settings/model/settings.ts";
 import { isHexColor, sanitizeUserSettings } from "../src/settings/model/schema.ts";
 
@@ -233,15 +232,5 @@ describe("sanitizeUserSettings", () => {
 		const out = sanitizeUserSettings({ agent: { tools: { quiz: false, demo: true, visual: "x" } } });
 		assert.ok(out);
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
-	});
-
-	it("BACKGROUND_MODEL_ROLES matches the five background roles (practice trio deleted 2026-10-04)", () => {
-		assert.deepEqual([...BACKGROUND_MODEL_ROLES], [
-			"researcher",
-			"demoBuilder",
-			"visualMaker",
-			"extractor",
-			"auditor",
-		]);
 	});
 });

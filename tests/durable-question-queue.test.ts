@@ -10,6 +10,7 @@
  * a reopen must not lose or duplicate it.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { routeEvent } from "./support-route-event.ts";

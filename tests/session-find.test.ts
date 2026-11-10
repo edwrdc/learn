@@ -140,11 +140,11 @@ describe("clearSessionFindHighlights — browser-API shaped, linkedom-safe", () 
 	};
 	it("clears registered highlights without touching the DOM", () => {
 		mount(`<div data-session-find-root=""><p>needle</p></div>`);
-		const [range] = sessionFindRanges(document.body as unknown as HTMLElement, "needle");
+		const before = document.body.innerHTML;
 		// linkedom ships no Highlight constructor — the publisher guards on it.
 		(CSS as { highlights?: Map<string, unknown> }).highlights = new Map([["lh-session-find", {}]]);
 		clearSessionFindHighlights();
 		assert.equal((CSS as { highlights?: Map<string, unknown> }).highlights!.size, 0);
-		assert.ok(range!, "a range existed and the DOM beneath it is untouched");
+		assert.equal(document.body.innerHTML, before);
 	});
 });

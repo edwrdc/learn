@@ -9,6 +9,7 @@
  * This file pins that no hook or key rides the request options.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";

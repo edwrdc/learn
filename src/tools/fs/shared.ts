@@ -57,7 +57,7 @@ export function capOutput(lines: string[]): { content: string; truncated: boolea
 
 /** Expand brace alternatives: '*.{ts,tsx}' → ['*.ts', '*.tsx']. Nested
  *  braces are not supported (models rarely emit them). */
-export function expandBraces(pattern: string): string[] {
+function expandBraces(pattern: string): string[] {
 	const open = pattern.indexOf("{");
 	if (open === -1) return [pattern];
 	const close = pattern.indexOf("}", open);
@@ -73,7 +73,7 @@ export function expandBraces(pattern: string): string[] {
 
 /** Glob → anchored RegExp. '*' stays within a segment, '**' crosses '/',
  *  '?' is one char, everything else literal. */
-export function globToRegex(glob: string): RegExp {
+function globToRegex(glob: string): RegExp {
 	let re = "";
 	for (let i = 0; i < glob.length; i++) {
 		const c = glob[i]!;

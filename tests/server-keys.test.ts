@@ -45,13 +45,15 @@ fs.writeFileSync(
 	JSON.stringify({
 		OPENROUTER_API_KEY: "sk-or-v1-filefilefile",
 		FUTURE_PLANS_TOKEN: "opaque-plans-token",
+		BRAVE_API_KEY: "BSA-same-value-throwaway-01234",
 	}),
 );
 // Real env (set BEFORE the module's first import → boot snapshots it):
 process.env.OPENROUTER_API_KEY = "sk-or-v1-envvalue99";
+process.env.BRAVE_API_KEY = "BSA-same-value-throwaway-01234";
 
 // Import AFTER env setup — module init runs the boot fill-gap + snapshot.
-const { deleteKey, initAuthEnv, keyStatuses, keyValue, resolveKeyStatuses, saveKey, isWritableAuthKey } = await import(
+const { deleteKey, initAuthEnv, keyStatuses, keyValue, saveKey, isWritableAuthKey } = await import(
 	"../src/settings/keys.ts"
 );
 initAuthEnv(); // boot's first step
@@ -63,6 +65,7 @@ after(() => {
 	delete process.env.OPENROUTER_API_KEY;
 	delete process.env.DEEPGRAM_API_KEY;
 	delete process.env.OPENAI_API_KEY;
+	delete process.env.BRAVE_API_KEY;
 	fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -73,6 +76,12 @@ describe("boot fill-gap + precedence", () => {
 		assert.ok(row.shadowedByEnv, "file value differs from the env value");
 		assert.equal(row.masked, `…${ENV_OWNED.slice(-4)} (${ENV_OWNED.length} chars)`);
 		assert.equal(authStore.authVars().OPENROUTER_API_KEY, "sk-or-v1-filefilefile", "file copy untouched");
+	});
+
+	it("the same value in env and file is NOT shadowed (redundant, not misleading)", () => {
+		const row = keyStatuses().find((s) => s.id === "BRAVE_API_KEY")!;
+		assert.equal(row.source, "env");
+		assert.ok(!row.shadowedByEnv);
 	});
 
 	it("unknown file var: fill-gapped into env, surfaced as a generic row", () => {
@@ -193,18 +202,5 @@ describe("saveKey / deleteKey (immediate effect, no restart)", () => {
 			deleteKey("OPENROUTER_API_KEY");
 			assert.ok(!("OPENROUTER_API_KEY" in authStore.authVars()));
 		});
-	});
-});
-
-describe("resolveKeyStatuses (pure projection)", () => {
-	it("same value in env and file is NOT shadowed (redundant, not misleading)", () => {
-		const row = resolveKeyStatuses(
-			{ BRAVE_API_KEY: "BSA-same-value-throwaway-01234" },
-			{ BRAVE_API_KEY: "BSA-same-value-throwaway-01234" },
-			new Set(["BRAVE_API_KEY"]),
-		).find((s) => s.id === "BRAVE_API_KEY")!;
-		assert.ok(row, "the curated id is always in the projection");
-		assert.equal(row.source, "env");
-		assert.ok(!row.shadowedByEnv, "same value both places: redundant, not shadowed");
 	});
 });

@@ -3,7 +3,7 @@
  *  hover delay, hides on leave/blur/Escape. */
 import { bindingForAction, formatBinding, type KeyAction } from "@/src/settings/model";
 
-export const TOOLTIP_DELAY_MS = 500;
+const TOOLTIP_DELAY_MS = 500;
 
 export function hintText(label: string, action?: KeyAction, binding?: string): string {
 	const live = action ? formatBinding(bindingForAction(action)) : binding ? formatBinding(binding) : "";

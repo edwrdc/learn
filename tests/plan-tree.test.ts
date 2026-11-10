@@ -8,6 +8,7 @@
  *     plan_init happy path, the re-callable rewrite, error results.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -184,7 +185,7 @@ describe("plan_init — the author-once mermaid tool (execute against the real s
 		assert.deepEqual(Object.keys(tools), ["plan_init"]);
 	});
 
-	it("unknown chat returns ok:false with the empty tree", async () => {
+	it("unknown chat returns ok:false with no tree", async () => {
 		const tools = planTools({ chatId: "chat_nonexistent", chatStore });
 		const res = await exec(tools, "plan_init", { mermaid: "graph TD\n  a[A]\n" });
 		assert.equal(res.ok, false);

@@ -70,7 +70,7 @@ function sseResponse(...events: unknown[]): Response {
 function dietFetch(opts: {
 	stream: () => Response;
 	userText?: string;
-	post?: () => Response;
+	post?: () => Response | Promise<Response>;
 	onPost?: (body: string) => void;
 }): typeof globalThis.fetch {
 	return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1007,11 +1007,7 @@ describe("resumeStream (the reattach path)", () => {
 	it("OPTIMISTIC SUBMIT (owner, optimistic round 2026-10-02): send flips status synchronously — the placeholder is live before the server answers anything", async () => {
 		let release!: (r: Response) => void;
 		const gate = new Promise<Response>((res) => (release = res));
-		globalThis.fetch = (async (input: RequestInfo | URL) => {
-			const url = String(input);
-			if (url === "/api/chats/chat_x") return gate; // the POST hangs
-			throw new Error(`unexpected fetch: ${url}`);
-		}) as typeof globalThis.fetch;
+		globalThis.fetch = dietFetch({ userText: "q", post: () => gate, stream: () => sseResponse("[DONE]") });
 		const m = model();
 		// send() runs synchronously to its first await — status is already
 		// "submitted" (and the optimistic user bubble is appended) before
@@ -1019,8 +1015,10 @@ describe("resumeStream (the reattach path)", () => {
 		const p = m.send({ type: "text", text: "q" });
 		assert.equal(m.getState().status, "submitted", "the placeholder is live pre-first-chunk");
 		assert.equal(m.getState().messages.at(-1)!.role, "user", "the optimistic bubble is up");
-		release(Response.json({ messages: [] }));
+		release(Response.json({ ok: true }));
 		await p;
+		assert.equal(m.getState().status, "ready");
+		assert.equal(m.getState().error, null);
 		// the reattach path is the same synchronous flip (resumeStream sets
 		// submitted at entry, before its fetches).
 	});

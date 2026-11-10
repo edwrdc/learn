@@ -1,29 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { escAbortTarget, initialPromptOwed, parseRefusal } from "../src/lib/chat/chat-logic.ts";
+import { parseRefusal } from "../src/lib/chat/chat-logic.ts";
 import { codeKeydown, withCode } from "../src/lib/chat/code-input.ts";
-import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
-import { confidenceRailStyle, CONFIDENCE_COLORS } from "../src/lib/chat/confidence.ts";
+import { INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
+import { confidenceRailStyle } from "../src/lib/chat/confidence.ts";
 import { formatTokens, formatUsd, prettyModel, timeAgo } from "../src/lib/format.ts";
-import { hintText } from "../src/lib/hint.ts";
 import { escapeHtml, lineSpans } from "../src/lib/markdown/copy.ts";
 
 describe("chat logic", () => {
-	it("the ?prompt first send is owed unless a real conversation message exists", () => {
-		assert.equal(initialPromptOwed([], "hi"), true);
-		assert.equal(initialPromptOwed([{ role: "custom" }], "hi"), true);
-		assert.equal(initialPromptOwed([{ role: "user" }], "hi"), false);
-		assert.equal(initialPromptOwed([], undefined), false);
-	});
-
-	it("Esc aborts a question, then a problem, then the turn", () => {
-		const base = { abortAsk: false, pending: false, problem: false, busy: false };
-		assert.equal(escAbortTarget({ ...base, pending: true, busy: true }), "question");
-		assert.equal(escAbortTarget({ ...base, problem: true, busy: true }), "problem");
-		assert.equal(escAbortTarget({ ...base, busy: true }), "turn");
-		assert.equal(escAbortTarget({ ...base, abortAsk: true, pending: true }), null);
-	});
-
 	it("BYOK refusal envelopes parse from the transport's verbatim text", () => {
 		assert.equal(parseRefusal(JSON.stringify({ code: "models_not_configured", missing: ["cheap"] })), "models_not_configured");
 		assert.equal(parseRefusal("boom"), null);
@@ -127,11 +111,6 @@ describe("learner code input", () => {
 });
 
 describe("demo bridge", () => {
-	it("injects before </body> and appends otherwise", () => {
-		assert.ok(buildDemoSrcDoc("<html><body>x</body></html>").endsWith(`${DEMO_BRIDGE_SCRIPT}</body></html>`));
-		assert.ok(buildDemoSrcDoc("<p>x</p>").endsWith(DEMO_BRIDGE_SCRIPT));
-	});
-
 	it("clamps heights and records errors idempotently", () => {
 		const state = reduceDemoBridgeState(INITIAL_DEMO_BRIDGE_STATE, { type: "demo-resize", height: 10 });
 		assert.equal(state.height, 80);
@@ -160,15 +139,8 @@ describe("presentation helpers", () => {
 	});
 
 	it("the confidence rail paints the six-stop ramp", () => {
-		assert.equal(CONFIDENCE_COLORS.length, 6);
 		assert.match(confidenceRailStyle(0), /#ef4444 0%, #ef4444 0%/);
 		assert.match(confidenceRailStyle(50), /#eab308 0%, #eab308 50%/);
-	});
-
-	it("hint text appends the live binding", () => {
-		assert.match(hintText("Open settings", "open-settings"), /^Open settings \(.*,\)$/);
-		assert.equal(hintText("Close", undefined, "escape"), "Close (Esc)");
-		assert.equal(hintText("Plain"), "Plain");
 	});
 
 	it("code line spans escape HTML and keep one span per line", () => {

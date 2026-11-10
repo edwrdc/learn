@@ -10,6 +10,7 @@
  *
  * The grading contract (question-core) is shared and untouched by both.
  */
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -31,10 +32,8 @@ import { toRegistrations } from "../src/tools/index.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { probeQuizInputSchema, quizInputObject, quizInputProblems } from "../src/session/model/questions.ts";
 import { chatStore } from "../src/session/store.ts";
+import { composeInstructions } from "../src/session/prompts.ts";
 import { PATHS } from "../src/platform/config.ts";
-
-const dataDir = path.join(PATHS.root, "data");
-fs.mkdirSync(dataDir, { recursive: true });
 
 const createdChats: string[] = [];
 after(() => {
@@ -488,11 +487,10 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 		}
 	});
 	it("the craft now lives in the shared prompt chunk (both agents compose it)", async () => {
-		const shared = await fs.promises.readFile(
-			path.join(PATHS.root, "src/session/prompts/shared/20-question-tools.md"),
-			"utf-8",
-		);
-		assert.ok(shared.includes("asymmetry"), "the option craft moved here, not deleted");
-		assert.ok(shared.includes("TRANSCRIBED SPEECH"), "the dictation-leniency note lives here");
+		for (const agent of ["teacher", "prober"] as const) {
+			const instructions = composeInstructions(agent);
+			assert.ok(instructions.includes("asymmetry"), `${agent}: the option craft moved here, not deleted`);
+			assert.ok(instructions.includes("TRANSCRIBED SPEECH"), `${agent}: the dictation-leniency note lives here`);
+		}
 	});
 });

@@ -31,7 +31,7 @@ type KeyEvent = KeyAction | "abort-turn";
 
 /** The one spelling of a key event's name, shared by the dispatcher and
  *  every listener. */
-export function kbdEventForAction(action: KeyEvent): string {
+function kbdEventForAction(action: KeyEvent): string {
 	return `lh:kbd-${action}`;
 }
 

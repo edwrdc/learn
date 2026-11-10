@@ -170,7 +170,7 @@ export const NOTES_EXTRACTOR_INSTRUCTIONS = `${NOTES_PREAMBLE}\n\n${EXTRACTION_C
 // "" when the source owns nothing yet (the first stretch runs bare). Ids
 // ride VERBATIM — that is what the extractor references in its chains
 // (the merger's mixed-namespace resolution passes them through).
-export function sourceDigest(graph: DerivedGraph, sourceId: string): string {
+function sourceDigest(graph: DerivedGraph, sourceId: string): string {
 	const nameOf = new Map(graph.nodes.map((n) => [n.id, n.name]));
 	const ours = graph.nodes.filter((n) => n.provenance.some((pt) => pt.chatId === sourceId));
 	const ourChains = graph.chains.filter((c) => c.provenance.some((pt) => pt.chatId === sourceId));
@@ -301,7 +301,7 @@ function submitRunKey(stage: "extract" | "audit", sourceId: string, prompt: stri
 
 /** One in-flight pipeline run. Module-level: one process, one registry.
  *  Exported for the status payload's consumer typing (the dock). */
-export interface RunningExtraction {
+interface RunningExtraction {
 	/** The registry key: the source id, plus "#i" for a chunk job. */
 	id: string;
 	/** The SOURCE id (chat id / notes src id) — the payload's identity and
@@ -481,7 +481,7 @@ export interface ExtractionPipeline {
 	): Promise<PromiseSettledResult<EmissionStats>[]>;
 }
 
-export interface NotesFile {
+interface NotesFile {
 	filePath: string;
 	text: () => Promise<string> | string;
 }

@@ -13,26 +13,18 @@ import { describe, it } from "node:test";
 import { dockStateKey } from "../src/lib/chat/dock-state-key.ts";
 
 describe("dockStateKey (the height-morph trigger)", () => {
-	it("a docked variant carries its fold state — practice included", () => {
-		assert.equal(dockStateKey("practice:call_p1", true, true), "practice:call_p1:true");
-		assert.equal(dockStateKey("practice:call_p1", true, false), "practice:call_p1:false");
-		assert.equal(dockStateKey("question:call_q1", true, true), "question:call_q1:true");
-		assert.equal(dockStateKey("question:call_q1", true, false), "question:call_q1:false");
+	it("a docked variant's fold changes the key — practice and question alike", () => {
+		for (const mode of ["practice:call_p1", "question:call_q1"]) {
+			assert.notEqual(dockStateKey(mode, true, true), dockStateKey(mode, true, false), mode);
+		}
 	});
 
-	it("the fold toggling the key is what animates: same variant + same fold = same key (typing growth never morphs)", () => {
-		assert.equal(
-			dockStateKey("practice:call_p1", true, true),
-			dockStateKey("practice:call_p1", true, true),
-		);
-		assert.notEqual(
-			dockStateKey("practice:call_p1", true, true),
-			dockStateKey("practice:call_p1", true, false),
-		);
+	it("switching variants changes the key", () => {
+		assert.notEqual(dockStateKey("practice:call_p1", true, true), dockStateKey("question:call_q1", true, true));
+		assert.notEqual(dockStateKey("chat", false, true), dockStateKey("practice:call_p1", true, true));
 	});
 
-	it("an undocked band (the composer) has no fold term", () => {
-		assert.equal(dockStateKey("chat", false, true), "chat:-");
-		assert.equal(dockStateKey("chat", false, false), "chat:-");
+	it("an undocked band (the composer) ignores the fold", () => {
+		assert.equal(dockStateKey("chat", false, true), dockStateKey("chat", false, false));
 	});
 });

@@ -7,7 +7,7 @@ import type { AuthKeyStatus } from "../src/settings/model/auth-keys.ts";
 import type { ModelCatalogResponse } from "../src/settings/model/models.ts";
 import { svgImageSource } from "../src/lib/ui/svg.ts";
 import { hasProviderKey, strongKeyless } from "../src/lib/state/keys.ts";
-import { hintText, TOOLTIP_DELAY_MS } from "../src/lib/hint.ts";
+import { hintText } from "../src/lib/hint.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -101,7 +101,7 @@ describe("generated SVG image boundary", () => {
 		const document = parseHTML(body).document;
 		const image = assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, FIGURE);
 		assert.equal(image.getAttribute("width"), "320");
-		assert.equal(image.className, "block h-auto max-w-full");
+		assert.ok(image.classList.contains("max-w-full") && !image.classList.contains("w-full"));
 		assert.ok(document.querySelector('[data-testid="visual-card"]')!.classList.contains("w-fit"));
 	});
 
@@ -112,7 +112,7 @@ describe("generated SVG image boundary", () => {
 			const document = parseHTML(body).document;
 			const image = assertImageBoundary(document.querySelector('[data-testid="visual-svg"]')!, source);
 			assert.equal(image.getAttribute("width"), null);
-			assert.equal(image.className, "block h-auto w-full");
+			assert.ok(image.classList.contains("w-full"));
 			assert.ok(document.querySelector('[data-testid="visual-card"]')!.classList.contains("w-full"));
 		});
 	}
@@ -174,8 +174,7 @@ describe("setup stage 1 (static)", () => {
 });
 
 describe("tooltip composition", () => {
-	it("hintText appends the live binding and uses 500ms", async () => {
-		assert.equal(TOOLTIP_DELAY_MS, 500);
+	it("hintText appends the live binding", async () => {
 		const { IS_MAC } = await import("../src/settings/model/keyboard.ts");
 		assert.equal(hintText("Dictate", "toggle-dictation"), IS_MAC ? "Dictate (⌘D)" : "Dictate (Ctrl+D)");
 		assert.equal(hintText("Close", undefined, "escape"), "Close (Esc)");

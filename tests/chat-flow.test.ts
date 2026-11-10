@@ -13,6 +13,7 @@
  * question call's real tool result (fork 1, owner 2026-09-26).
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -535,8 +536,7 @@ describe("teacher chat flow (scripted model)", () => {
 		assert.equal(wakes, 0, "no wake — the live run owns the delivery");
 
 		release(); // step 1 completes → tool result → TURN BOUNDARY → inject → step 2
-		// Step 2 has pended briefly — give the wire seam a beat, then release.
-		await new Promise((r) => setTimeout(r, 150));
+		await waitFor(() => seen.length === 1, 8000, "step 2 is in flight");
 		release2();
 		await drain(await res);
 		await delivery; // resolves when the marker's entry commits

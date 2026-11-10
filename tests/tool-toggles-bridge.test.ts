@@ -9,9 +9,9 @@
  * Parser tests are PURE (no fs — parallel-test discipline); the registry
  * tests use an in-memory chat fixture like question-tools.test.ts.
  */
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bareQuestionTools } from "./support-tools.ts";
 import { createProberTools, type ProberToolContext } from "../src/session/tools/registry.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { parseSection } from "../src/settings/model/schema.ts";
@@ -23,14 +23,8 @@ import type { AgentSettings } from "../src/settings/model/settings.ts";
 describe("the tool-toggle bridge (the P2 seam)", () => {
 	const toolNames = (tools: Record<string, unknown>) => Object.keys(tools).sort();
 
-	it("a job-tool delta is a no-op on the bare question set", () => {
-		// No ctx → bare fixture: quiz/ask only. A job-tool delta names tools
-		// that don't exist there — the filter must not crash on it.
-		assert.deepEqual(toolNames(bareQuestionTools()), ["ask_user_question", "quiz"]);
-	});
-
-	it("flows into the prober's registry; probe_done survives everything", () => {
-		const chatId = chatStore.createChat("Toggle bridge test").id;
+	it("flows into the prober's registry; probe_done survives everything", async () => {
+		const chatId = (await chatStore.createChat("Toggle bridge test")).id;
 		const ctx: ProberToolContext = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
 		const names = toolNames(createProberTools(ctx, { research: false }));
 		assert.ok(!names.includes("research"), "the delta dropped the tool");

@@ -28,7 +28,7 @@ import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type ModelsSettings } from "./mode
 
 /** Project a resolved spec to the client pin; null when nothing resolves
  *  (BYOK: no factory default, the UI shows "not configured"). */
-export function pinOf(spec: EffectiveModelSpec | null | undefined): ModelPin | null {
+function pinOf(spec: EffectiveModelSpec | null | undefined): ModelPin | null {
 	if (!spec) return null;
 	return {
 		model: { provider: spec.provider, id: spec.id },
@@ -36,7 +36,7 @@ export function pinOf(spec: EffectiveModelSpec | null | undefined): ModelPin | n
 	};
 }
 
-export function pinsOf<K extends string>(
+function pinsOf<K extends string>(
 	names: readonly K[],
 	specs: Record<K, EffectiveModelSpec | null | undefined>,
 ): Record<K, ModelPin | null> {
@@ -46,7 +46,7 @@ export function pinsOf<K extends string>(
 /** One row per plain-key model provider (plus the custom endpoint), with
  *  keyPresent read fresh per call — saving a key immediately adds the
  *  provider to the picker. */
-export function catalogProviders(): CatalogProvider[] {
+function catalogProviders(): CatalogProvider[] {
 	const custom = customEndpointState();
 	const rows: CatalogProvider[] = AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
@@ -63,7 +63,7 @@ export function catalogProviders(): CatalogProvider[] {
 	return rows.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export function toModelDto(model: Model<Api>): ModelCatalogEntry {
+function toModelDto(model: Model<Api>): ModelCatalogEntry {
 	return {
 		id: model.id,
 		name: model.name,
@@ -123,11 +123,11 @@ export function modelCatalog(): ModelCatalogResponse {
 	};
 }
 
-export type SettingsValidation =
+type SettingsValidation =
 	| { ok: true }
 	| { ok: false; error: string };
 
-export function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
+function validateModelsSettings(settings: ModelsSettings): SettingsValidation {
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
 		if (!slot) continue;
@@ -139,7 +139,7 @@ export function validateModelsSettings(settings: ModelsSettings): SettingsValida
 
 /** The one catalog gate a settings write shares: a named provider must be
  *  configured, and its model must exist in that provider's catalog. */
-export function validateModelChoice(slot: ModelChoice): SettingsValidation {
+function validateModelChoice(slot: ModelChoice): SettingsValidation {
 	const catalog = catalogModels();
 	const providers = catalog.getProviders().map((p) => p.id);
 	if (slot.model) {
@@ -167,7 +167,7 @@ function clampLevelFor(provider: string, id: string, level: ThinkingLevel): Thin
 }
 
 /** Every slot's pinned thinkingLevel clamps against the slot's own model. */
-export function clampModelsLevels(settings: ModelsSettings): ModelsSettings {
+function clampModelsLevels(settings: ModelsSettings): ModelsSettings {
 	const out: ModelsSettings = {};
 	for (const name of MODEL_SLOTS) {
 		const slot = settings[name];
@@ -186,7 +186,7 @@ export function clampModelsLevels(settings: ModelsSettings): ModelsSettings {
 /** A chat's pinned thinkingLevel clamps against its own model, else the
  *  strong slot's. No model anywhere → unchecked (the runtime clamps at
  *  engine build). */
-export function clampChatLevel(settings: ModelChoice, strong: EffectiveModelSpec | null): ModelChoice {
+function clampChatLevel(settings: ModelChoice, strong: EffectiveModelSpec | null): ModelChoice {
 	if (settings.thinkingLevel === undefined) return settings;
 	const provider = settings.model?.provider ?? strong?.provider;
 	const id = settings.model?.id ?? strong?.id;

@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { appearanceVars, derivedPalette, resolveAppearance, staleVarNames } from "../src/lib/settings/appearance.ts";
 import {
-	PROMPT_IN_USE_HINT,
 	composePromptSwitch,
 	composeSearchEngine,
 	composeSlotModel,
@@ -369,10 +368,6 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 		// the Shared header carries the one hint that earns its place
 		assert.equal(shared.hint, "Used by both agents");
 		assert.equal(teacher.hint, undefined);
-	});
-
-	it("the indicator copy is pinned — it states WHICH VERSION IS IN USE (refined 2026-09-26)", () => {
-		assert.equal(PROMPT_IN_USE_HINT, "Your version is in use");
 	});
 });
 

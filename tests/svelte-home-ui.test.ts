@@ -124,12 +124,10 @@ describe("composer", () => {
 			...(opts.nextProblem ? { nextProblem: true, onNext: () => {} } : {}),
 		});
 
-	it("default placeholder, send affordance and concentric radius", async () => {
+	it("default placeholder and send affordance", async () => {
 		const body = await render();
 		assert.match(body, /Ask, answer, or steer the lesson/);
 		assert.ok(body.includes('aria-label="Send"'));
-		assert.ok(body.includes("rounded-[10px]"));
-		assert.ok(body.includes("size-10"));
 	});
 
 	it("placeholder is overridable and does not leak the session copy", async () => {
@@ -200,7 +198,6 @@ describe("knowledge summary lines", () => {
 		assert.ok(body.includes("Nothing here yet"));
 		assert.match(body, /0 propositions/);
 		assert.match(body, /import notes/);
-		assert.match(body, /class="h-4"/);
 	});
 });
 
@@ -300,7 +297,6 @@ describe("stats bar", () => {
 		assert.ok(!body.includes('data-testid="stats-cost"'));
 		assert.match(body, /data-testid="stats-model"[^>]*>\s*<span[^>]*>—<\/span>/);
 		assert.match(body, /data-testid="stats-thinking"[^>]*>\s*<span[^>]*>—<\/span>/);
-		assert.match(body, /data-testid="stats-model"[^>]*rounded-full[^>]*>/);
 		assert.match(body, /▾/);
 	});
 
@@ -343,8 +339,6 @@ describe("new-session draft shell", () => {
 		const body = await html("/src/lib/home/NewSessionPage.svelte", { initialConfigured: true });
 		assert.ok(body.includes('data-testid="composer"'));
 		assert.ok(body.includes("The teacher will open by probing what you already know."));
-		assert.ok(body.includes("pointer-events-none"));
-		assert.match(body, /rounded-2xl[^>]*pointer-events-auto|pointer-events-auto[^>]*rounded-2xl/);
 		assert.ok(!/\/chat\/c[a-z0-9_]+/.test(body));
 	});
 

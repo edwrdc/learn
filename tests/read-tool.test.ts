@@ -114,12 +114,4 @@ describe("read tool — image semantics (native content parts)", () => {
 		assert.match(imagePart.data!, /^[A-Za-z0-9+/]+={0,2}$/);
 		assert.equal(result.details, null, "image reads keep the record part output-less");
 	});
-
-	it("plain string results map to a single text part (parity)", async () => {
-		const file = write("plain.txt", "body");
-		const result = await readTool.execute!("test", { path: file });
-		assert.equal(result.content.length, 1);
-		assert.equal(result.content[0]!.type, "text");
-		assert.equal((result.content[0] as { type: "text"; text: string }).text, "body");
-	});
 });

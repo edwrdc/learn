@@ -5,6 +5,8 @@
  * Verifies the cross-chat gathering, running-only filtering, title joins,
  * stable oldest-first ordering, and busy-chat reporting.
  */
+import "./support-tmp-data.ts";
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as fs from "node:fs";

@@ -61,7 +61,7 @@ export const promptOverrides = {
  *  the shared/ fragments (the agent's job and method lead; the shared
  *  tool/file/format mechanics are an appendix).
  *  The exact order composeInstructions composes them in. */
-export function listSourceSegments(agent: PromptAgent): Array<{ path: string; shared: boolean; file: string }> {
+function listSourceSegments(agent: PromptAgent): Array<{ path: string; shared: boolean; file: string }> {
 	// PRACTICE: its own directory plus a CURATED shared appendix
 	// (PRACTICE_SHARED_FRAGMENTS) — the teaching base and the question/
 	// confidence/file mechanics stay out (the doctrine contradicts them;
