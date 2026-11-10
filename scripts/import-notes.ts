@@ -6,22 +6,24 @@
  *
  *   npx tsx --env-file=.env.local scripts/import-notes.ts <dir>
  *
- * Default dir: real-data-extraction/learn-sessions (the prototype
- * learning-session exports — deliberately NOT imported as chats: they run
- * through the notes path, raw). Runs in this process: the dev server's
+ * <dir> is required. Runs in this process: the dev server's
  * status chips do NOT see them (registry is per-process) — the dev server
  * sees runs triggered through /api/graph/import.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { getGraph } from "../src/graph/snapshot.ts";
+import { getGraph } from "../src/graph/index.ts";
 import { boot } from "../src/boot.ts";
 import { stores } from "../src/stores.ts";
 
 
 async function main() {
-	const dir = process.argv[2] ?? "real-data-extraction/learn-sessions";
+	const dir = process.argv[2];
+	if (!dir) {
+		console.error("usage: npx tsx --env-file=.env.local scripts/import-notes.ts <dir>");
+		process.exit(1);
+	}
 	const files = fs
 		.readdirSync(dir)
 		.filter((f) => f.endsWith(".md") || f.endsWith(".markdown") || f.endsWith(".txt"))

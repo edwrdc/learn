@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
-import { getStatus, isolatedPayload, request, smokeOptions, startPayloadServer } from "./smoke-harness.mjs";
+import { getStatus, isolatedPayload, postJson, request, smokeOptions, startPayloadServer } from "./smoke-harness.mjs";
 
 const { source: SOURCE, electron: ELECTRON_MODE, runtime: RUNTIME } = smokeOptions("smoke-carrier");
 
@@ -64,11 +64,7 @@ async function main() {
 		assert.match(homeHtml, /_app\/immutable\/assets\//, "the served document references the packaged client bundle");
 		console.log("[smoke-carrier] SSR: / renders a complete document with packaged assets");
 
-		const created = await request(base + "/api/chats", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ title: "carrier SSR probe" }),
-		});
+		const created = await postJson(base + "/api/chats", { title: "carrier SSR probe" });
 		assert.equal(created.status, 200);
 		const { id: chatId } = await created.json();
 		assert.equal(typeof chatId, "string");
@@ -147,12 +143,10 @@ async function main() {
 
 		const eventsUrl = base + "/api/events";
 		const eventsPromise = readStream(eventsUrl, (body) => body.includes("event: chats-changed"));
+		// The server sends nothing until the first event, so there is no
+		// "subscribed" signal to wait on: give the subscription a moment.
 		await new Promise((resolve) => setTimeout(resolve, 250));
-		const ping = await request(base + "/api/chats", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ title: "carrier events probe" }),
-		});
+		const ping = await postJson(base + "/api/chats", { title: "carrier events probe" });
 		assert.equal(ping.status, 200);
 		const events = await eventsPromise;
 		assert.equal(events.headers.get("content-type"), "text/event-stream");
@@ -163,11 +157,7 @@ async function main() {
 
 		const silent = readStream(eventsUrl, (body) => body.includes("event: never-sent"), 1_500);
 		await new Promise((resolve) => setTimeout(resolve, 250));
-		await request(base + "/api/chats", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ title: "deadline probe" }),
-		});
+		await postJson(base + "/api/chats", { title: "deadline probe" });
 		await assert.rejects(silent, /within 1500ms/, "a stream that stops producing the expected frame must abort at the deadline");
 		console.log("[smoke-carrier] SSE deadline: an open stream without the expected frame aborts in 1.5s instead of hanging the job");
 
@@ -184,28 +174,16 @@ async function main() {
 		await reader.cancel().catch(() => {});
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		assert.equal(await getStatus(base + "/api/graph"), 200, "server healthy after a stream disconnect");
-		const afterDisconnect = await request(base + "/api/chats", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ title: "after disconnect" }),
-		});
+		const afterDisconnect = await postJson(base + "/api/chats", { title: "after disconnect" });
 		assert.equal(afterDisconnect.status, 200, "the event bus still works after a subscriber left");
 		const resubscribedPromise = readStream(eventsUrl, (body) => body.includes("event: chats-changed"));
-		const reemit = await request(base + "/api/chats", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ title: "resubscribed" }),
-		});
+		const reemit = await postJson(base + "/api/chats", { title: "resubscribed" });
 		assert.equal(reemit.status, 200);
 		const resubscribed = await resubscribedPromise;
 		assert.match(resubscribed.body, /event: chats-changed/);
 		console.log("[smoke-carrier] SSE: disconnect closes only the subscriber; server + bus + reattach survive");
 
-		const abort = await request(base + "/api/activity/abort", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ kind: "turn", id: chatId }),
-		});
+		const abort = await postJson(base + "/api/activity/abort", { kind: "turn", id: chatId });
 		assert.equal(abort.status, 409, "nothing runs in the throwaway data dir; abort is honest");
 		console.log("[smoke-carrier] abort route: 409 with nothing in flight (explicit, not connection-owned)");
 

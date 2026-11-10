@@ -9,12 +9,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { createRequire, registerHooks, syncBuiltinESMExports } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { formatProbeError, probeEnv } from "./smoke-demo-runtime.mjs";
+import { PAYLOAD } from "./build-server.mjs";
+import { confineToPayload, formatProbeError, probeEnv } from "./smoke-demo-runtime.mjs";
 
 export function verifyProviderRuntime(standalone, runtime = process.execPath) {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-provider-runtime-"));
@@ -58,23 +59,7 @@ function closeNetwork() {
 
 async function probe(standalone) {
 	const noNetwork = closeNetwork();
-	const root = fs.realpathSync(standalone);
-	const inside = (file) => {
-		const relative = path.relative(root, fs.realpathSync(file));
-		assert.ok(relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative),
-			`dependency escaped standalone payload: ${file}`);
-	};
-	const loaded = new Set();
-	const hooks = registerHooks({
-		resolve(specifier, context, nextResolve) {
-			const result = nextResolve(specifier, context);
-			if (result.url.startsWith("file:")) {
-				inside(fileURLToPath(result.url));
-				loaded.add(fileURLToPath(result.url));
-			} else assert.ok(result.url.startsWith("node:"), `unexpected dependency URL: ${result.url}`);
-			return result;
-		},
-	});
+	const { root, loaded, hooks } = confineToPayload(standalone);
 	try {
 		// Pi is an explicit server external. Import its shipped public entry and
 		// factories, never the checkout's module or a direct/fake Google adapter.
@@ -133,7 +118,7 @@ async function main() {
 		assert.ok(args[index + 1] && !args[index + 1].startsWith("--"), `${name} requires a path`);
 		return path.resolve(args[index + 1]);
 	};
-	verifyProviderRuntime(value("--standalone", path.resolve(import.meta.dirname, "../dist-server/standalone")), value("--runtime", process.execPath));
+	verifyProviderRuntime(value("--standalone", PAYLOAD), value("--runtime", process.execPath));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

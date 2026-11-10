@@ -11,16 +11,16 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { freePort } from "../electron/free-port.cjs";
+import { PAYLOAD } from "./build-server.mjs";
 import { probeEnv } from "./smoke-demo-runtime.mjs";
 
-const ROOT = path.resolve(import.meta.dirname, "..");
 const BOOT_TIMEOUT_MS = 30_000;
 
 /** `--payload <dir>` (default dist-server/standalone) and `--electron`
  *  (Electron's bundled Node instead of the host Node). */
 export function smokeOptions(tag, argv = process.argv.slice(2)) {
 	const payloadIndex = argv.indexOf("--payload");
-	const source = payloadIndex >= 0 ? path.resolve(argv[payloadIndex + 1]) : path.join(ROOT, "dist-server", "standalone");
+	const source = payloadIndex >= 0 ? path.resolve(argv[payloadIndex + 1]) : PAYLOAD;
 	const electron = argv.includes("--electron");
 	if (!fs.existsSync(path.join(source, "server.js"))) {
 		console.error(`[${tag}] ${source}/server.js missing — run npm run build && node scripts/build-server.mjs first.`);
@@ -50,20 +50,18 @@ export async function startPayloadServer({ standalone, runtime, electron, env = 
 	const port = await freePort();
 	const url = `http://127.0.0.1:${port}`;
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-home-"));
-	const dataDir = path.join(home, "data");
-	const authFile = path.join(home, "auth.json");
-	fs.writeFileSync(authFile, "{}\n", "utf-8");
+	// probeEnv already sets NODE_ENV=production and LH_DATA_DIR/LH_AUTH_FILE under home.
+	const base = probeEnv(process.env, home);
+	const dataDir = base.LH_DATA_DIR;
+	fs.writeFileSync(base.LH_AUTH_FILE, "{}\n", "utf-8");
 	const logs = [];
 	const child = spawn(runtime, [path.join(standalone, "server.js")], {
 		cwd: standalone,
 		env: {
-			...probeEnv(process.env, home),
+			...base,
 			...(electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-			NODE_ENV: "production",
 			PORT: String(port),
 			HOSTNAME: "127.0.0.1",
-			LH_DATA_DIR: dataDir,
-			LH_AUTH_FILE: authFile,
 			...env,
 		},
 		stdio: ["ignore", "pipe", "pipe"],

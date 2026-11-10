@@ -7,18 +7,17 @@
  */
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { chatStore } from "../src/session/store.ts";
-import { graphStore } from "../src/graph/store.ts";
-import { getGraph } from "../src/graph/snapshot.ts";
+import { chatStore } from "../src/session/index.ts";
+import { getGraph, graphStore } from "../src/graph/index.ts";
 import { boot } from "../src/boot.ts";
 
 
 async function main() {
 	const only = process.argv[2]; // optional: extract just one chat id
+	const { extraction: pipeline } = boot({ upkeep: false });
 	const all = await chatStore.listChats();
 	const chats = only ? all.filter((c) => c.id === only) : all;
 	console.log(`[backfill] ${chats.length} chats to extract`);
-	const { extraction: pipeline } = boot({ upkeep: false });
 	for (const chat of chats) {
 		const t0 = Date.now();
 		try {

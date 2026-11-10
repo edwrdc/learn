@@ -1,12 +1,12 @@
 import * as fs from "node:fs";
-import { builtinModules } from "node:module";
+import { builtinModules, createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const BUILD = path.join(ROOT, "dist-server");
-const PAYLOAD = path.join(BUILD, "standalone");
+/** The packaged server payload; the smoke gates default to it. */
+export const PAYLOAD = path.join(BUILD, "standalone");
 const NODE_MODULES = path.join(ROOT, "node_modules");
 
 /**
@@ -60,6 +60,8 @@ function serverOutputs() {
 }
 
 function serverImports() {
+	// Loaded here, not at import: the smoke gates import PAYLOAD from this module.
+	const ts = createRequire(import.meta.url)("typescript");
 	const specifiers = new Set();
 	const specifierOf = (node) => {
 		if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
