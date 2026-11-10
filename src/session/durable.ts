@@ -35,7 +35,7 @@ import {
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../platform/index.ts";
-import { modelTextOf, wireOf, type LhMessage } from "./model/transcript.ts";
+import { markerInputOf, wireOf, type LhMessage } from "./model/transcript.ts";
 import { APP_IDENTITY, readConversationEntries, routedModels, unbindRunEngine } from "../platform/index.ts";
 
 /** Entry kind of the bookkeeping input that starts a reaction run. It is
@@ -368,7 +368,7 @@ export async function readChatMessages(chatId: string): Promise<LhMessage[]> {
 /** The input a record message places: its model text is the input content;
  *  the record keeps the app shape in entry data. */
 export function inputOf(message: LhMessage): { content: string; entry: { kind: string; data: unknown } } {
-	if (message.role === "custom") return { content: modelTextOf(message) ?? "", entry: { kind: "lh.marker", data: { message } } };
+	if (message.role === "custom") return markerInputOf(message);
 	return {
 		content: typeof message.content === "string" ? message.content : "",
 		entry: { kind: "lh.user", data: { id: message.id } },
@@ -434,11 +434,6 @@ export function editDraftFor(target: EntryId, message: LhMessage): EntryDraft {
 		data: (message.role === "custom" ? { message } : { id: message.id }) as unknown as EntryDraft["data"],
 		edits: [{ target, action: "replace", messages: wire ? [wire as never] : [] }],
 	};
-}
-
-/** Append one raw entry (a ContextEdit, an answer replacement, …). */
-export async function appendEntry(chatId: string, draft: EntryDraft): Promise<void> {
-	await appendEntries(chatId, [draft]);
 }
 
 /** The durable entry that holds a tool call's result (the ContextEdit

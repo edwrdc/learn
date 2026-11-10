@@ -13,7 +13,7 @@
  */
 import { services } from "@/src/boot";
 import { NotesImportError } from "@/src/graph";
-import { MODELS_NOT_CONFIGURED_CODE, ModelsNotConfiguredError, PROVIDER_KEY_MISSING_CODE, ProviderKeyMissingError } from "@/src/settings/model";
+import { ModelsNotConfiguredError, ProviderKeyMissingError } from "@/src/settings/model";
 import type { NotesImportResult } from "@/src/graph/model";
 import type { RequestEvent } from "./$types";
 
@@ -29,26 +29,8 @@ export async function POST({ request }: RequestEvent) {
 		const filePath = files[requestIndex]!.name;
 		if (outcome.status === "fulfilled") return { filePath, requestIndex, outcome: "completed", ok: true, stats: outcome.value };
 		const err = outcome.reason;
-		if (err instanceof ModelsNotConfiguredError) {
-			return {
-				filePath,
-				ok: false,
-				requestIndex, outcome: "failed",
-				error: err.envelope.error,
-				code: MODELS_NOT_CONFIGURED_CODE,
-				missing: err.envelope.missing,
-			};
-		}
-		if (err instanceof ProviderKeyMissingError) {
-			return {
-				filePath,
-				ok: false,
-				requestIndex, outcome: "failed",
-				error: err.envelope.error,
-				code: PROVIDER_KEY_MISSING_CODE,
-				provider: err.envelope.provider,
-				slots: err.envelope.slots,
-			};
+		if (err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) {
+			return { filePath, requestIndex, ok: false, outcome: "failed", ...err.envelope };
 		}
 		return {
 			filePath, requestIndex, ok: false,

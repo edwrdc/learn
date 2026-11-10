@@ -66,7 +66,6 @@ export default defineConfig([
 	// import law (same rationale as scripts/).
 	globalIgnores([
 		".agents/**",
-		".next/**",
 		".svelte-kit/**",
 		"dist-server/**",
 		"node_modules/**",

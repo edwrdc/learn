@@ -38,14 +38,15 @@ export async function POST({ request: req }: RequestEvent) {
 	if (kind === "job") {
 		const outcome = abortJob(id);
 		if (!outcome.ok) {
-			const status = outcome.reason === "not_found" ? 404 : 409;
-			return Response.json({ ok: false, reason: outcome.reason }, { status });
+			return outcome.reason === "not_found"
+				? Response.json({ error: "Unknown job", code: outcome.reason }, { status: 404 })
+				: Response.json({ error: "The job is not running", code: outcome.reason }, { status: 409 });
 		}
 		return Response.json({ ok: true });
 	}
 	if (kind === "turn") {
 		const outcome = abortTurn(id);
-		if (!outcome.ok) return Response.json({ ok: false, reason: outcome.reason }, { status: 409 });
+		if (!outcome.ok) return Response.json({ error: "No turn is running", code: outcome.reason }, { status: 409 });
 		return Response.json({ ok: true });
 	}
 	// kind === "extraction": true cancellation; idempotent (nothing in

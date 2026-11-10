@@ -2,13 +2,10 @@ import { processState } from "./platform/model/index.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { configureBackgroundRuns, createJobRunner, registerDurableRoles, recoverStaleJobs, resumeBackgroundRuns, runBackgroundConversation, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
 import { createExtractionPipeline, EXTRACTION_ROLES, type ExtractionPipeline } from "./graph/index.ts";
-import { COMPACT_ROLE } from "./session/index.ts";
 import { resolveRoleSpec, type ModelRole } from "./settings/model/index.ts";
 import type { PiEngine } from "./platform/index.ts";
 import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey, readSettings, searchProvider } from "./settings/index.ts";
-import { openChatRuntime, setRuntimeBootstrap } from "./session/durable.ts";
-import { isCommittedRunLive, isTurnRunning } from "./session/turn-liveness.ts";
-import { handleChatInput, resumeForegroundTurn } from "./session/turn.ts";
+import { COMPACT_ROLE, configureTurns, handleChatInput, isCommittedRunLive, isTurnRunning, openChatRuntime, resumeForegroundTurn, setRuntimeBootstrap } from "./session/index.ts";
 
 interface BootOptions {
 	/** Background upkeep: crash recovery at boot, the extraction trigger and
@@ -77,7 +74,9 @@ export function boot(options: BootOptions = {}): AppServices {
 			await resumeForegroundTurn(runtime, (model) => options.engineFor?.("teacher") ?? engineForSnapshot(model));
 		});
 		const upkeep = options.upkeep ?? true;
-		return { jobRunner, extraction, upkeep, recovered: Promise.resolve() } satisfies AppServices;
+		const app: AppServices = { jobRunner, extraction, upkeep, recovered: Promise.resolve() };
+		configureTurns(app);
+		return app;
 	});
 	if (services.upkeep) services.recovered = processState("recovery", () => recover().catch((error) => console.error("[boot] recovery failed:", error)));
 	return services;

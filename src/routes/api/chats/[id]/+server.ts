@@ -1,6 +1,5 @@
-import { compactionInFlight, deleteChatSession, isTurnRunning, requireChat, sessionCoverage } from "@/src/session";
+import { chatStore, compactionInFlight, deleteChatSession, isTurnRunning, requireChat, sessionCoverage } from "@/src/session";
 import { readJson } from "@/src/platform";
-import { stores } from "@/src/stores";
 import { type ChatDeleteMode } from "@/src/graph/model";
 import type { ChatView } from "@/src/session/model";
 import type { RequestEvent } from "./$types";
@@ -41,7 +40,7 @@ export async function PUT({ request: req, params }: RequestEvent) {
 	if (typeof title !== "string" || title.trim() === "") {
 		return Response.json({ error: "title must be a non-empty string" }, { status: 400 });
 	}
-	const record = await stores.chatStore.renameChat(id, title.trim());
+	const record = await chatStore.renameChat(id, title.trim());
 	return Response.json({ title: record.title });
 }
 

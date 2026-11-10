@@ -22,7 +22,6 @@
 import { ChatInputError, parseDismissInput } from "@/src/session/model";
 import { isTurnRunning, parkDismissal, requireChat, writeDismissal } from "@/src/session";
 import { readJson } from "@/src/platform";
-import { stores } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req, params }: RequestEvent): Promise<Response> {
@@ -56,9 +55,6 @@ export async function POST({ request: req, params }: RequestEvent): Promise<Resp
 		// answer REPLACES its pose placeholder's result; a problem discard
 		// appends its UI-only marker.
 		await writeDismissal(id, input);
-		await stores.chatStore.touchChat(id).catch((err) => {
-			console.error(`[chat ${id}] activity touch failed:`, err);
-		});
 	} catch (err) {
 		if (err instanceof ChatInputError) return Response.json({ error: err.message }, { status: 400 });
 		throw err;

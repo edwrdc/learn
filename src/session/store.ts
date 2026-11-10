@@ -140,13 +140,8 @@ function getChats(ids: string[]): Promise<(ChatRecord | null)[]> {
 }
 
 async function listChats(): Promise<ChatSummary[]> {
-	let names: string[];
-	try {
-		fs.mkdirSync(PATHS.chats, { recursive: true });
-		names = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
-	} catch {
-		return [];
-	}
+	fs.mkdirSync(PATHS.chats, { recursive: true });
+	const names = fs.readdirSync(PATHS.chats).filter((f) => f.endsWith(".json"));
 	const out: ChatSummary[] = [];
 	const records = await readInBatches(names.map((name) => name.slice(0, -5)), (id) =>
 		getChat(id).catch((error: unknown) => {

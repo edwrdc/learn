@@ -4,6 +4,10 @@ export const SSE_HEADERS = {
 	"X-Accel-Buffering": "no",
 } as const;
 
+/** The turn stream's wire frames: one JSON event per frame, then [DONE]. */
+export const sseFrame = (event: unknown): string => `data: ${JSON.stringify(event)}\n\n`;
+export const SSE_DONE = "data: [DONE]\n\n";
+
 /** A request's JSON body, or the one 400 every route answers bad JSON with. */
 export async function readJson(request: Request): Promise<{ body: unknown } | Response> {
 	try {

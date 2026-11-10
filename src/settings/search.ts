@@ -29,12 +29,6 @@ export function searchStatus(): SearchStatus {
 	return { available, engine, reason };
 }
 
-/** Search available at all? (the settings UI's gray-out signal + the
- *  researcher's enable/disable pin — Teacher stream's rewiring reads this.) */
-export function searchAvailable(): boolean {
-	return searchStatus().available;
-}
-
 /** The LIVE adapter, or null when unavailable. Composed fresh each call —
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */

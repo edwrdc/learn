@@ -23,7 +23,7 @@
  * durable transcript is the truth behind it.
  */
 
-import { SSE_HEADERS } from "../../platform/index.ts";
+import { SSE_DONE, SSE_HEADERS, sseFrame } from "../../platform/index.ts";
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import type {
 	ConversationView,
@@ -333,7 +333,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 						push(event) {
 							if (closed) return;
 							try {
-								controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+								controller.enqueue(encoder.encode(sseFrame(event)));
 							} catch {
 								closed = true;
 							}
@@ -342,7 +342,7 @@ export function runDurableTurn(spec: DurableTurnSpec): PiTurnHandle {
 							if (closed) return;
 							closed = true;
 							try {
-								controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+								controller.enqueue(encoder.encode(SSE_DONE));
 								controller.close();
 							} catch {
 								/* already cancelled */

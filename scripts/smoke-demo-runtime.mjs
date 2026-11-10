@@ -6,6 +6,7 @@
  * node scripts/smoke-demo-runtime.mjs --standalone <dir> --runtime <electron binary> [--browser]
  * --runtime defaults to host Node for the import-only gate.
  */
+import shared from "../electron/shared.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -145,7 +146,7 @@ async function browserProbe(puppeteer) {
 	delete env.ELECTRON_RUN_AS_NODE;
 	delete env.LH_DEV_URL;
 	const helper = spawn(process.execPath, [
-		"--browser-service", `--user-data-dir=${path.join(home, "browser-profile")}`,
+		shared.browserServiceFlag, `--user-data-dir=${path.join(home, "browser-profile")}`,
 		"--disable-background-networking", "--disable-component-update", "--no-proxy-server",
 		// Hosted Linux runners disallow Chromium's unprivileged sandbox.
 		...(process.platform === "linux" ? ["--no-sandbox"] : []),
@@ -162,7 +163,7 @@ async function browserProbe(puppeteer) {
 			helper.once("exit", (code) => { clearTimeout(timer); reject(new Error(`browser-service exited early: ${code}`)); });
 			helper.stdout.on("data", (chunk) => {
 				output = (output + chunk).slice(-16_000);
-				const match = output.match(/^BROWSER_SERVICE_CDP (\d+)\r?$/m);
+				const match = output.match(new RegExp(`^${shared.browserServiceReady} (\\d+)\\r?$`, "m"));
 				if (match) { clearTimeout(timer); resolve(Number(match[1])); }
 			});
 		});

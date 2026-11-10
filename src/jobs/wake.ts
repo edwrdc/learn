@@ -36,7 +36,7 @@
 import { processState } from "../platform/model/index.ts";
 import { buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type JobResult, type SteerMessage } from "./model/types.ts";
 import type { TurnInput } from "../session/model/index.ts";
-import { danglingQuestionOf, endsInDismissal, modelTextOf, type LhMessage } from "../session/model/index.ts";
+import { danglingQuestionOf, endsInDismissal, markerInputOf, type LhMessage } from "../session/model/index.ts";
 import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
 import { fireJobAbort, isJobLive } from "./aborts.ts";
 import { jobStore } from "./store.ts";
@@ -180,12 +180,8 @@ async function submitSteer(chatId: string, steer: SteerMessage): Promise<boolean
 		const inbox = await tx.doc(InboxDoc, runtime.root.id);
 		// Every steer (a user's composer steer too) keeps its whole message in
 		// a marker entry.
-		inbox.items.push({
-			id: submission.id,
-			mode: "steer",
-			content: (modelTextOf(steer) ?? steer.content) as never,
-			entry: { kind: "lh.marker", data: { message: steer } } as never,
-		});
+		const input = markerInputOf(steer);
+		inbox.items.push({ id: submission.id, mode: "steer", content: input.content as never, entry: input.entry as never });
 		return true;
 	}, BACKGROUND_CONTEXT);
 }
@@ -594,7 +590,10 @@ export async function recoverStaleJobs(): Promise<void> {
 					});
 				} else {
 					// The sub-agent loop itself died with the process: re-spawn.
-					if (!s.respawn) continue;
+					if (!s.respawn) {
+						console.error(`[jobs] ${job.id} cannot be re-run: no respawn wired (setJobRespawn)`);
+						continue;
+					}
 					jobStore.updateJob(job.id, { activity: "recovering: re-running" });
 					s.respawn(job.id);
 				}

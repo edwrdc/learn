@@ -33,7 +33,7 @@ const { freePort } = require("./free-port.cjs");
 
 // Shared with the renderer: the sidebar auto-close width (this process's
 // IPC widen target) and the app background.
-const { sidebarAutocloseWidth: SIDEBAR_AUTOCLOSE, backgroundColor: APP_BACKGROUND } = require("./shared.json");
+const { sidebarAutocloseWidth: SIDEBAR_AUTOCLOSE, backgroundColor: APP_BACKGROUND, browserServiceFlag: BROWSER_SERVICE_FLAG, browserServiceReady: BROWSER_SERVICE_READY } = require("./shared.json");
 
 const PRODUCT_NAME = "LearnHarness";
 
@@ -68,7 +68,7 @@ function serverEntry() {
 // MUST run before the single-instance lock — a helper is a second
 // instance of this very binary, and before the LH_DEV_URL redirect — the
 // helper owns no user data at all.
-if (process.argv.includes("--browser-service")) {
+if (process.argv.includes(BROWSER_SERVICE_FLAG)) {
 	const { waitForBrowserService } = require("./browser-service-readiness.cjs");
 	// Own the helper's entire startup lifetime, including the readiness wait.
 	const lifetime = new AbortController();
@@ -94,7 +94,7 @@ if (process.argv.includes("--browser-service")) {
 			// Window load is not a DevTools HTTP readiness barrier. Confirm the
 			// endpoint before both production and smoke clients see the handshake.
 			await waitForBrowserService(port, { signal: lifetime.signal });
-			if (!lifetime.signal.aborted) console.log(`BROWSER_SERVICE_CDP ${port}`);
+			if (!lifetime.signal.aborted) console.log(`${BROWSER_SERVICE_READY} ${port}`);
 		} catch (err) {
 			if (lifetime.signal.aborted) return; // Parent disconnect is normal.
 			console.error("browser-service failed:", err);
@@ -170,36 +170,33 @@ function log(line) {
 }
 
 function startServer(port) {
-	return new Promise((resolve, reject) => {
-		const child = spawn(
-			process.execPath,
-			[serverEntry()],
-			{
-				cwd: path.dirname(serverEntry()),
-				env: {
-					...process.env,
-					ELECTRON_RUN_AS_NODE: "1",
-					NODE_ENV: "production",
-					PORT: String(port),
-					HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
-					LH_DATA_DIR: DATA_DIR(),
-					// The auth/keys store — the child reads AND writes this file itself
-					// (no env injection anymore: a spawn-time copy would shadow every
-					// settings-page key change until restart; env wins over file).
-					LH_AUTH_FILE: AUTH_FILE(),
-				},
-				stdio: ["ignore", "pipe", "pipe"],
+	const child = spawn(
+		process.execPath,
+		[serverEntry()],
+		{
+			cwd: path.dirname(serverEntry()),
+			env: {
+				...process.env,
+				ELECTRON_RUN_AS_NODE: "1",
+				NODE_ENV: "production",
+				PORT: String(port),
+				HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
+				LH_DATA_DIR: DATA_DIR(),
+				// The auth/keys store — the child reads AND writes this file itself
+				// (no env injection anymore: a spawn-time copy would shadow every
+				// settings-page key change until restart; env wins over file).
+				LH_AUTH_FILE: AUTH_FILE(),
 			},
-		);
-		serverProcess = child;
-		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
-		child.stdout.on("data", fwd);
-		child.stderr.on("data", fwd);
-		child.on("exit", (code, signal) => {
-			log(`server exited (code=${code} signal=${signal})`);
-			serverProcess = null;
-		});
-		resolve(child);
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
+	serverProcess = child;
+	const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
+	child.stdout.on("data", fwd);
+	child.stderr.on("data", fwd);
+	child.on("exit", (code, signal) => {
+		log(`server exited (code=${code} signal=${signal})`);
+		serverProcess = null;
 	});
 }
 
@@ -449,7 +446,7 @@ async function main() {
 	if (!devUrl) {
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
-		await startServer(new URL(url).port);
+		startServer(new URL(url).port);
 		await waitUntilUp(url);
 		log(`server up: ${url}`);
 	} else {

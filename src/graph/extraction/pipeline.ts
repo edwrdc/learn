@@ -8,6 +8,7 @@ import {
 	ProviderKeyMissingError,
 	ROLE_SLOT,
 	type ModelSlotName,
+	type ModelsNotConfigured,
 	type ProviderKeyMissing,
 } from "../../settings/model/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
@@ -511,6 +512,9 @@ export interface ExtractionPipeline {
 	runExtraction(chatId: string): Promise<EmissionStats>;
 	/** Is a chat run admitted (runExtraction would be a no-op)? */
 	isRunning(chatId: string): boolean;
+	/** Why a run would be refused right now (no model for a stage, or a
+	 *  stage's provider key missing), or null when it can run. */
+	refusal(): ModelsNotConfigured | ProviderKeyMissing | null;
 	/** The format-agnostic front door (2026-09-13): run the same pipeline
 	 *  over ONE raw notes file. The source id is deterministic per file
 	 *  path, so re-importing the same file re-runs extraction against the
@@ -1101,6 +1105,16 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return outcomes;
 	}
 
-	return { runExtraction, isRunning: (chatId) => inFlight.has(chatId), importNotes, importNotesFiles };
+	function refusal(): ModelsNotConfigured | ProviderKeyMissing | null {
+		try {
+			refuseIfStagesUnready();
+			return null;
+		} catch (error) {
+			if (error instanceof ModelsNotConfiguredError || error instanceof ProviderKeyMissingError) return error.envelope;
+			throw error;
+		}
+	}
+
+	return { runExtraction, isRunning: (chatId) => inFlight.has(chatId), refusal, importNotes, importNotesFiles };
 }
 

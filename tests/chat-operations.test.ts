@@ -164,7 +164,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			assert.equal(reads, 0);
 			release.resolve();
 			assert.equal((await input).status, 404);
-			assert.deepEqual(await deletion, { ok: false, status: 404, code: "not_found", error: "No such session" });
+			assert.deepEqual(await deletion, { ok: false, status: 404, code: "not_found", error: "Unknown chat" });
 			assert.equal(reads, 2);
 		} finally {
 			release.resolve();
@@ -298,7 +298,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 				stores.chatStore = chatStore;
 				assert.equal((await deleteChatSession(retry.id, "delete-nodes")).ok, true);
 				assert.deepEqual(await deleteChatSession(retry.id, "delete-nodes"), {
-					ok: false, status: 404, code: "not_found", error: "No such session",
+					ok: false, status: 404, code: "not_found", error: "Unknown chat",
 				});
 			} finally { stores.chatStore = chatStore; }
 		});

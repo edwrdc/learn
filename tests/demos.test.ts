@@ -187,22 +187,18 @@ describe("setSteerUiInverted (the persisted invert switch, 2026-10-07)", () => {
 	);
 	const other = { id: "other", role: "user" as const, content: "hi", timestamp: 1 };
 
-	it("writes ui.inverted on the target steer and leaves everything else untouched", async () => {
-		const out = setSteerUiInverted([other, demoSteer], demoSteer.id, true);
-		assert.equal(out.length, 2);
-		assert.deepEqual(
-			(out[1] as { details: { ui?: { inverted?: boolean } } }).details.ui,
-			{ inverted: true },
-		);
-		assert.equal(out[0], other, "untouched messages pass through by identity");
+	type Ui = { details: { ui?: { inverted?: boolean } } };
+
+	it("returns the target steer with ui.inverted set", async () => {
+		const on = setSteerUiInverted([other, demoSteer], demoSteer.id, true);
+		assert.deepEqual((on as Ui).details.ui, { inverted: true });
+		const off = setSteerUiInverted([on!], demoSteer.id, false);
+		assert.equal((off as Ui).details.ui?.inverted, false);
 	});
 
-	it("toggles back to false; missing or non-artifact messages are no-ops (same array members)", async () => {
-		const on = setSteerUiInverted([demoSteer], demoSteer.id, true);
-		const off = setSteerUiInverted(on, demoSteer.id, false);
-		assert.equal((off[0] as { details: { ui?: { inverted?: boolean } } }).details.ui?.inverted, false);
-		const missing = setSteerUiInverted([demoSteer], "nope", true);
-		assert.equal(missing[0], demoSteer, "no target → identity");
+	it("names no demo/figure steer → null", async () => {
+		assert.equal(setSteerUiInverted([demoSteer], "nope", true), null);
+		assert.equal(setSteerUiInverted([other], "other", true), null);
 	});
 });
 

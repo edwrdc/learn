@@ -1,8 +1,8 @@
 import { checkChatSettings } from "@/src/settings";
 import { readJson } from "@/src/platform";
 import { parseModelChoice } from "@/src/settings/model";
-import { effectiveSettings, stores } from "@/src/stores";
-import { requireChat } from "@/src/session";
+import { effectiveSettings } from "@/src/stores";
+import { chatStore, requireChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 /**
@@ -31,6 +31,6 @@ export async function PUT({ request: req, params }: RequestEvent) {
 	// Replace-whole: no merges, so a stale client can never resurrect a
 	// cleared override.
 	const settings = checked.value;
-	await stores.chatStore.saveSettings(id, settings);
+	await chatStore.saveSettings(id, settings);
 	return Response.json({ settings });
 }

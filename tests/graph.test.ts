@@ -28,7 +28,8 @@ import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } fr
 import { coverageSlots } from "../src/graph/coverage.ts";
 import { graphStore } from "../src/graph/store.ts";
 import { chatStore } from "../src/session/store.ts";
-import { LEDGER_FILES, PATHS, SOURCES_FILE } from "../src/platform/config.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { LEDGER_FILES, SOURCES_FILE } from "../src/graph/files.ts";
 
 /** The wired fs adapters, exactly what src/server/stores.ts passes in production. */
 const graphDeps = { chatStore, graphStore } as const satisfies GraphDeps;
@@ -815,7 +816,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 
 	it("deleteChatSession: the orchestration's gates and the sync block", async () => {
 		// 404 — unknown chat.
-		assert.deepEqual(await deleteChatSession("chat_missing_delete", "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
+		assert.deepEqual(await deleteChatSession("chat_missing_delete", "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "Unknown chat" });
 
 		const { dA } = await buildTwoSessionScenario();
 		// 409 — a turn in flight.
@@ -844,7 +845,7 @@ describe("session deletion (deleteChatTraces + deleteChatSession, wave 6)", () =
 		assert.equal(await chatStore.getChat(dA.id), null, "the chat record is gone");
 		assert.equal(jobStore.getJob(doneJob.id), null, "the chat's job records are gone");
 		// And a second call is an honest 404.
-		assert.deepEqual(await deleteChatSession(dA.id, "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "No such session" });
+		assert.deepEqual(await deleteChatSession(dA.id, "delete-nodes"), { ok: false, status: 404, code: "not_found", error: "Unknown chat" });
 	});
 });
 

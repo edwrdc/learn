@@ -509,6 +509,13 @@ export function modelTextOf(message: LhMessage): string | null {
 	return message.content;
 }
 
+/** A message placed as a marker input: the model reads its text (a marker's
+ *  model text, a user message's own text), the record keeps the message. */
+export function markerInputOf(message: LhMessage): { content: string; entry: { kind: "lh.marker"; data: { message: LhMessage } } } {
+	const content = message.role === "custom" ? (modelTextOf(message) ?? "") : typeof message.content === "string" ? message.content : "";
+	return { content, entry: { kind: "lh.marker", data: { message } } };
+}
+
 /** The provider message one record message contributes, or null when it
  *  contributes none: markers flatten to a user message carrying their
  *  text, native messages lose the record id. */

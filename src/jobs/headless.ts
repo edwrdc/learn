@@ -1,4 +1,5 @@
 import { keyedLock, processState } from "../platform/model/index.ts";
+import { browserServiceFlag, browserServiceReady } from "../../electron/shared.json";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
@@ -109,7 +110,7 @@ const NO_CHROME_MESSAGE =
 
 /** Handshake line parser (pure; exported for tests). */
 export function parseBrowserServiceLine(line: string): number | null {
-	const m = line.match(/^BROWSER_SERVICE_CDP (\d+)$/);
+	const m = line.match(new RegExp(`^${browserServiceReady} (\\d+)$`));
 	if (!m) return null;
 	const port = Number(m[1]);
 	return port >= 1 && port <= 65535 ? port : null;
@@ -162,10 +163,10 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 		// Packaged: execPath runs the bundled app (flag reaches main.cjs).
 		// Dev: the bare electron binary needs the repo root as the app arg —
 		// flagless it would open Electron's default app instead of our shell.
-		const appArgs = process.versions.electron ? ["--browser-service"] : [
+		const appArgs = process.versions.electron ? [browserServiceFlag] : [
 			// src/jobs → repo root
 			path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".."),
-			"--browser-service",
+			browserServiceFlag,
 		];
 		const proc = spawn(binary, appArgs, {
 			// Cast: the sanitizer is pure over a loose record; NODE_ENV is

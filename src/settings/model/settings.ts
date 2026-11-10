@@ -113,7 +113,7 @@ export const DEFAULT_THINKING_ORDER = [
  *  human `error` line. `missing` names the slot TIER(S) the refused
  *  action needs and found unset. */
 export const MODELS_NOT_CONFIGURED_CODE = "models_not_configured" as const;
-interface ModelsNotConfigured {
+export interface ModelsNotConfigured {
 	/** Human-readable — safe to render as-is. */
 	error: string;
 	/** The machine discriminator the client switches on. */

@@ -20,7 +20,7 @@
  * write-ahead record + liveness TTL recovery cover the next mount.
  */
 
-import { SSE_HEADERS } from "../platform/index.ts";
+import { SSE_DONE, SSE_HEADERS, sseFrame } from "../platform/index.ts";
 import { emit, processState } from "../platform/model/index.ts";
 import type { PiTurnHandle } from "./pi/durable-turn.ts";
 
@@ -64,7 +64,7 @@ export function abortTurn(chatId: string): { ok: true } | { ok: false; reason: "
  *  an EVENT (not a status code) so the reattach path consumes ONE wire
  *  protocol end to end. */
 export function settledTurnResponse(): Response {
-	return new Response('data: {"type":"turn-settled"}\n\ndata: [DONE]\n\n', {
+	return new Response(sseFrame({ type: "turn-settled" }) + SSE_DONE, {
 		headers: SSE_HEADERS,
 	});
 }

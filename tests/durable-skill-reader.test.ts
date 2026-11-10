@@ -22,7 +22,6 @@ process.env.LH_DATA_DIR = TMP;
 const { chatStore } = await import("../src/session/store.ts");
 const {
 	appendEntries,
-	appendEntry,
 	closeChatRuntime,
 	draftForMessage,
 	editDraftFor,
@@ -112,7 +111,7 @@ test("the reader projects native entries, edits, and ids like the app", { skip: 
 		isError: false,
 		timestamp: 5,
 	} as LhMessage;
-	await appendEntry(chat.id, editDraftFor(pose!.id, answer));
+	await appendEntries(chat.id, [editDraftFor(pose!.id, answer)]);
 	const expected = projectEntries(await readEntries(runtime));
 	await closeChatRuntime(chat.id);
 

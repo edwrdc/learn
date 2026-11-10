@@ -92,8 +92,15 @@ interface RoleRunOptions {
 	onUsage?: (usage: JobUsage) => void;
 }
 
-export function roleHeadless(headless?: HeadlessApi): HeadlessApi {
-	return headless ?? backgroundServices().headless?.() ?? realHeadless;
+/** The services a role reaches: the caller's own, else the configured ones,
+ *  else the app's real headless engine and no search. */
+export function roleHost(options: { headless?: HeadlessApi; search?: () => SearchProvider | null; graph?: GraphDeps; onActivity?: (line: string) => void }): RoleHost {
+	return {
+		headless: options.headless ?? backgroundServices().headless?.() ?? realHeadless,
+		search: options.search ?? (() => backgroundServices().searchProvider?.() ?? null),
+		graph: options.graph,
+		onActivity: options.onActivity,
+	};
 }
 
 /** Run one job role to its result. A failure becomes the role's failure
@@ -104,11 +111,7 @@ export async function runRole<I, R extends JobResult, S extends RunState>(
 	input: I,
 	options: RoleRunOptions,
 ): Promise<R> {
-	const host: RoleHost = {
-		headless: roleHeadless(options.headless),
-		search: options.search ?? (() => backgroundServices().searchProvider?.() ?? null),
-		onActivity: options.onActivity,
-	};
+	const host = roleHost(options);
 	const blocked = await role.precheck?.(input, host);
 	if (blocked) return role.failure(input, blocked);
 	const start = (extra: JsonObject) =>

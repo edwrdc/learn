@@ -12,6 +12,7 @@
  */
 import { services } from "@/src/boot";
 import { readJson } from "@/src/platform";
+import { requireChat } from "@/src/session";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request }: RequestEvent) {
@@ -21,6 +22,10 @@ export async function POST({ request }: RequestEvent) {
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
 	}
+	const chat = await requireChat(chatId);
+	if (chat instanceof Response) return chat;
+	const refusal = services().extraction.refusal();
+	if (refusal) return Response.json(refusal, { status: 503 });
 	if (services().extraction.isRunning(chatId)) {
 		return Response.json({ error: "An extraction run is already in flight for this session" }, { status: 409 });
 	}

@@ -38,10 +38,12 @@ const CHAINS: GraphChain[] = [
 ];
 const props = {
 	open: true,
-	nodes: NODES,
-	chains: CHAINS,
-	sessions: { chat1: "Ethics lesson", chat2: "Second chat" },
-	fileSources: { notes1: "notes/raw/ethics.md" },
+	snapshot: {
+		propositions: NODES,
+		chains: CHAINS,
+		sessions: { chat1: "Ethics lesson", chat2: "Second chat" },
+		fileSources: { notes1: "notes/raw/ethics.md" },
+	},
 	onClose: () => {},
 };
 

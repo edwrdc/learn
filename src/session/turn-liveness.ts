@@ -67,11 +67,17 @@ export async function isTurnRunning(chatId: string): Promise<boolean> {
 export async function isCommittedRunLive(chatId: string): Promise<boolean> {
 	const pending = peekChatRuntime(chatId);
 	if (!pending) return false;
-	const runtime = await pending.catch(() => undefined);
+	const runtime = await pending.catch((error: unknown) => {
+		console.error(`[chat ${chatId}] runtime did not open; reading as not live:`, error);
+		return undefined;
+	});
 	if (!runtime || runtime.closing) return false;
 	const live = await runtime.harness
 		.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT)
-		.catch(() => undefined);
+		.catch((error: unknown) => {
+			console.error(`[chat ${chatId}] run state unreadable; reading as not live:`, error);
+			return undefined;
+		});
 	return live?.run !== undefined;
 }
 

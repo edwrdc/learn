@@ -51,6 +51,8 @@ import {
 	type ChatRuntime,
 } from "./durable.ts";
 import type { ChatPhase } from "./model/phases.ts";
+import { chatStore } from "./store.ts";
+import { effectiveSettings } from "../stores.ts";
 import { usageFromPi, type CallUsage } from "./model/types.ts";
 import type { Message } from "@earendil-works/pi-ai";
 import type { ModelSnapshot } from "../platform/index.ts";
@@ -178,6 +180,8 @@ export async function writeDismissal(chatId: string, input: DismissInput): Promi
 		const write = await answerWrite(chatId, record, input.toolCallId, input.answer);
 		await applyAnswer(chatId, write);
 	}
+	// The dismissal is committed: a failed activity stamp only logs.
+	await chatStore.touchChat(chatId).catch((err: unknown) => console.error(`[chat ${chatId}] activity touch failed:`, err));
 	emit("record-changed", { chatId });
 }
 
@@ -256,13 +260,15 @@ export async function triggerExtraction(
 	deps: { chatStore: ChatStore; graphStore: GraphStore },
 	extraction: ExtractionPipeline,
 	chatId: string,
-	chunkTokens: number,
 ): Promise<void> {
 	try {
+		const graph = effectiveSettings().graph;
 		const record = await deps.chatStore.getChat(chatId);
-		if (!record) return;
+		// The write channel dies with the master switch; practice sessions
+		// write nothing (v1: the session is the deliverable).
+		if (!record || record.kind === "practice" || !graph.enabled) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
-		if (covered.uncoveredTokens < chunkTokens) return;
+		if (covered.uncoveredTokens < graph.extractionChunkTokens) return;
 		void extraction.runExtraction(chatId).catch((err) => {
 			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
 			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the

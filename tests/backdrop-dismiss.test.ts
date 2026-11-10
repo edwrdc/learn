@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import { backdropDismiss } from "../src/lib/backdrop.ts";
+import { backdropDismiss } from "../src/lib/ui/layer.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
 function el(tag = "div") {

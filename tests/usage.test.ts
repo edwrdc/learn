@@ -11,7 +11,8 @@ import * as fs from "node:fs";
 
 import { chatStore } from "../src/session/store.ts";
 import { graphStore } from "../src/graph/store.ts";
-import { PATHS, SOURCES_FILE } from "../src/platform/config.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { SOURCES_FILE } from "../src/graph/files.ts";
 import { callCost, contextWindow, jobCost, sessionCost, sumSteps, turnCost } from "../src/session/model/prices.ts";
 import type { CallUsage, ExtractionRunUsage, TurnUsage } from "../src/session/model/types.ts";
 import type { JobRecord } from "../src/jobs/model/types.ts";

@@ -93,7 +93,7 @@ type ChatDeleteOutcome =
 export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): Promise<ChatDeleteOutcome> {
 	return withChatOperation(chatId, async () => {
 		if (!(await stores.chatStore.getChat(chatId))) {
-			return { ok: false, status: 404, code: "not_found", error: "No such session" };
+			return { ok: false, status: 404, code: "not_found", error: "Unknown chat" };
 		}
 		if (await isTurnRunning(chatId)) {
 			return {

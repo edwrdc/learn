@@ -9,10 +9,9 @@
  * Guards: 404 unknown chat, 400 for a body that isn't
  * { input: { messageId, inverted } } or targets no demo/visual steer.
  */
-import { setSteerUiInverted, type SteerDetails } from "@/src/jobs/model";
-import { requireChat } from "@/src/session";
+import { setSteerUiInverted } from "@/src/jobs/model";
+import { chatStore, requireChat } from "@/src/session";
 import { readJson } from "@/src/platform";
-import { stores } from "@/src/stores";
 import type { RequestEvent } from "./$types";
 
 export async function POST({ request: req, params }: RequestEvent): Promise<Response> {
@@ -31,14 +30,8 @@ export async function POST({ request: req, params }: RequestEvent): Promise<Resp
 		return Response.json({ error: "input must be { messageId: string, inverted: boolean }" }, { status: 400 });
 	}
 
-	// Honesty: the target must actually be a demo/figure steer.
-	const target = chat.messages.find((m) => m.id === input.messageId);
-	const details = target ? ((target as { details?: unknown }).details as Partial<SteerDetails> | undefined) : undefined;
-	if (!details || (details.kind !== "demo" && details.kind !== "visual")) {
-		return Response.json({ error: "No demo/figure steer with that message id" }, { status: 400 });
-	}
-
-	const messages = setSteerUiInverted(chat.messages, input.messageId, input.inverted);
-	await stores.chatStore.saveMessages(id, messages);
+	const changed = setSteerUiInverted(chat.messages, input.messageId, input.inverted);
+	if (!changed) return Response.json({ error: "No demo/figure steer with that message id" }, { status: 400 });
+	await chatStore.saveMessages(id, [changed]);
 	return Response.json({ ok: true });
 }

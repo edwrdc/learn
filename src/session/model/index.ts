@@ -19,7 +19,7 @@ export type { ProbeDoneResult } from "./probe-types.ts";
 export { CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, buildAnswer, dismissedAnswer, emptyDockSelection, normalizeOptions, normalizeQuizType, questionNeedsReveal, resolveCorrect, seededRandom, shuffleOptions, toggleOption, toggleOther } from "./questions.ts";
 export type { AnswerRequest, DockSelection, QuestionAnswerData, QuestionData } from "./questions.ts";
 export { parseAskInput, parseExplainInput, parseProbeDoneInput, parseQuizInput } from "./tool-parts.ts";
-export { PRACTICE_PROBLEM_TOOL, activeProblemOf, continuationSignature, danglingQuestionOf, endsInDismissal, hasPracticeProblem, modelTextOf, needsContinuation, newAnswerResult, newGraphContextMessage, newHandoffMessage, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, newUserSteer, picksFor, textOf } from "./transcript.ts";
+export { PRACTICE_PROBLEM_TOOL, activeProblemOf, continuationSignature, danglingQuestionOf, endsInDismissal, hasPracticeProblem, markerInputOf, modelTextOf, needsContinuation, newAnswerResult, newGraphContextMessage, newHandoffMessage, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, newUserSteer, picksFor, textOf } from "./transcript.ts";
 export type { GraphContextPick, LhMarkerMessage, LhMessage } from "./transcript.ts";
 export { CONCLUDE_ACK_TEXT, usageFromPi } from "./types.ts";
 export type { ArtifactPartProps, CallUsage, ChatListItem, ChatRecord, ChatSettings, ChatSummary, ChatView, ExtractionRunUsage, ExtractionStageUsage, PlanBlockData, SessionCoverage, TurnUsage } from "./types.ts";

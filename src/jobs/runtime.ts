@@ -69,7 +69,7 @@ import {
 	type RunStep,
 } from "./durable-run.ts";
 import { JOB_ROLES } from "./roles/registry.ts";
-import { roleHeadless, type DurableRole, type RoleHost, type RoleRun } from "./roles/role.ts";
+import { roleHost, type DurableRole, type RoleHost, type RoleRun } from "./roles/role.ts";
 import { jobStore } from "./store.ts";
 
 interface RunRef {
@@ -131,16 +131,6 @@ function durableRole(kind: BackgroundKind): DurableRole<any> {
 	const role = durableRoles().get(kind);
 	if (!role) throw new Error(`no durable role registered for ${kind} (boot registers them)`);
 	return role;
-}
-
-function roleHost(request: BackgroundRunRequest | undefined): RoleHost {
-	const services = backgroundServices();
-	return {
-		headless: roleHeadless(request?.headless),
-		search: request?.search ?? (() => services.searchProvider?.() ?? null),
-		graph: request?.graph,
-		onActivity: request?.onActivity,
-	};
 }
 
 async function readDescriptor(runtime: ChatRuntime, conversation: Conversation): Promise<RunDescriptor> {
@@ -274,22 +264,12 @@ function assistantText(entries: readonly EntryRecord[]): string {
 	return "";
 }
 
-/** The money channel, rebuilt from committed assistant entries (aborted
- *  attempts excluded). Idempotent: every call sets the same totals. */
-async function foldUsage(
-	conversation: Conversation,
-	model: string,
-	onUsage: (usage: JobUsage) => void,
-): Promise<void> {
-	const entries = await readConversationEntries(conversation);
+/** The money channel, rebuilt from the run's completed steps. Idempotent:
+ *  every call yields the same totals. */
+function foldUsage(steps: readonly RunStep[], model: string): JobUsage | undefined {
 	let total: JobUsage | undefined;
-	for (const entry of entries) {
-		const message = entry.model?.[0] as { role?: string; stopReason?: string; usage?: Usage } | undefined;
-		if (message?.role !== "assistant" || !message.usage) continue;
-		if (message.stopReason === "aborted") continue;
-		total = accumulateJobUsage(total, model, usageFromPi(message.usage));
-	}
-	if (total) onUsage(total);
+	for (const step of steps) total = accumulateJobUsage(total, model, usageFromPi(step.usage));
+	return total;
 }
 
 /** A settled-submission stand-in for an abort that lands around admission. */
@@ -341,16 +321,19 @@ async function readIndex(runtime: ChatRuntime): Promise<RunsState> {
 	return { runs: state?.runs ?? {} };
 }
 
+/** Merge one run's index entry (null removes it) inside a commit. */
+async function patchRunRef(tx: { doc(doc: typeof BackgroundRunsDoc): Promise<JsonObject> }, jobId: string, patch: Partial<RunRef> | null): Promise<void> {
+	const doc = await tx.doc(BackgroundRunsDoc);
+	const runs = { ...((doc.runs ?? {}) as JsonObject) } as JsonObject;
+	if (patch === null) delete runs[jobId];
+	else runs[jobId] = { ...(runs[jobId] as JsonObject), ...patch } as JsonObject;
+	// Assign LAST: the draft materializes the value at assignment, so a
+	// mutation after it would be lost.
+	doc.runs = runs;
+}
+
 async function updateIndex(runtime: ChatRuntime, jobId: string, patch: Partial<RunRef> | null): Promise<void> {
-	await runtime.harness.commit(async (tx) => {
-		const doc = await tx.doc(BackgroundRunsDoc);
-		const runs = { ...((doc.runs ?? {}) as JsonObject) } as JsonObject;
-		if (patch === null) delete runs[jobId];
-		else runs[jobId] = { ...(runs[jobId] as JsonObject), ...patch } as JsonObject;
-		// Assign LAST: the draft materializes the value at assignment, so a
-		// mutation after it would be lost.
-		doc.runs = runs;
-	}, BACKGROUND_CONTEXT);
+	await runtime.harness.commit((tx) => patchRunRef(tx, jobId, patch), BACKGROUND_CONTEXT);
 }
 
 function agentChange(descriptor: RunDescriptor, extension: Extension | null): AgentChange {
@@ -431,10 +414,7 @@ async function ensureRun(
 		const doc = await tx.doc(BackgroundRunDoc, created.id);
 		Object.assign(doc, descriptor);
 		(await tx.doc(UsageDoc, created.id)).models = {};
-		const runsDoc = await tx.doc(BackgroundRunsDoc);
-		const runs = { ...((runsDoc.runs ?? {}) as JsonObject) } as JsonObject;
-		runs[request.jobId] = { ...ref, conversationId: created.id } as unknown as JsonObject;
-		runsDoc.runs = runs;
+		await patchRunRef(tx, request.jobId, { ...ref, conversationId: created.id });
 		ref.conversationId = created.id;
 		return created.id;
 	}, BACKGROUND_CONTEXT);
@@ -475,7 +455,7 @@ function installRun(
 	request: BackgroundRunRequest | undefined,
 ): Extension {
 	bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request));
+	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request ?? {}));
 	runtime.registry.install(extension);
 	return extension;
 }
@@ -503,15 +483,15 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		const model = modelKey(engine.model.provider, engine.model.id);
 		let emittedSteps = 0;
 		const reportProgress = async () => {
-			await foldUsage(conversation, model, request.onUsage ?? (() => undefined)).catch(() => undefined);
-			if (!request.onStep) return;
-			const steps = runSteps(await readConversationEntries(conversation)).slice(emittedSteps);
-			for (const step of steps) request.onStep(step);
-			emittedSteps += steps.length;
+			const steps = runSteps(await readConversationEntries(conversation));
+			const usage = foldUsage(steps, model);
+			if (usage) request.onUsage?.(usage);
+			for (const step of steps.slice(emittedSteps)) request.onStep?.(step);
+			emittedSteps = steps.length;
 		};
 		usageWatch = await runtime.harness.watchDoc(UsageDoc, conversation.id, BACKGROUND_CONTEXT);
 		usageWatch?.start(async () => {
-			await reportProgress();
+			await reportProgress().catch((error: unknown) => console.error(`[run ${request.jobId}] progress report failed:`, error));
 		});
 		await reportProgress();
 		const submission: Submission = await conversation.submit(

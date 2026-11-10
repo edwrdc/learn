@@ -22,7 +22,7 @@
 import { tokensForChars } from "../platform/model/index.ts";
 import { firstLineById } from "../graph/model/index.ts";
 import { processState } from "../platform/model/index.ts";
-import { ConversationBusy, LiveDoc, type EntryRecord } from "@earendil-works/pi-durable";
+import { ConversationBusy, LiveDoc, type EntryRecord, type Submission } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { modelSnapshot, readJson, type ModelSnapshot, type PiEngine } from "../platform/index.ts";
 import {
@@ -31,10 +31,11 @@ import {
 	noteSteerVisible,
 	repumpSteers,
 	settleSteers,
+	type JobRunner,
 } from "../jobs/index.ts";
+import type { ExtractionPipeline } from "../graph/index.ts";
 import { providerEventNote } from "../platform/index.ts";
 import { effectiveSettings, stores } from "../stores.ts";
-import { services } from "../boot.ts";
 import { modelKey, modelsNotConfigured, resolveConversationSpec, type EffectiveSettings } from "../settings/model/index.ts";
 import { beginTurn, endTurn, noteTurnSettled } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
@@ -122,12 +123,52 @@ function compactionDeps(profile: TurnProfile): CompactionDeps {
 	};
 }
 
+/** What turns need from the app (boot passes its own services object, so a
+ *  test that flips `upkeep` on it reaches the turns too). */
+export interface TurnServices {
+	jobRunner: Pick<JobRunner, "runJob">;
+	extraction: ExtractionPipeline;
+	upkeep: boolean;
+}
+
+function turnServicesSlot(): { services?: TurnServices } {
+	return processState("turnServices", () => ({}));
+}
+
+export function configureTurns(services: TurnServices): void {
+	turnServicesSlot().services = services;
+}
+
+function turnServices(): TurnServices {
+	const services = turnServicesSlot().services;
+	if (!services) throw new Error("turns are not configured: call boot() at process start");
+	return services;
+}
+
 /** A committed app marker is its steer's visibility moment (the delivery
  *  bookkeeping seam shared by the live turn and a recovered one). */
 function noteTurnEntry(chatId: string, entry: EntryRecord): void {
 	const message = (entry.data as { message?: LhMessage } | undefined)?.message;
 	if (message?.role !== "custom") return;
 	markSteerDelivered(chatId, message as SteerMessage);
+}
+
+/** Run an admitted turn's view and register its handle — the live turn and
+ *  a recovered one alike. The view starts after the admission boundary (an
+ *  entry id, not a count: compaction's head marker makes the active view a
+ *  suffix of the full history), so earlier replies are never resent. */
+function attachTurn(runtime: ChatRuntime, submission: Submission | undefined, turn: ForegroundTurn, entries: readonly EntryRecord[]): void {
+	const replayAfter = turn.baseEntryCount > 0 ? entries[turn.baseEntryCount - 1]?.id : undefined;
+	registerTurn(
+		runtime.chatId,
+		runDurableTurn({
+			runtime,
+			submission,
+			replayAfter,
+			onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
+			onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
+		}),
+	);
 }
 
 /** Rebuild and reattach a foreground turn that outlived its process. The
@@ -149,9 +190,6 @@ export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (mod
 	if (!admitted) return;
 	const live = await runtime.harness.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT);
 	const entries = await readEntries(runtime);
-	// The view boundary is an entry id, not a count: compaction's head marker
-	// makes the active view a suffix of the full history readEntries returns.
-	const replayAfter = turn.baseEntryCount > 0 ? entries[turn.baseEntryCount - 1]?.id : undefined;
 	// A queued submission has not reached the transcript yet: the scheduler's
 	// boundary runs it after resume, so its extension must be installed too.
 	if (live?.run || admitted.status === "queued") {
@@ -178,16 +216,7 @@ export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (mod
 	const ownsClaim = beginTurn(runtime.chatId);
 	let handedOff = false;
 	try {
-		registerTurn(
-			runtime.chatId,
-			runDurableTurn({
-				runtime,
-				submission,
-				replayAfter,
-				onEntry: (entry) => noteTurnEntry(runtime.chatId, entry),
-				onFinish: () => settleForegroundTurn(runtime, runtime.chatId, turn),
-			}),
-		);
+		attachTurn(runtime, submission, turn, entries);
 		handedOff = true;
 	} finally {
 		if (ownsClaim && !handedOff) endTurn(runtime.chatId);
@@ -234,17 +263,11 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 		const before = projectEntries(entries.slice(0, turn.baseEntryCount));
 		settleSteers(chatId, after);
 		await appendPlanBlocks(stores.chatStore, chatId, before, after);
-		const effective = effectiveSettings();
-		const record = await stores.chatStore.getChat(chatId);
-		// GRAPH GATE: the write channel dies with the master switch; practice
-		// sessions write nothing (v1: the session is the deliverable).
-		if (services().upkeep && record !== null && record.kind !== "practice" && effective.graph.enabled) {
-			await triggerExtraction(stores, services().extraction, chatId, effective.graph.extractionChunkTokens);
-		}
+		if (turnServices().upkeep) await triggerExtraction(stores, turnServices().extraction, chatId);
 		// PARKED DISMISSAL: a dismissal that arrived
 		// mid-turn was parked by the dismiss route; apply it against the
 		// settled record now.
-		if (await applyParkedDismissal(chatId)) await stores.chatStore.touchChat(chatId);
+		await applyParkedDismissal(chatId);
 		await markTurnSettled(runtime, turn.turnId);
 	} catch (error) {
 		// The mark stays "settling": the next open re-runs these idempotent
@@ -261,7 +284,7 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// THE SETTLE KICK: if the projection is now over
 	// threshold, the summary starts in the background INSIDE the learner's
 	// reading/answering pause.
-	if (services().upkeep)
+	if (turnServices().upkeep)
 		kickCompaction(async () => {
 			const fresh = effectiveSettings();
 			const current = await stores.chatStore.getChat(chatId);
@@ -308,7 +331,7 @@ function conversationDeps(turn?: ChatTurnInjection): ConversationDeps {
 		chatStore: stores.chatStore,
 		graphStore: stores.graphStore,
 		jobStore: stores.jobStore,
-		spawn: (job, jobInput) => void services().jobRunner.runJob(job.id, jobInput),
+		spawn: (job, jobInput) => void turnServices().jobRunner.runJob(job.id, jobInput),
 		deliver: (chatId, steer) => void deliverJobResult(chatId, steer as SteerMessage),
 		graphNodes: () => firstLineById(stores.graphStore.readNodes()).map((node) => ({ id: node.id, name: node.name })),
 		...turn?.deps,
@@ -363,7 +386,7 @@ export async function handleChatInput(
 		// for this chat interleaves with a running compaction — await the settle
 		// kick's summary, compact synchronously if still over threshold. The
 		// record re-reads after because compaction appends the marker.
-		if (services().upkeep) {
+		if (turnServices().upkeep) {
 			await ensureCompacted(compactionDeps(turnProfile(chatPhase(record.messages, record.kind), engine, effective)), chatId);
 		}
 		record = (await stores.chatStore.getChat(chatId)) ?? record;
@@ -465,9 +488,6 @@ export async function handleChatInput(
 			const admittedEntries = await readEntries(runtime);
 			const baseEntryCount = admittedEntries.length;
 			const baseMessages = projectEntries(admittedEntries);
-			// The live view starts at the admission boundary, exactly like recovery:
-			// replaying the whole chat would resend every earlier reply and tool round.
-			const replayAfter = baseEntryCount > 0 ? admittedEntries[baseEntryCount - 1]!.id : undefined;
 			const profile = turnProfile(chatPhase(baseMessages, record.kind), engine, effective);
 			// The durable admission descriptor: everything a later process needs to
 			// rebuild this turn's finish path (see turn-service's ForegroundTurn).
@@ -517,17 +537,9 @@ export async function handleChatInput(
 				return Response.json({ error: "Failed to start the turn" }, { status: 500 });
 			}
 
-			const handle = runDurableTurn({
-				runtime,
-				submission,
-				replayAfter,
-				onEntry: (entry) => noteTurnEntry(chatId, entry),
-				onFinish: () => settleForegroundTurn(runtime, chatId, admission),
-			});
-			// The turn is now a live background object: register it so any view can
-			// reattach (GET /api/chats/[id]/stream) or remotely abort it
-			// (POST /api/activity/abort, kind "turn").
-			registerTurn(chatId, handle);
+			// The turn is now a live background object any view can reattach to
+			// (GET /api/chats/[id]/stream) or remotely abort.
+			attachTurn(runtime, submission, admission, admittedEntries);
 			handedOff = true;
 			// A submission that faults after admission must never go unobserved: the
 			// view's wait settles on the same scope, but the error is logged here.

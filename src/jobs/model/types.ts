@@ -245,17 +245,17 @@ export interface SteerDetails extends SubagentResultMeta {
  *  with the target's details updated — no-op (same array) when the message
  *  is missing or not an invertible artifact steer. The silent route's
  *  whole body. */
+/** The demo/figure steer with its invert switch set, or null when the id
+ *  names no demo/figure steer. */
 export function setSteerUiInverted(
 	messages: readonly LhMessage[],
 	messageId: string,
 	inverted: boolean,
-): LhMessage[] {
-	return messages.map((m) => {
-		if (m.id !== messageId) return m;
-		const d = (m as LhMarkerMessage).details as Partial<SteerDetails> | undefined;
-		if (!d || (d.kind !== "demo" && d.kind !== "visual")) return m;
-		return { ...m, details: { ...d, ui: { ...d.ui, inverted } } } as LhMessage;
-	});
+): LhMessage | null {
+	const m = messages.find((message) => message.id === messageId);
+	const d = (m as LhMarkerMessage | undefined)?.details as Partial<SteerDetails> | undefined;
+	if (!m || !d || (d.kind !== "demo" && d.kind !== "visual")) return null;
+	return { ...m, details: { ...d, ui: { ...d.ui, inverted } } } as LhMessage;
 }
 
 /** Anything the wake pipeline may queue and deliver — a native marker. */

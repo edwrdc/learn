@@ -72,8 +72,7 @@ describe("feature import rules", () => {
 		}
 	});
 
-	it("ignores the private .agents assets and stale Next builds", async () => {
+	it("ignores the private .agents assets", async () => {
 		assert.equal(await eslint.isPathIgnored(".agents/skills/private/SKILL.md"), true);
-		assert.equal(await eslint.isPathIgnored(".next/server/chunks/stale.js"), true);
 	});
 });

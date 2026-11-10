@@ -20,7 +20,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { GRAPH_FORMAT_FILE } from "../platform/index.ts";
+import { GRAPH_FORMAT_FILE } from "./files.ts";
 import { CURRENT_GRAPH_FORMAT_VERSION } from "./model/types.ts";
 
 function stampedVersion(): number | null {
