@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from "svelte";
-	import { backdropDismiss } from "$lib/backdrop";
-	import { dismissLayer } from "./layer";
+	import { modalLayer } from "./layer";
 
 	/** A destructive confirmation: a title, a body, a failure line with a
 	 *  retry, and Cancel / the action. Test ids derive from `ids`
@@ -13,6 +12,7 @@
 		title,
 		action = "Delete",
 		busy,
+		busyLabel,
 		failure,
 		onConfirm,
 		onClose,
@@ -24,16 +24,16 @@
 		title: string;
 		action?: string;
 		busy: boolean;
+		/** The action button's label while `busy` ("Deleting…"). */
+		busyLabel: string;
 		failure: string | null;
 		onConfirm: () => void;
 		onClose: () => void;
 		children: Snippet;
 	} = $props();
-
-	$effect(() => dismissLayer(onClose, { clickOutside: false }));
 </script>
 
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {@attach backdropDismiss(() => { if (!busy) onClose(); })}>
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {@attach modalLayer(onClose, () => { if (!busy) onClose(); })}>
 	<div role="dialog" aria-modal="true" aria-label={label} data-testid={testid} tabindex={-1} class="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl">
 		<h2 class="text-sm font-semibold text-destructive">{title}</h2>
 		{@render children()}
@@ -45,7 +45,7 @@
 		{/if}
 		<div class="mt-4 flex justify-end gap-2">
 			<button type="button" data-testid="{ids}-cancel" onclick={onClose} disabled={busy} class="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">Cancel</button>
-			<button type="button" data-testid="{ids}-confirm" onclick={onConfirm} disabled={busy} class="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? "Deleting…" : action}</button>
+			<button type="button" data-testid="{ids}-confirm" onclick={onConfirm} disabled={busy} class="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? busyLabel : action}</button>
 		</div>
 	</div>
 </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ConfirmDialog from "$lib/ui/ConfirmDialog.svelte";
 	import { deleteGraphNode } from "$lib/api/graph";
-	import { ApiError } from "$lib/api/http";
+	import { ApiError, failureMessage } from "$lib/api/http";
 	import { deleteFailureLine } from "./delete-node";
 
 	let {
@@ -37,10 +37,10 @@
 			}
 			onDeleted(dead, revision);
 		} catch (error) {
-			failure =
-				error instanceof ApiError
-					? { code: error.body?.code ?? "error", error: error.message }
-					: { code: "network", error: "Delete failed — network error. Try again." };
+			failure = {
+				code: error instanceof ApiError ? (error.body?.code ?? "error") : "network",
+				error: failureMessage(error, "Delete failed — network error. Try again."),
+			};
 			busy = false;
 			if (dead.length > 0) onDeleted(dead, revision);
 		}
@@ -54,6 +54,7 @@
 		ids="node-delete"
 		title={nodes.length === 1 ? "Delete node?" : `Delete ${nodes.length} nodes?`}
 		{busy}
+		busyLabel="Deleting…"
 		failure={failure ? deleteFailureLine(failure) : null}
 		onConfirm={() => void run()}
 		{onClose}

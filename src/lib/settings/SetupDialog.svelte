@@ -1,21 +1,18 @@
 <script lang="ts">
-	import { dismissLayer } from "$lib/ui/layer";
-	import { saveKey as putKey } from "$lib/api/settings";
-	import { ApiError } from "$lib/api/http";
+	import { dismissLayer, modalLayer } from "$lib/ui/layer";
+	import { ApiError, failureMessage } from "$lib/api/http";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import { keys } from "$lib/state/keys.svelte";
+	import { keys, saveKey as storeKey } from "$lib/state/keys.svelte";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import type { AuthProviderInfo, ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { prettyModel } from "$lib/format";
-	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
-	import { emitAppEvent } from "$lib/events";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
-	import { populateLevel, THINKING_LABEL } from "./compose";
+	import { populateLevel, thinkingLabel } from "./compose";
 	import { prefillFromSlots, prefillLevelFromPin, setupStage, SLOT_META, SLOT_ORDER } from "./setup";
 	import { focusOnMount } from "$lib/dom";
 
@@ -66,10 +63,6 @@
 	});
 
 	$effect(() => {
-		if (!open) return;
-		return dismissLayer(onClose, { clickOutside: false });
-	});
-	$effect(() => {
 		if (!keyMenu) return;
 		return dismissLayer(() => (keyMenu = false), { inside: () => [keyAnchor], menus: true });
 	});
@@ -84,16 +77,15 @@
 		keySaving = true;
 		keyError = null;
 		try {
-			await putKey(keyProvider.envVar, keyValue);
+			await storeKey(keyProvider.envVar, keyValue);
 		} catch (err) {
-			keyError = err instanceof ApiError ? err.message : "Save failed. Check your connection and try again.";
+			keyError = failureMessage(err, "Save failed. Check your connection and try again.");
 			return;
 		} finally {
 			keySaving = false;
 		}
 		keyProvider = null;
 		keyValue = "";
-		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function save() {
@@ -123,7 +115,7 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
 		data-testid="setup-backdrop"
-		{@attach backdropDismiss(onClose)}
+		{@attach modalLayer(onClose)}
 	>
 		<div
 			role="dialog"
@@ -216,7 +208,7 @@
 								</div>
 								<div class="relative">
 									<button bind:this={triggers[`thinking-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} thinking`} data-testid={`setup-thinking-${slot}`} aria-expanded={openMenu?.slot === slot && openMenu.kind === "thinking"} disabled={!entry} onclick={() => (openMenu = openMenu?.slot === slot && openMenu.kind === "thinking" ? null : { slot, kind: "thinking" })} class="flex h-7 w-24 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-40">
-										<span class="min-w-0 flex-1 truncate text-left">{entry ? (level ? THINKING_LABEL[level] ?? level : "…") : "—"}</span>
+										<span class="min-w-0 flex-1 truncate text-left">{entry ? (level ? thinkingLabel(level) : "…") : "—"}</span>
 										<span aria-hidden="true" class="text-muted-foreground">▾</span>
 									</button>
 									{#if openMenu?.slot === slot && openMenu.kind === "thinking"}

@@ -34,3 +34,9 @@ export const getJson = <T>(url: string, init?: RequestInit) => call<T>("GET", ur
 export const postJson = <T>(url: string, body?: unknown) => call<T>("POST", url, body);
 export const putJson = <T>(url: string, body: unknown) => call<T>("PUT", url, body);
 export const deleteJson = <T>(url: string) => call<T>("DELETE", url);
+
+/** A refused request shows the server's reason; anything else (the
+ *  network, a bug) shows the caller's fallback. */
+export function failureMessage(err: unknown, fallback: string): string {
+	return err instanceof ApiError ? err.message : fallback;
+}

@@ -17,7 +17,9 @@ export function buttonKeepsNativeEnter(el: HTMLElement): boolean {
 export function enterSubmits(submit: () => void) {
 	return (node: HTMLElement) => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Enter") return;
+			// A handler nearer the target already took this Enter (the
+			// question dock's highlighted-row submit).
+			if (event.key !== "Enter" || event.defaultPrevented) return;
 			if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
 			if (isTypingSurface(event)) return;
 			const target = event.target as HTMLElement | null;

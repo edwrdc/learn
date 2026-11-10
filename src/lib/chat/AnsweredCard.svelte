@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { answerForPresentation, parseAskInput, parseQuizInput, type QuestionAnswerData } from "@/src/session/model";
-	import { toolInfo } from "@/src/tools/model";
+	import { questionLabel } from "./question-label";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import ConfidenceRail from "./ConfidenceRail.svelte";
 	import GlyphMark from "./GlyphMark.svelte";
@@ -34,7 +34,7 @@
 	{/if}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground [&>*:last-child]:mb-0" data-testid="answered-card">
 		<div class="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-			{toolInfo(answer.tool ?? "")?.title ?? (isQuiz ? (answer.questionType === "predict" ? "Prediction" : "Check") : isExplain ? "Explain" : "Question")}
+			{questionLabel(answer.tool, answer.kind, answer.questionType)}
 			{#if isQuiz}
 				{#if answer.dontKnow}
 					<span class="rounded bg-muted px-1.5 py-0.5">didn't know</span>

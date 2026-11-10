@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import { dismissLayer } from "$lib/ui/layer";
 	import { now } from "$lib/state/now.svelte";
 	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
 	import { FileText, ListTree, Loader2, Search, Settings, Waypoints } from "@lucide/svelte";
-	import { incrementalLayout, type ExtractionRunView, type GraphNode } from "@/src/graph/model";
+	import { incrementalLayout, type GraphNode } from "@/src/graph/model";
 	import { ARROW_LENGTH_LADDER, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, EDGE_WIDTH_LADDER, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, NODE_SIZE_LADDER, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, labelZoomDisplay, sanitizeRenderSettings, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphRenderSettings } from "@/src/settings/model";
 	import { chatHref, propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
 	import { GraphCanvasRenderer } from "./graph-canvas.ts";
@@ -12,24 +11,17 @@
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
 	import { serverEvents } from "$lib/state/server-events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import { fetchExtractionRuns, fetchGraphCosts, savePositions } from "$lib/api/graph";
-	import { graphSnapshot } from "$lib/state/graph.svelte";
-	import { saveSettingsSection } from "$lib/api/settings";
+	import { savePositions } from "$lib/api/graph";
+	import { extractionRuns, graphCosts, graphSnapshot } from "$lib/state/graph.svelte";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import { formatTokens } from "$lib/format";
 	import { goto } from "$app/navigation";
-	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 	import NotesImport from "./NotesImport.svelte";
 
 
-	let { chainSelectOpen = false, practiceSelection, onPracticeSelectionChange, onChainSelectClose }: {
-		chainSelectOpen?: boolean;
-		practiceSelection?: ReadonlySet<string>;
-		onPracticeSelectionChange?: (nodes: GraphContextPick[]) => void;
-		onChainSelectClose?: () => void;
-	} = $props();
+	let { onOpenChains }: { onOpenChains: () => void } = $props();
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
@@ -44,12 +36,11 @@
 	let rendererReady = $state(false);
 	let fitted = false;
 	let positions: Map<string, { x: number; y: number }> | null = null;
-	let chainsOpen = $state(false);
 	let ctxNode = $state<{ id: string; name: string; x: number; y: number } | null>(null);
 	let ctxAnchor = $state<HTMLDivElement | null>(null);
 	let deleting = $state<{ id: string; name: string }[] | null>(null);
-	let pipelineRuns = $state<ExtractionRunView[]>([]);
-	let costs = $state<GraphCostSummary | null>(null);
+	const pipelineRuns = $derived(extractionRuns.value ?? []);
+	const costs = $derived(graphCosts.value ?? null);
 	let searchInput = $state<HTMLInputElement | null>(null);
 	let costOpen = $state(false);
 	let settingsOpen = $state(false);
@@ -57,7 +48,6 @@
 	let settingsAnchor = $state<HTMLDivElement | null>(null);
 	let rowIds = new Set<string>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
-	let statusDebounce: ReturnType<typeof setTimeout> | undefined;
 
 	const isEmpty = $derived(snapshot === null || snapshot.nodes.length === 0);
 	const visibleIds = $derived.by(() => {
@@ -84,78 +74,43 @@
 	}
 
 
-	async function readCosts() {
-		try {
-			costs = await fetchGraphCosts();
-		} catch (error) {
-			console.error("[graph] costs load failed:", error);
-		}
-	}
-	async function readStatus() {
-		try {
-			const runs = await fetchExtractionRuns();
-			pipelineRuns = runs;
-			const ids = new Set(runs.map((run) => run.id));
-			if ([...rowIds].some((id) => !ids.has(id))) void graphSnapshot.refresh();
-			rowIds = ids;
-		} catch (error) {
-			console.error("[graph] status load failed:", error);
-		}
-	}
 	function changeSettings(update: (current: GraphRenderSettings) => GraphRenderSettings) {
 		const next = update(settings);
 		localRender = next;
 		clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => {
-			saveSettingsSection("graphRender", next)
-				.then((record) => userSettings.set(record))
-				.catch((error) => console.error("[graph] display settings not saved:", error));
+			userSettings.save("graphRender", next).catch((error) => console.error("[graph] display settings not saved:", error));
 		}, 400);
-	}
-
-	function dispatchCostsRefresh() {
-		if ([...rowIds].some((id) => !pipelineRuns.some((run) => run.id === id))) void readCosts();
 	}
 
 	function openSession(id: string) {
 		void goto(chatHref(id));
 	}
 
+	// A run that finished (left the list) changed the graph: reload it now,
+	// never mid-run, so a drag is not interrupted.
 	$effect(() => {
-		if (chainSelectOpen) chainsOpen = true;
+		const ids = new Set(pipelineRuns.map((run) => run.id));
+		if ([...rowIds].some((id) => !ids.has(id))) {
+			void graphSnapshot.refresh();
+			void graphCosts.refresh();
+		}
+		rowIds = ids;
 	});
 
 	$effect(() => {
-		void readStatus();
-		void readCosts();
-		const offs = [
-			serverEvents.subscribe("activity-changed", () => {
-				clearTimeout(statusDebounce);
-				statusDebounce = setTimeout(() => void readStatus(), 250);
-			}),
-			serverEvents.onResync(() => {
-				void readStatus();
-				void graphSnapshot.refresh();
-			}),
-		];
-		const onRevision = () => void readCosts();
+		const offs = [serverEvents.onResync(() => void graphSnapshot.refresh())];
 		const onRenamed = (detail: { id: string; title: string }) => {
 			if (!snapshot) return;
 			renameSessionsPatch(snapshot, detail.id, detail.title);
 			renderer?.setClusterLabels(new Map([[detail.id, detail.title]]));
 		};
 		const onFind = () => searchInput?.focus();
-		offs.push(onAppEvent("graph-revision", onRevision), onAppEvent("chat-renamed", onRenamed), onKeyAction("find", onFind));
+		offs.push(onAppEvent("chat-renamed", onRenamed), onKeyAction("find", onFind));
 		return () => {
 			for (const off of offs) off();
-			clearTimeout(statusDebounce);
 			clearTimeout(saveTimer);
 		};
-	});
-
-	$effect(() => {
-		void pipelineRuns;
-		dispatchCostsRefresh();
 	});
 
 	$effect(() => {
@@ -345,11 +300,11 @@
 					{/if}
 				</div>
 				<div class="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-					<button type="button" onclick={() => (chainsOpen = true)} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
+					<button type="button" onclick={onOpenChains} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
 				</div>
 			{/if}
 			<div class="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<NotesImport onFinished={() => { void graphSnapshot.refresh(); void readCosts(); }} />
+				<NotesImport onFinished={() => { void graphSnapshot.refresh(); void graphCosts.refresh(); }} />
 			</div>
 			{#if !isEmpty}
 				<div class="graph-chrome-fade-in shrink-0">
@@ -447,18 +402,4 @@
 			{/if}
 		</div>
 	{/if}
-
-	<ChainTableOverlay
-		open={chainsOpen && !isEmpty}
-		nodes={snapshot?.propositions ?? []}
-		chains={snapshot?.chains ?? []}
-		sessions={snapshot?.sessions ?? {}}
-		fileSources={snapshot?.fileSources ?? {}}
-		onClose={() => { chainsOpen = false; onChainSelectClose?.(); }}
-		selectMode={chainSelectOpen}
-		controlledSelection={practiceSelection}
-		onSelectionChange={(ids) => {
-			onPracticeSelectionChange?.(picksFor(ids, snapshot?.propositions ?? []));
-		}}
-	/>
 </div>

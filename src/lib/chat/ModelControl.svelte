@@ -8,28 +8,22 @@
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { onKeyAction } from "$lib/events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import { fetchChat, saveChatSettings } from "$lib/api/chats";
-	import { ApiError } from "$lib/api/http";
-	import { composeSlotModel, defaultOrderLevel, populateLevel, THINKING_LABEL } from "$lib/settings/compose";
+	import { saveChatSettings } from "$lib/api/chats";
+	import { failureMessage } from "$lib/api/http";
+	import { composeSlotModel, defaultOrderLevel, populateLevel, thinkingLabel } from "$lib/settings/compose";
 	import type { ChatSettings } from "@/src/session/model";
 	import type { ModelCatalogEntry, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
-	let { chatId }: { chatId?: string } = $props();
+	/** `chatSettings`: the chat record's own settings (a chat view only). */
+	let { chatId, chatSettings }: { chatId?: string; chatSettings?: ChatSettings } = $props();
 
 	const models = $derived(userSettings.record?.models);
-	let session = $state<ChatSettings | undefined>(undefined);
+	// A save adopts what the write returned until the record reloads.
+	let session = $derived(chatSettings);
 	let open = $state<"model" | "thinking" | null>(null);
 	let error = $state<string | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
-
-	$effect(() => {
-		if (!chatId) return;
-		const id = chatId;
-		fetchChat(id)
-			.then((record) => (session = record.settings))
-			.catch((err) => console.error(`[chat ${id}] model settings load failed:`, err));
-	});
 
 	const strong = $derived(models?.strong);
 	const override = $derived<ChatSettings | undefined>(
@@ -51,7 +45,7 @@
 
 	/** A refused write shows the server's reason; anything else is the network. */
 	function showFailure(err: unknown) {
-		error = err instanceof ApiError ? err.message : "Could not reach the server — try again.";
+		error = failureMessage(err, "Could not reach the server — try again.");
 	}
 
 	async function save(next: ModelsSettings) {
@@ -132,7 +126,7 @@
 		{@attach hint("Thinking", { action: "cycle-thinking", side: "bottom" })}
 		class="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
 	>
-		<span class="text-card-foreground">{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}</span>
+		<span class="text-card-foreground">{effectiveLevel === undefined ? "—" : thinkingLabel(effectiveLevel)}</span>
 		<span aria-hidden="true" class="text-xs text-muted-foreground">▾</span>
 	</button>
 

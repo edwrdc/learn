@@ -3,9 +3,14 @@ import type { KeyAction } from "@/src/settings/model";
 import type { SearchEngineId } from "@/src/tools/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
-export const THINKING_LABEL: Record<string, string> = {
+const THINKING_LABEL: Record<string, string> = {
 	off: "off", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max",
 };
+
+/** A thinking level's display label (an unknown level shows as itself). */
+export function thinkingLabel(level: string): string {
+	return THINKING_LABEL[level] ?? level;
+}
 
 export function defaultOrderLevel(supported: readonly ThinkingLevel[]): ThinkingLevel {
 	for (const level of DEFAULT_THINKING_ORDER) {

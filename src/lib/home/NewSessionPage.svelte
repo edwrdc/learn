@@ -139,10 +139,7 @@
 			</div>
 			<ChainTableOverlay
 				open={pickerOpen}
-				nodes={snapshot?.propositions ?? []}
-				chains={snapshot?.chains ?? []}
-				sessions={snapshot?.sessions ?? {}}
-				fileSources={snapshot?.fileSources ?? {}}
+				{snapshot}
 				onClose={() => (pickerOpen = false)}
 				selectMode
 				controlledSelection={new Set(picks.map((pick) => pick.id))}

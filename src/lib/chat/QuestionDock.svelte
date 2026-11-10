@@ -7,6 +7,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 	import { enterSubmits } from "$lib/ui/enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
+	import { questionLabel } from "./question-label";
 	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import { cn } from "$lib/utils";
@@ -268,7 +269,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 			<div bind:this={root} data-testid="question-dock" {@attach enterSubmits(submit)}>
 				<div data-session-find-root="" class="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 					<div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : kind === "quiz" ? (qd.questionType === "predict" ? "Prediction" : "Check") : kind === "explain" ? "Explain" : "Question"}
+						{questionLabel(toolName, kind, qd.questionType)}
 						{qd.mode === "multi-select" ? " · select all that apply" : ""}
 					</div>
 					<div class="mb-3 font-medium"><Markdown text={qd.question} tool /></div>

@@ -2,7 +2,7 @@
 import { untrack } from "svelte";
 	import { tick, type Snippet } from "svelte";
 	import { ArrowDown } from "@lucide/svelte";
-	import type { Phase3, TurnUsage } from "@/src/session/model";
+	import type { ChatSettings, Phase3, TurnUsage } from "@/src/session/model";
 	import type { QuestionToolName } from "@/src/tools/model";
 	import { dockStateKey } from "$lib/chat/dock-state-key.ts";
 	import type { SteerQueueItem } from "$lib/chat/session-core.ts";
@@ -26,6 +26,7 @@ import { untrack } from "svelte";
 		phase,
 		turns,
 		chatId,
+		chatSettings,
 		composer,
 		onSubmitAnswer,
 		onSubmitThinking,
@@ -47,6 +48,7 @@ import { untrack } from "svelte";
 		phase: Phase3;
 		turns: TurnUsage[];
 		chatId: string;
+		chatSettings: ChatSettings | undefined;
 		composer: Snippet;
 		onSubmitAnswer: (output: QuestionAnswerData) => void;
 		onSubmitThinking: (text: string) => void;
@@ -337,7 +339,7 @@ import { untrack } from "svelte";
 					{/if}
 				</div>
 			</div>
-			<StatsBar {turns} chatId={chatId} {dictationSlot} />
+			<StatsBar {turns} {chatId} {chatSettings} {dictationSlot} />
 			{#if !stick.isAtBottom}
 				<button
 					type="button"

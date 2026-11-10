@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type GraphContextPick } from "@/src/session/model";
+	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { plural } from "$lib/format";
 	import { onMount } from "svelte";
@@ -13,6 +13,8 @@
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import GraphView from "./GraphView.svelte";
 	import MinimalHome from "./MinimalHome.svelte";
+	import ChainTableOverlay from "./ChainTableOverlay.svelte";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
 	import { needsSetup, noProviderKey } from "$lib/state/keys.svelte";
 	import { settings } from "$lib/state/settings.svelte";
@@ -28,6 +30,8 @@
 	let mode = $state<"teach" | "practice">("teach");
 	let practiceProps = $state<GraphContextPick[]>([]);
 	let chainSelectOpen = $state(false);
+	let chainsOpen = $state(false);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 
 	const dictation = new DictationController((value) => applyTopic(joinDictation(topicMirror, value)));
 
@@ -69,20 +73,21 @@
 
 	<main class="absolute inset-0">
 		{#if rendering}
-			<GraphView
-				{chainSelectOpen}
-				practiceSelection={new Set(practiceProps.map((p) => p.id))}
-				onPracticeSelectionChange={(nodes) => (practiceProps = nodes)}
-				onChainSelectClose={() => (chainSelectOpen = false)}
-			/>
+			<GraphView onOpenChains={() => (chainsOpen = true)} />
 		{:else}
-			<MinimalHome
-				{chainSelectOpen}
-				practiceSelection={new Set(practiceProps.map((p) => p.id))}
-				onPracticeSelectionChange={(nodes) => (practiceProps = nodes)}
-				onChainSelectClose={() => (chainSelectOpen = false)}
-			/>
+			<MinimalHome onOpenChains={() => (chainsOpen = true)} />
 		{/if}
+		<ChainTableOverlay
+			open={(chainsOpen || chainSelectOpen) && (snapshot?.propositions.length ?? 0) > 0}
+			{snapshot}
+			onClose={() => {
+				chainsOpen = false;
+				chainSelectOpen = false;
+			}}
+			selectMode={chainSelectOpen}
+			controlledSelection={new Set(practiceProps.map((p) => p.id))}
+			onSelectionChange={(ids) => (practiceProps = picksFor(ids, snapshot?.propositions ?? []))}
+		/>
 	</main>
 
 	<header class="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
@@ -126,7 +131,7 @@
 					<CornerDownLeft class="size-5" />
 				</button>
 			</form>
-			<StatsBar turns={[] as TurnUsage[]} chatId={undefined}>
+			<StatsBar turns={[] as TurnUsage[]}>
 				{#snippet dictationSlot()}<DictationBar {dictation} />{/snippet}
 				{#snippet leadingSlot()}
 					<div class="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">

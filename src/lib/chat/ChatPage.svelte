@@ -243,13 +243,13 @@
 		}
 	}
 
+	/** Enter and blur both commit; the first one ends the edit, so the
+	 *  blur that follows an Enter (or an Escape) saves nothing. */
 	async function commitRename(next: string): Promise<void> {
+		if (!renaming) return;
 		renaming = false;
-		const value = next.trim();
-		if (!value || value === titleText) return;
 		try {
-			await renameSession(chatId, value);
-			titleText = value;
+			await renameSession(chatId, next, titleText);
 		} catch (error) {
 			console.error(`[chat ${chatId}] rename failed:`, error);
 		}
@@ -681,6 +681,7 @@
 					phase={phases.at(-1) ?? "probe"}
 					turns={sync.turns}
 					{chatId}
+					chatSettings={sync.settings}
 					{composer}
 					onSubmitAnswer={(output) => void submitAnswer(output)}
 					onSubmitThinking={submitThinking}
@@ -703,7 +704,7 @@
 			{#if planOpen}
 				<PlanPopup messages={messages} onClose={() => (planOpen = false)} />
 			{/if}
-			<AbortTurnDialog mode={abortAsk} onClose={() => (abortAsk = null)} onConfirm={confirmAbort} busy={busy} />
+			<AbortTurnDialog mode={abortAsk} onClose={() => (abortAsk = null)} onConfirm={confirmAbort} turnRunning={busy} />
 		</div>
 	</div>
 </div>

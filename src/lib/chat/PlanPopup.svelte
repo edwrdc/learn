@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { dismissLayer } from "$lib/ui/layer";
+	import { modalLayer } from "$lib/ui/layer";
 	import { X } from "@lucide/svelte";
 	import { derivedNodeStatus, derivePlanStatuses, type PlanNodeStatus } from "@/src/session/model";
 	import { hint } from "$lib/hint";
-	import { backdropDismiss } from "$lib/backdrop";
 	import PanZoomViewer from "$lib/ui/PanZoomViewer.svelte";
 	import PlanDiagram from "./PlanDiagram.svelte";
 	import { GLOW_REACH, blockLayout, latestTree, type PopupMessage } from "./plan-layout";
@@ -18,8 +17,6 @@
 	const statusOf = (id: string): PlanNodeStatus => (statuses ? derivedNodeStatus(statuses, id) : "upcoming");
 	const layout = $derived(tree ? blockLayout(tree.nodes, tree.edges) : null);
 	const box = $derived(layout ? { w: layout.width + 2 * POPUP_PAD, h: layout.height + 2 * POPUP_PAD } : null);
-
-	$effect(() => dismissLayer(onClose, { clickOutside: false }));
 </script>
 
 <div
@@ -29,7 +26,7 @@
 	aria-modal="true"
 	aria-label="The full plan"
 	tabindex={-1}
-	{@attach backdropDismiss(onClose)}
+	{@attach modalLayer(onClose)}
 >
 	<div class="mb-2 flex items-center gap-2">
 		<span class="text-sm font-medium">The plan</span>

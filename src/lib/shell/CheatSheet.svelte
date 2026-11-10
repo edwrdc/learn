@@ -1,23 +1,17 @@
 <script lang="ts">
-	import { dismissLayer } from "$lib/ui/layer";
+	import { modalLayer } from "$lib/ui/layer";
 	import { bindingForAction, formatBinding, KEYBOARD_ACTIONS } from "@/src/settings/model";
-	import { backdropDismiss } from "$lib/backdrop";
 	import { cheatSheet } from "$lib/state/dialogs.svelte";
 
 	const scopes = ["global", "chat", "graph"] as const;
 	const labels: Record<(typeof scopes)[number], string> = { global: "Global", chat: "Chat", graph: "Graph view" };
-
-	$effect(() => {
-		if (!cheatSheet.open) return;
-		return dismissLayer(() => (cheatSheet.open = false), { clickOutside: false });
-	});
 </script>
 
 {#if cheatSheet.open}
 	<div
 		data-testid="cheat-sheet"
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		{@attach backdropDismiss(() => (cheatSheet.open = false))}
+		{@attach modalLayer(() => (cheatSheet.open = false))}
 	>
 		<div
 			class="max-h-[80vh] w-full max-w-[36rem] overflow-y-auto rounded-xl border bg-card p-5 shadow-2xl"

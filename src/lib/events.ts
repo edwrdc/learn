@@ -4,7 +4,7 @@ import type { KeyAction } from "@/src/settings/model";
 
 /** The settings sections a save announces ("keys" covers keys and the
  *  custom endpoint's key). */
-export type SavedSection = "keys" | "agent" | "models" | "appearance" | "graph" | "compaction";
+export type SavedSection = "keys" | "agent" | "models" | "appearance" | "graph" | "graphRender" | "compaction";
 
 interface AppEvents {
 	"chat-renamed": { id: string; title: string };

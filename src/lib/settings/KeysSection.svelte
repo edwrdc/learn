@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
-	import { deleteKey as removeKey, saveKey as putKey } from "$lib/api/settings";
 	import { untrack } from "svelte";
 	import type { AuthProviderInfo } from "@/src/settings/model";
-	import { keys } from "$lib/state/keys.svelte";
+	import { keys, removeKey, saveKey as storeKey } from "$lib/state/keys.svelte";
 	import { classifyKeys, keyStatusLine } from "./keys";
-	import { emitAppEvent } from "$lib/events";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
@@ -55,12 +53,10 @@
 
 	async function saveKey(id: string, value: string): Promise<string | null> {
 		try {
-			await putKey(id, value);
+			await storeKey(id, value);
 		} catch (error) {
 			return error instanceof Error ? error.message : String(error);
 		}
-		await keys.refresh();
-		emitAppEvent("settings-saved", { section: "keys" });
 		return null;
 	}
 
@@ -70,10 +66,7 @@
 			await removeKey(id);
 		} catch (error) {
 			rowError = error instanceof Error ? error.message : String(error);
-			return;
 		}
-		await keys.refresh();
-		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function saveRow(id: string) {

@@ -3,8 +3,8 @@
 	import { plural } from "$lib/format";
 	import { emitAppEvent } from "$lib/events";
 	import { Dumbbell, ChevronDown, ChevronRight, ChevronUp, Folder, FolderOpen, Search, Trash2, X } from "@lucide/svelte";
-	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type ReasoningChain } from "@/src/graph/model";
-import { fuzzyScore } from "@/src/platform/model";
+	import { birthSessionOf, chainsForSelection, formatChainLine, type GraphNode, type GraphSnapshot, type ReasoningChain } from "@/src/graph/model";
+	import { fuzzyScore } from "@/src/platform/model";
 	import TopBar from "$lib/shell/TopBar.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 
@@ -12,20 +12,15 @@ import { fuzzyScore } from "@/src/platform/model";
 
 	let {
 		open,
-		nodes,
-		chains: storedChains,
-		sessions,
-		fileSources,
+		snapshot,
 		onClose,
 		selectMode = false,
 		controlledSelection,
 		onSelectionChange,
 	}: {
 		open: boolean;
-		nodes: GraphNode[];
-		chains: ReasoningChain[];
-		sessions: Record<string, string>;
-		fileSources: Record<string, string>;
+		/** The graph the table reads (its stored propositions and chains). */
+		snapshot: GraphSnapshot | null;
 		onClose: () => void;
 		selectMode?: boolean;
 		controlledSelection?: ReadonlySet<string>;
@@ -39,6 +34,10 @@ import { fuzzyScore } from "@/src/platform/model";
 	let expandedChains = $state<Set<string>>(new Set());
 	let deleting = $state<{ id: string; name: string }[] | null>(null);
 
+	const nodes = $derived(snapshot?.propositions ?? []);
+	const storedChains = $derived(snapshot?.chains ?? []);
+	const sessions = $derived(snapshot?.sessions ?? {});
+	const fileSources = $derived(snapshot?.fileSources ?? {});
 	const selection = $derived(controlledSelection ?? internalSelection);
 	const byId = $derived(new Map(nodes.map((node) => [node.id, node])));
 	const chains = $derived(chainsForSelection(nodes, storedChains));

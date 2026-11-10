@@ -2,12 +2,9 @@
 	import { dismissLayer } from "$lib/ui/layer";
 	import { plural } from "$lib/format";
 	import type { CustomEndpointModel, CustomEndpointState as EndpointState } from "@/src/settings/model";
-	import { emitAppEvent } from "$lib/events";
-	import { discoverCustomModels, fetchCustomEndpoint, removeCustomEndpoint, saveCustomEndpoint } from "$lib/api/settings";
-	import { ApiError } from "$lib/api/http";
-
-	/** A refused request shows the server's reason; anything else is the network. */
-	const failure = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
+	import { discoverCustomModels, fetchCustomEndpoint } from "$lib/api/settings";
+	import { failureMessage } from "$lib/api/http";
+	import { removeCustomEndpoint, saveCustomEndpoint } from "$lib/state/keys.svelte";
 	interface DiscoveredModel { id: string; name: string }
 	interface ModelDraft { id: string; name: string; contextWindow: string; maxTokens: string; reasoning: boolean; imageInput: boolean }
 
@@ -93,7 +90,7 @@
 		try {
 			discovered = await discoverCustomModels({ baseUrl, ...(apiKey.trim() ? { apiKey } : {}) });
 		} catch (err) {
-			error = failure(err, "Could not reach the server — try again.");
+			error = failureMessage(err, "Could not reach the server — try again.");
 			return;
 		} finally {
 			busy = null;
@@ -112,15 +109,13 @@
 		try {
 			endpointState = await saveCustomEndpoint({ displayName, baseUrl, models, ...(apiKey.trim() ? { apiKey } : {}) });
 		} catch (err) {
-			error = failure(err, "Could not reach the server — try again.");
+			error = failureMessage(err, "Could not reach the server — try again.");
 			return;
 		} finally {
 			busy = null;
 		}
 		apiKey = "";
 		notice = "Custom endpoint saved.";
-		emitAppEvent("settings-saved", { section: "models" });
-		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	async function remove() {
@@ -138,8 +133,6 @@
 			busy = null;
 		}
 		onOpenChange(false);
-		emitAppEvent("settings-saved", { section: "models" });
-		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
 	const envOwnedKey = $derived(endpointState?.keySource === "env");

@@ -3,7 +3,7 @@
  *  streams adopts only appended messages and owes a full sync once the
  *  turn ends. */
 import type { JobRecord } from "@/src/jobs/model";
-import type { ChatView, LhMessage, TurnUsage } from "@/src/session/model";
+import type { ChatSettings, ChatView, LhMessage, TurnUsage } from "@/src/session/model";
 import { fetchChat, fetchJobs } from "$lib/api/chats";
 import type { SessionView } from "./session.svelte";
 
@@ -11,6 +11,8 @@ export class ChatSync {
 	turns = $state.raw<TurnUsage[]>([]);
 	jobs = $state.raw<JobRecord[]>([]);
 	compacting = $state(false);
+	/** The chat's own model settings, from the last record read. */
+	settings = $state.raw<ChatSettings | undefined>(undefined);
 	#compactionRevision = 0;
 	#owedSync = false;
 	#jobStatuses = new Map<string, string>();
@@ -33,7 +35,9 @@ export class ChatSync {
 	/** The chat's record, or null after logging why it could not be read. */
 	read = async (): Promise<ChatView | null> => {
 		try {
-			return await fetchChat(this.chatId);
+			const record = await fetchChat(this.chatId);
+			this.settings = record.settings;
+			return record;
 		} catch (error) {
 			console.error(`[chat ${this.chatId}] record load failed:`, error);
 			return null;

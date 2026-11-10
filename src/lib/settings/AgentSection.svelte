@@ -7,7 +7,7 @@
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { prettyModel } from "$lib/format";
 	import { onAppEvent } from "$lib/events";
-	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, THINKING_LABEL } from "./compose";
+	import { composePromptSwitch, composeQuizMechanics, composeSearchEngine, composeSlotModel, composeTool, defaultOrderLevel, populateLevel, PROMPT_IN_USE_HINT, sectionedSegments, thinkingLabel } from "./compose";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import Controls from "./Controls.svelte";
@@ -144,7 +144,7 @@
 				</button>
 				<span>
 					<button bind:this={triggers[`thinking-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} thinking`} aria-expanded={thisMenu === "thinking"} data-testid={`slot-thinking-${slot}`} onclick={() => (openMenu = thisMenu === "thinking" ? null : { target: slot, kind: "thinking" })} class="flex h-7 w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
-						<span class="min-w-0 flex-1 truncate">{thinking || (chosen ? THINKING_LABEL[defaultOrderLevel(levels)] ?? defaultOrderLevel(levels) : "") || "—"}</span>
+						<span class="min-w-0 flex-1 truncate">{thinking || (chosen ? thinkingLabel(defaultOrderLevel(levels)) : "") || "—"}</span>
 						<span aria-hidden="true" class="text-muted-foreground">▾</span>
 					</button>
 				</span>

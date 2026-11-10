@@ -1,44 +1,29 @@
 <script lang="ts">
-	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import { ListTree } from "@lucide/svelte";
-	import type { ChatSummary, GraphCostSummary } from "@/src/session/model";
+	import type { ChatSummary } from "@/src/session/model";
 	import { serverEvents } from "$lib/state/server-events";
-	import { fetchGraphCosts } from "$lib/api/graph";
-	import { graphSnapshot } from "$lib/state/graph.svelte";
+	import { graphCosts, graphSnapshot } from "$lib/state/graph.svelte";
 	import { listChats } from "$lib/api/chats";
-	import { onAppEvent } from "$lib/events";
 	import { hint } from "$lib/hint";
-	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import NotesImport from "./NotesImport.svelte";
 	import { knowledgeEmpty, knowledgeLines, type KnowledgeCounts } from "./minimal-home";
 
-	let { chainSelectOpen = false, practiceSelection, onPracticeSelectionChange, onChainSelectClose }: {
-		chainSelectOpen?: boolean;
-		practiceSelection?: ReadonlySet<string>;
-		onPracticeSelectionChange?: (nodes: GraphContextPick[]) => void;
-		onChainSelectClose?: () => void;
-	} = $props();
+	let { onOpenChains }: { onOpenChains: () => void } = $props();
 
 	const snapshot = $derived(graphSnapshot.value ?? null);
-	let costs = $state<GraphCostSummary | null>(null);
+	const costs = $derived(graphCosts.value ?? null);
 	let chats = $state<ChatSummary[]>([]);
-	let chainsOpen = $state(false);
 
 	function readState() {
-		const failed = (what: string) => (error: unknown) => console.error(`[home] ${what} load failed:`, error);
 		void graphSnapshot.refresh();
-		fetchGraphCosts().then((value) => (costs = value)).catch(failed("costs"));
-		listChats().then((value) => (chats = value)).catch(failed("sessions"));
+		listChats()
+			.then((value) => (chats = value))
+			.catch((error: unknown) => console.error("[home] sessions load failed:", error));
 	}
 
 	$effect(() => {
 		readState();
-	});
-	$effect(() => {
-		if (chainSelectOpen) chainsOpen = true;
-	});
-	$effect(() => {
-		const offs = [serverEvents.subscribe("chats-changed", readState), serverEvents.subscribe("activity-changed", readState), serverEvents.onResync(readState), onAppEvent("graph-revision", readState)];
+		const offs = [serverEvents.subscribe("chats-changed", readState), serverEvents.subscribe("activity-changed", readState), serverEvents.onResync(readState)];
 		return () => {
 			for (const off of offs) off();
 		};
@@ -74,28 +59,14 @@
 	<div class="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
 		<div class="flex min-w-0 items-start gap-2">
 			<div class="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<button type="button" onclick={() => (chainsOpen = true)} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
+				<button type="button" onclick={onOpenChains} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
 			</div>
 			<div class="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<NotesImport onFinished={() => { readState(); void graphSnapshot.refresh(); }} />
+				<NotesImport onFinished={() => { readState(); void graphCosts.refresh(); }} />
 			</div>
 		</div>
 		{#if costs && costs.runs.length > 0}
 			<span class="rounded-lg px-2 py-1 text-xs tabular-nums text-muted-foreground">${(costs.stages.extraction.dollars + costs.stages.audit.dollars).toFixed(2)}</span>
 		{/if}
 	</div>
-
-	<ChainTableOverlay
-		open={chainsOpen && (snapshot?.propositions.length ?? 0) > 0}
-		nodes={snapshot?.propositions ?? []}
-		chains={snapshot?.chains ?? []}
-		sessions={snapshot?.sessions ?? {}}
-		fileSources={snapshot?.fileSources ?? {}}
-		onClose={() => { chainsOpen = false; onChainSelectClose?.(); }}
-		selectMode={chainSelectOpen}
-		controlledSelection={practiceSelection}
-		onSelectionChange={(ids) => {
-			onPracticeSelectionChange?.(picksFor(ids, snapshot?.propositions ?? []));
-		}}
-	/>
 </div>

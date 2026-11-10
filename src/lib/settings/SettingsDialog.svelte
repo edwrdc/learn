@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { dismissLayer } from "$lib/ui/layer";
+	import { modalLayer } from "$lib/ui/layer";
 	import { CURRENT_SETTINGS_VERSION } from "@/src/settings/model";
-	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
 	import { settingsDialog, type SettingsSectionId } from "$lib/state/dialogs.svelte";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
@@ -38,10 +37,6 @@
 	$effect(() => {
 		if (settingsDialog.show) void userSettings.refresh();
 	});
-	$effect(() => {
-		if (!settingsDialog.show) return;
-		return dismissLayer(() => settingsDialog.close(), { clickOutside: false });
-	});
 
 	async function write(section: "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {
 		error = null;
@@ -57,7 +52,7 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
 		data-testid="settings-backdrop"
-		{@attach backdropDismiss(() => settingsDialog.close())}
+		{@attach modalLayer(() => settingsDialog.close())}
 	>
 		<div
 			role="dialog"

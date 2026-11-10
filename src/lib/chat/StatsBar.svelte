@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
 	import type { Snippet } from "svelte";
-	import { contextWindow, sessionCost, turnCost, type TurnUsage } from "@/src/session/model";
+	import { contextWindow, sessionCost, turnCost, type ChatSettings, type TurnUsage } from "@/src/session/model";
 	import { formatTokens, formatUsd, prettyModel } from "$lib/format";
 	import ModelControl from "./ModelControl.svelte";
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
@@ -10,11 +10,13 @@
 		turns,
 		dictationSlot,
 		chatId,
+		chatSettings,
 		leadingSlot,
 	}: {
 		turns: TurnUsage[];
 		dictationSlot?: Snippet;
 		chatId?: string;
+		chatSettings?: ChatSettings;
 		leadingSlot?: Snippet;
 	} = $props();
 
@@ -89,5 +91,5 @@
 	{#if dictationSlot}
 		<div class="flex min-w-0 flex-1 items-center justify-center">{@render dictationSlot()}</div>
 	{/if}
-	<ModelControl {chatId} />
+	<ModelControl {chatId} {chatSettings} />
 </div>

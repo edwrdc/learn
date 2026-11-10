@@ -77,12 +77,13 @@
 		chats = chats ? chats.map((c) => (c.id === id ? { ...c, ...patch } : c)) : chats;
 	}
 
-	async function commitRename(id: string, next: string) {
+	/** Enter and blur both commit; the first one ends the edit, so the
+	 *  blur that follows an Enter (or an Escape) saves nothing. */
+	async function commitRename(chat: ChatListItem, next: string) {
+		if (renamingId !== chat.id) return;
 		renamingId = null;
-		const title = next.trim();
-		if (title === "") return;
 		try {
-			await renameSession(id, title);
+			await renameSession(chat.id, next, chat.title);
 		} catch (error) {
 			console.error("[sidebar] rename failed:", error);
 		}
@@ -299,9 +300,9 @@
 									value={renameDraft}
 									spellcheck={false}
 									oninput={(event) => (renameDraft = (event.currentTarget as HTMLInputElement).value)}
-									onblur={() => void commitRename(chat.id, renameDraft)}
+									onblur={() => void commitRename(chat, renameDraft)}
 									onkeydown={(event) => {
-										if (event.key === "Enter") (event.currentTarget as HTMLInputElement).blur();
+										if (event.key === "Enter") void commitRename(chat, renameDraft);
 										if (event.key === "Escape") {
 											event.stopPropagation();
 											renamingId = null;
