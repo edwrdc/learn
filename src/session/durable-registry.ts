@@ -20,7 +20,6 @@ import { graphToolsEnabled, type EffectiveSettings } from "../settings/model/ind
 import type { ChatStore } from "./model/ports.ts";
 import type { GraphStore } from "../graph/model/index.ts";
 import type { JobStore } from "../jobs/model/index.ts";
-import type { JobRecord } from "../jobs/model/index.ts";
 import { compactionCutOf, type CompactionCut, type LhMessage } from "./model/transcript.ts";
 import { agentFor, type ChatPhase } from "./model/phases.ts";
 import { composeInstructions } from "./prompts.ts";

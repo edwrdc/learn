@@ -35,12 +35,11 @@ import {
 import { providerEventNote } from "../platform/index.ts";
 import { effectiveSettings, stores } from "../stores.ts";
 import { services } from "../boot.ts";
-import { searchProvider } from "../settings/index.ts";
 import { modelKey, modelsNotConfigured, resolveConversationSpec, type EffectiveSettings } from "../settings/model/index.ts";
-import { beginTurn, endTurn, noteTurnSettled, noteTurnStarted } from "./turn-liveness.ts";
+import { beginTurn, endTurn, noteTurnSettled } from "./turn-liveness.ts";
 import { withChatOperation } from "./chat-operations.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
-import { registerTurn, settledTurnResponse, unregisterTurn } from "./turn-runs.ts";
+import { registerTurn, settledTurnResponse } from "./turn-runs.ts";
 import {
 	appendPlanBlocks,
 	appendRunUsage,
@@ -81,7 +80,6 @@ import {
 import { prepareConversation, turnProfile, type ConversationDeps, type TurnProfile } from "./durable-registry.ts";
 import { chatPhase } from "./model/phases.ts";
 import { runDurableTurn } from "./pi/durable-turn.ts";
-import type { RunDescriptor } from "../jobs/index.ts";
 
 /** The chat's conversation engine (its model override over the strong
  *  slot), or the 503 body when the turn cannot run: no model, no provider
@@ -191,7 +189,6 @@ export async function resumeForegroundTurn(runtime: ChatRuntime, engineFor: (mod
 			}),
 		);
 		handedOff = true;
-		noteTurnStarted(runtime.chatId);
 	} finally {
 		if (ownsClaim && !handedOff) endTurn(runtime.chatId);
 	}
@@ -257,7 +254,6 @@ async function settleTurnOnce(runtime: ChatRuntime, chatId: string, turn: Foregr
 	// LAST: a reader that sees not-in-flight must read the settled record —
 	// the handle leaves only after the services ran.
 	endTurn(chatId);
-	unregisterTurn(chatId);
 	noteTurnSettled(chatId);
 	// Any marker still queued (a steer stranded behind the question stop or
 	// the abort) goes back through the pump's gates.
@@ -533,7 +529,6 @@ export async function handleChatInput(
 			// (POST /api/activity/abort, kind "turn").
 			registerTurn(chatId, handle);
 			handedOff = true;
-			noteTurnStarted(chatId);
 			// A submission that faults after admission must never go unobserved: the
 			// view's wait settles on the same scope, but the error is logged here.
 			void submission.wait(BACKGROUND_CONTEXT).catch((error) => {

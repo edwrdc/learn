@@ -929,7 +929,6 @@ it("Wave C: markers injected mid-run (custom role, follow-up delivery) append to
 	m.applyWireEvent({ type: "message_end", message: marker } as never);
 
 	const state = m.getState();
-	const ids = state.messages.map((v) => v.parts.length);
 	assert.ok(state.messages.length >= 2, "the marker produced a view message");
 	const tail = state.messages.at(-1)!;
 	assert.equal(tail.role, "user", "a steer marker projects as a user-role view message");

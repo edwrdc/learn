@@ -25,7 +25,7 @@ await import("./support-durable.ts");
 const { services } = await import("../src/boot.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
-const { setBackgroundRun } = await import("../src/jobs/durable-run.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
 const { writeSettings } = await import("../src/settings/store.ts");
 const { bareQuestionTools } = await import("./support-tools.ts");
 const { stores } = await import("../src/stores.ts");
@@ -114,13 +114,13 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 		try {
 			if (mode === "cold admission") {
 				services().upkeep = true;
-				setBackgroundRun(async (request) => {
+				configureBackgroundRuns({ run: async (request) => {
 					assert.equal(request.kind, "compact");
 					assert.equal(request.chatId, id);
 					started.resolve();
 					await release.promise;
 					return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
-				});
+				} });
 				run = providerResults(id, { type: "continue" });
 			} else {
 				kickCompaction(() => deps(async () => { started.resolve(); await release.promise; return { summary: "Earlier history.", usage }; }), id);
@@ -248,12 +248,12 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 	const started = deferred(), release = deferred();
 	try {
 		services().upkeep = true;
-		setBackgroundRun(async (request) => {
+		configureBackgroundRuns({ run: async (request) => {
 			assert.equal(request.kind, "compact");
 			assert.equal(request.chatId, chat.id);
 			started.resolve(); await release.promise;
 			return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
-		});
+		} });
 		const faux = createFauxCore({ tokenSize: { min: 50_000, max: 50_000 } });
 		faux.setResponses([fauxAssistantMessage([fauxText("x".repeat(200_000)), fauxToolCall("quiz", question, { id: "q" })], { stopReason: "toolUse" })]);
 		assert.equal((await handleChatInput(chat.id, { type: "text", text: "Teach me." }, { engine: { model: faux.getModel(), streamFn: faux.streamSimple }, tools: bareQuestionTools() })).status, 200);

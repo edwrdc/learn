@@ -15,8 +15,9 @@ import {
 	endTurn,
 	isTurnRunning,
 	noteTurnSettled,
-	noteTurnStarted,
 } from "../src/session/turn-liveness.ts";
+import { registerTurn, runningTurn } from "../src/session/turn-runs.ts";
+import type { PiTurnHandle } from "../src/session/pi/durable-turn.ts";
 import { subscribe, type ServerEvent } from "../src/platform/model/events.ts";
 
 describe("turn claim", () => {
@@ -34,15 +35,16 @@ describe("turn claim", () => {
 });
 
 describe("turn lifecycle events", () => {
-	it("noteTurnStarted announces admission; the rejected double-begin stays silent", () => {
+	it("registering the handle announces the turn; the rejected double-begin stays silent; endTurn drops the handle", () => {
 		const id = "chat_events_begin";
 		const got: ServerEvent[] = [];
 		const off = subscribe((e) => got.push(e));
 		assert.equal(beginTurn(id), true, "fresh chat accepts the turn");
 		assert.equal(beginTurn(id), false, "the rejected double-begin");
-		noteTurnStarted(id);
+		registerTurn(id, {} as PiTurnHandle);
 		assert.deepEqual(got, [{ type: "turn-started", chatId: id }], "exactly one event");
 		endTurn(id);
+		assert.equal(runningTurn(id), undefined, "the claim release drops the handle");
 		off();
 	});
 

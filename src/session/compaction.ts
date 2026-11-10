@@ -30,7 +30,7 @@
 import { processState } from "../platform/model/index.ts";
 import type { Usage } from "@earendil-works/pi-ai";
 import { activeCompactionOf, buildCompactionPrompt, compactionCutIndex, COMPACTION_RESERVE_TOKENS, estimateContextTokens, estimateTokens, newCompactionMarker, planTreeToText, serializeForSummary, type CompactionDetails } from "./model/compaction.ts";
-import { toLlmMessages, type LhMessage, type LhMarkerMessage } from "./model/transcript.ts";
+import { toLlmMessages, type LhMessage } from "./model/transcript.ts";
 import { emit } from "../platform/model/index.ts";
 import type { ChatStore } from "./model/ports.ts";
 import { usageFromPi } from "./model/types.ts";

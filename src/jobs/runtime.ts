@@ -45,7 +45,6 @@ import {
 	type JsonObject,
 	type ModelRef,
 	type Submission,
-	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
@@ -151,7 +150,7 @@ function roleHost(request: BackgroundRunRequest | undefined): RoleHost {
 	return {
 		headless: roleHeadless(request?.headless),
 		search: request?.search ?? (() => services.searchProvider?.() ?? null),
-		graph: () => request?.graph ?? services.graphContext?.() ?? productionGraph(),
+		graph: () => request?.graph ?? productionGraph(),
 		onActivity: request?.onActivity,
 	};
 }
@@ -478,6 +477,21 @@ export function runBackgroundConversation(request: BackgroundRunRequest): Promis
 	return started;
 }
 
+/** Bind the run's engine and install its role extension (tools, hooks) in
+ *  the runtime: a live run and a recovered one need the same setup. */
+function installRun(
+	runtime: ChatRuntime,
+	conversation: Conversation,
+	descriptor: RunDescriptor,
+	engine: PiEngine,
+	request: BackgroundRunRequest | undefined,
+): Extension {
+	bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
+	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request));
+	runtime.registry.install(extension);
+	return extension;
+}
+
 async function attachBackgroundConversation(request: BackgroundRunRequest): Promise<BackgroundRunResult> {
 	const runtime = await openChatRuntime(request.chatId);
 	const { conversationId, ref, descriptor } = await ensureRun(runtime, request, request.engine);
@@ -486,9 +500,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 	const services = backgroundServices();
 	const engine = runsSnapshot(request.engine, descriptor.model) ? request.engine : services.resolveEngine?.(descriptor);
 	if (!engine) throw new Error(`no model available for background run ${descriptor.runId}`);
-	bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-	const extension = roleExtension(runtime, conversation, descriptor, roleHost(request));
-	runtime.registry.install(extension);
+	const extension = installRun(runtime, conversation, descriptor, engine, request);
 	const signal = request.signal;
 	const abortConversation = () => {
 		void conversation.abort(BACKGROUND_CONTEXT).catch((error) => {
@@ -640,9 +652,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 				`the pending background run ${jobId} cannot be restored: its model ${modelKey(descriptor.model.provider, descriptor.model.modelId)} is unavailable`,
 			);
 		}
-		bindRunEngine(descriptor.sessionId, engine, providerEventObserver(descriptor.chatId, `job:${descriptor.role}`));
-		const extension = roleExtension(runtime, conversation, descriptor, roleHost(undefined));
-		runtime.registry.install(extension);
+		const extension = installRun(runtime, conversation, descriptor, engine, undefined);
 		await conversation.configure(agentChange(descriptor, extension), BACKGROUND_CONTEXT);
 	}
 }

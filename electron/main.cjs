@@ -203,13 +203,14 @@ function startServer(port) {
 	});
 }
 
-/** No "ready" event exists — poll until the server answers (docs-confirmed). */
+/** No "ready" event exists — poll until the server answers at all (any
+ *  status means it is listening; there is no health endpoint). */
 function waitUntilUp(url, tries = 150) {
 	return new Promise((resolve, reject) => {
 		const attempt = (n) => {
 			const req = http.get(url, (res) => {
 				res.resume();
-				resolve(res.statusCode !== undefined);
+				resolve();
 			});
 			req.on("error", () => {
 				if (n <= 0) reject(new Error(`server never answered on ${url}`));
@@ -372,7 +373,7 @@ function zoomStep(win, dir) {
 }
 
 function applyZoom(win, factor) {
-	factor = Math.min(2, Math.max(0.75, factor)); // ladder clamps; ⌘0 = 1
+	factor = Math.min(ZOOM_LADDER[ZOOM_LADDER.length - 1], Math.max(ZOOM_LADDER[0], factor));
 	win.webContents.setZoomFactor(factor);
 	win.webContents.send("lh:zoom", factor);
 }

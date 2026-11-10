@@ -1,7 +1,6 @@
 import { Type } from "typebox";
 import type { AppTool } from "../../tools/index.ts";
 import { serverExecute } from "../../tools/index.ts";
-import type { PlanToolResult, PlanTree } from "../model/plan-types.ts";
 import type { ChatStore } from "../model/ports.ts";
 import { createTree, PlanTreeError } from "../model/plan-tree.ts";
 import { parseMermaidPlan } from "./mermaid-plan.ts";

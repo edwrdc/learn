@@ -10,7 +10,6 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { quizInputProblems } from "../src/session/model/questions.ts";
 import { Value } from "typebox/value";
 import { repairMathForDisplay, restoreMathEscapes } from "../src/tools/model/math-delims.ts";
 import {

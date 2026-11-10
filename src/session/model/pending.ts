@@ -5,7 +5,7 @@
  * toolCallId. The server-side record scans (danglingQuestionOf over native
  * LhMessage[]) live in native-messages.ts.
  */
-import { QUESTION_TOOLS, toolActivityLabel } from "../../tools/model/index.ts";
+import { QUESTION_TOOLS } from "../../tools/model/index.ts";
 
 interface UIMessage {
 	role?: string;

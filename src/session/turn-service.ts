@@ -26,7 +26,6 @@
 import type { LhMessage } from "./model/transcript.ts";
 import type { QuestionAnswerData } from "./model/questions.ts";
 import {
-	ChatInputError,
 	dismissAppends,
 	inputAppends,
 	type DismissInput,

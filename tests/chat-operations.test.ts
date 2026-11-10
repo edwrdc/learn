@@ -27,7 +27,7 @@ const { deleteChatSession } = await import("../src/session/operations.ts");
 const { posedPlaceholder } = await import("./support-tools.ts");
 const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
 const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
-const { runningTurn, unregisterTurn } = await import("../src/session/turn-runs.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
 const { ensureCompacted } = await import("../src/session/compaction.ts");
 const { newUserMessage } = await import("../src/session/model/transcript.ts");
 const { subscribe } = await import("../src/platform/model/events.ts");
@@ -41,7 +41,6 @@ after(async () => {
 	for (const id of created) {
 		await closeChatRuntime(id);
 		endTurn(id);
-		unregisterTurn(id);
 	}
 	fs.rmSync(TMP, { recursive: true, force: true });
 	for (const [key, value] of Object.entries(originalEnv)) {
@@ -462,7 +461,6 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			await first.entered;
 			await closeChatRuntime(chat.id);
 			endTurn(chat.id);
-			unregisterTurn(chat.id);
 			testEngines.teacher = resumed.engine;
 			Harness.open = async (...args) => {
 				const harness = await realOpen.apply(Harness, args);

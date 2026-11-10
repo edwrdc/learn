@@ -15,7 +15,7 @@
  * the learner's edge sits.
  */
 
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 
 /** One dependency strand the planned lesson will rest on. */
 interface ProbeStrand {

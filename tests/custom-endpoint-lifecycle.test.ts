@@ -11,7 +11,6 @@ process.env.LH_DATA_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 
 const { saveCustomEndpoint, removeCustomEndpoint } = await import("../src/settings/custom-endpoint.ts");
-const { stores } = await import("../src/stores.ts");
 const { readSettings, writeSettings } = await import("../src/settings/store.ts");
 
 const BASE_URL = "http://127.0.0.1:9/v1";

@@ -6,7 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
 import type { ModelChoice } from "../../settings/model/index.ts";
-import type { ModelThinkingLevel as ThinkingLevel, Usage } from "@earendil-works/pi-ai";
+import type { Usage } from "@earendil-works/pi-ai";
 import type { LhMessage } from "./transcript.ts";
 import type { Phase3 } from "./phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan-types.ts";

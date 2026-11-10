@@ -12,7 +12,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-async-chat-reads-"));
 process.env.LH_DATA_DIR = TMP;
 
 const { chatStore } = await import("../src/session/store.ts");
-const { closeChatRuntime, openChatRuntime, readEntries } = await import("../src/session/durable.ts");
+const { closeChatRuntime } = await import("../src/session/durable.ts");
 const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 const { newUserMessage } = await import("../src/session/model/transcript.ts");
 const { graphStore } = await import("../src/graph/store.ts");
@@ -32,26 +32,6 @@ function chatsDir(): string {
 
 function chatFile(id: string): string {
 	return path.join(chatsDir(), `${id}.json`);
-}
-
-function writeLegacyRecord(id: string): Buffer {
-	const bytes = Buffer.from(
-		JSON.stringify(
-			{
-				id,
-				title: `legacy ${id}`,
-				createdAt: "2026-01-01T00:00:00.000Z",
-				updatedAt: "2026-01-02T00:00:00.000Z",
-				messages: [newUserMessage(`old words from ${id}`)],
-				version: 1,
-			},
-			null,
-			"\t",
-		),
-	);
-	fs.mkdirSync(chatsDir(), { recursive: true });
-	fs.writeFileSync(chatFile(id), bytes);
-	return bytes;
 }
 
 function writeMetaRecord(id: string, title: string, updatedAt: string): void {

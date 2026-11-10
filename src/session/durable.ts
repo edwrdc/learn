@@ -117,10 +117,12 @@ function slots(): Map<string, RuntimeSlot> {
  *  the runtime cannot import). */
 type RuntimeBootstrap = (runtime: ChatRuntime) => Promise<void>;
 
-let runtimeBootstrap: RuntimeBootstrap | undefined;
+function bootstrap(): { run?: RuntimeBootstrap } {
+	return processState("runtimeBootstrap", () => ({}));
+}
 
 export function setRuntimeBootstrap(run: RuntimeBootstrap | undefined): void {
-	runtimeBootstrap = run;
+	bootstrap().run = run;
 }
 
 /** The chat's committed state could not be restored (a live run whose
@@ -183,7 +185,7 @@ async function openRuntime(chatId: string): Promise<ChatRuntime> {
 		closing: false,
 	};
 	try {
-		await runtimeBootstrap?.(runtime);
+		await bootstrap().run?.(runtime);
 	} catch (error) {
 		// FAIL CLOSED: `harness.resume()` below would execute a persisted run
 		// before its tool/model extension exists. Close without resuming; the

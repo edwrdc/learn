@@ -17,15 +17,15 @@
  *    settle. `submit({whenBusy:"reject"})` is the durable half of the same
  *    law (ConversationBusy → 409), so a lost mutex is never silent.
  *
- * Events stay here because the client's notify-then-fetch contract rides
- * them: `turn-started` once the run is admitted, `turn-settled` only after
- * the settle services made the record current.
+ * `turn-started` is emitted when the run's handle registers (turn-runs.ts);
+ * `turn-settled` only after the settle services made the record current.
  */
 
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { LiveDoc } from "@earendil-works/pi-durable";
 import { emit, processState } from "../platform/model/index.ts";
 import { peekChatRuntime } from "./durable.ts";
+import { unregisterTurn } from "./turn-runs.ts";
 
 function claims(): Map<string, number> {
 	return processState("turnClaims", () => new Map<string, number>());
@@ -45,9 +45,11 @@ export function beginTurn(chatId: string): boolean {
 	return true;
 }
 
-/** Release the claim at settle (or on a failed start). */
+/** Release the claim and drop the turn's handle, at settle (or on a failed
+ *  start, before any handle exists). */
 export function endTurn(chatId: string): void {
 	claims().delete(chatId);
+	unregisterTurn(chatId);
 }
 
 /** Is a turn running for this chat? THE reader contract: the committed run
@@ -71,12 +73,6 @@ export async function isCommittedRunLive(chatId: string): Promise<boolean> {
 		.snapshot(LiveDoc, runtime.root.id, BACKGROUND_CONTEXT)
 		.catch(() => undefined);
 	return live?.run !== undefined;
-}
-
-/** Announce an admitted run (after the durable commit, so a listener that
- *  attaches reads a live conversation). */
-export function noteTurnStarted(chatId: string): void {
-	emit("turn-started", { chatId });
 }
 
 /** Announce a settled run — called LAST, after usage, plan blocks,

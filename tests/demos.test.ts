@@ -37,8 +37,7 @@ import type { DemoRunResult, HeadlessApi } from "../src/jobs/headless.ts";
 import { configureBackgroundRuns } from "../src/jobs/durable-run.ts";
 import { createJobRunner } from "../src/jobs/runner.ts";
 import { VISUAL_ROLE } from "../src/jobs/roles/visual.ts";
-import { buildAbortSteer, buildSubagentSteer, isJobFailure, setSteerUiInverted, type JobResult, type SteerMessage, type VisualResult } from "../src/jobs/model/types.ts";
-import type { JobRecord } from "../src/jobs/model/types.ts";
+import { buildSubagentSteer, isJobFailure, setSteerUiInverted, type JobResult, type SteerMessage, type VisualResult } from "../src/jobs/model/types.ts";
 import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { chatStore } from "../src/session/store.ts";
 import { jobStore } from "../src/jobs/store.ts";
@@ -386,11 +385,6 @@ function waitFor(cond: () => boolean, timeoutMs = 5000, what = "condition"): Pro
 		};
 		tick();
 	});
-}
-
-async function drain(res: Response): Promise<string> {
-	if (res.status !== 200) assert.fail(`expected 200, got ${res.status}: ${await res.text()}`);
-	return res.text();
 }
 
 /** CONNECTION DIET B (owner, 2026-10-10): the POST acks and closes; drain

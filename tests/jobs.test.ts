@@ -29,10 +29,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type FauxResponseStep } from "@earendil-works/pi-ai";
-import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SubagentArtifactData, type SteerMessage, type VisualResult } from "../src/jobs/model/types.ts";
+import { accumulateJobUsage, buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type DemoResult, type JobResult, type JobUsage, type PdfResult, type ResearchResult, type SteerMessage } from "../src/jobs/model/types.ts";
 import { newHandoffMessage } from "../src/session/model/transcript.ts";
 import { composeInstructions } from "../src/session/prompts.ts";
-import { createTeacherTools } from "../src/session/tools/registry.ts";
 import { createWebTools } from "../src/tools/web/web.ts";
 import { handleChatRequest } from "../src/session/turn.ts";
 import { testEngines } from "./support-durable.ts";
@@ -40,7 +39,6 @@ import { runningTurn } from "../src/session/turn-runs.ts";
 import {
 	abortJob,
 	deliverJobResult,
-	noteSteerVisible,
 	recoverStaleJobs,
 	setJobRespawn,
 	setTurnRunner,
@@ -60,7 +58,7 @@ import { PATHS } from "../src/platform/config.ts";
 import { projectView as projectNative } from "../src/session/model/view.ts";
 import { subscribe } from "../src/platform/model/events.ts";
 import { danglingQuestionOf, type LhMessage } from "../src/session/model/transcript.ts";
-import type { SteerInput, TurnInput } from "../src/session/model/input-events.ts";
+import type { SteerInput } from "../src/session/model/input-events.ts";
 
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 
@@ -181,13 +179,6 @@ function abortableFactory(): FauxResponseStep {
 	return factory as unknown as FauxResponseStep;
 }
 
-async function drain(res: Response): Promise<string> {
-	if (res.status !== 200) {
-		assert.fail(`expected 200, got ${res.status}: ${await res.text()}`);
-	}
-	return res.text();
-}
-
 /** CONNECTION DIET B (owner, 2026-10-10): the POST acks and closes; drain
  *  the turn's wire through the reattach stream instead. */
 async function drainTurn(req: Request, factory: Parameters<typeof handleChatRequest>[1]): Promise<string> {
@@ -299,7 +290,6 @@ describe("job store", () => {
 describe("steer helpers (contracts.ts)", () => {
 	const research: ResearchResult = { brief: "BRIEF", sources: [{ title: "s", url: "https://x.test" }] };
 	const demo: DemoResult = { title: "T", html: "<html></html>", tested: true, notes: "ok" };
-	const visual: VisualResult = { svg: "<svg/>", notes: "ok" };
 
 	it("buildSubagentSteer: a native marker — brief on the model-facing content, artifact payload in details", async () => {
 		const job = { id: "job_x", kind: "research" as const, toolCallId: "call-x" };

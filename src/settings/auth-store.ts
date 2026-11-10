@@ -15,8 +15,6 @@
  */
 
 import { readJsonFile, writeFileAtomic } from "../platform/index.ts";
-import fs from "node:fs";
-import path from "node:path";
 import { AUTH_FILE } from "../platform/index.ts";
 import type { AuthStore } from "./model/ports.ts";
 

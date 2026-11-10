@@ -149,8 +149,8 @@ export interface BackgroundRunRequest {
 	search?: () => SearchProvider | null;
 	/** The caller's headless seam (tests); production falls back to the host. */
 	headless?: HeadlessApi;
-	/** The caller's graph context for the auditor's exploration tools
-	 *  (tests); production falls back to the host's real stores. */
+	/** The graph the auditor's exploration tools read (extraction passes
+	 *  its own; otherwise the app's stores). */
 	graph?: GraphDeps;
 	/** Aborting stops the child conversation's spend; the run stays
 	 *  recoverable. */
@@ -191,8 +191,9 @@ interface BackgroundServices {
 	/** Verification engines (tests inject; production uses the app's own
 	 *  browser/native rasterizers). */
 	headless?(): HeadlessApi;
-	/** The live graph the auditor explores (production: the real stores). */
-	graphContext?(): GraphDeps;
+	/** Run (or reattach to) one role conversation (jobs/runtime.ts; tests
+	 *  replace it to script a summary). */
+	run(request: BackgroundRunRequest): Promise<BackgroundRunResult>;
 }
 
 export function backgroundServices(): Partial<BackgroundServices> {
@@ -204,33 +205,11 @@ export function configureBackgroundRuns(next: Partial<BackgroundServices>): void
 	Object.assign(backgroundServices(), next);
 }
 
-type DurableBackgroundRun = (request: BackgroundRunRequest) => Promise<BackgroundRunResult>;
-type DurableBackgroundRetire = (chatId: string, jobId: string) => Promise<void>;
-
-let backgroundRunSeam: DurableBackgroundRun | undefined;
-let backgroundRetireSeam: DurableBackgroundRetire | undefined;
-
-/** chat-handler wires these at module init (the durable runtime lives in the
- *  server layer; the agent layer keeps only the role seams). */
-export function setBackgroundRun(run: DurableBackgroundRun): void {
-	backgroundRunSeam = run;
-}
-
-export function setBackgroundRetire(retire: DurableBackgroundRetire): void {
-	backgroundRetireSeam = retire;
-}
-
 /** Run (or reattach to) one role conversation through the durable Harness. */
 export function backgroundRun(request: BackgroundRunRequest): Promise<BackgroundRunResult> {
-	if (!backgroundRunSeam) throw new Error("background runner seam is not wired (setBackgroundRun)");
-	return backgroundRunSeam(request);
-}
-
-/** Drop a run the caller has consumed (a second identical extraction is a
- *  fresh run, not a replay of a settled one). A crash before this call
- *  leaves the entry for the restart to reattach. */
-export async function retireBackgroundRun(chatId: string, jobId: string): Promise<void> {
-	await backgroundRetireSeam?.(chatId, jobId);
+	const run = backgroundServices().run;
+	if (!run) throw new Error("background runs are not configured (boot)");
+	return run(request);
 }
 
 /** Where a role's durable run lives: the runtime owner and its stable key. */

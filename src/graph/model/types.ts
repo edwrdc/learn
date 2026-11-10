@@ -20,7 +20,7 @@
 import type { RefusalCode } from "../../settings/model/index.ts";
 // ─── Knowledge graph (vision §1 — global, cross-session) ────────────────────
 
-import type { CallUsage, ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
+import type { ExtractionRunUsage, ExtractionStageUsage } from "../../session/model/index.ts";
 
 /** One relation of the DERIVED view — chains are the stored truth (owner,
  *  2026-09-30: "the graph is a lossy image of what is truly stored"), and

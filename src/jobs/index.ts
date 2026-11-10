@@ -1,5 +1,5 @@
 export { activityFeed } from "./activity.ts";
-export { backgroundRun, configureBackgroundRuns, setBackgroundRetire, setBackgroundRun } from "./durable-run.ts";
+export { backgroundRun, configureBackgroundRuns } from "./durable-run.ts";
 export type { RoleRunIdentity, RoleStateIo, RunDescriptor, SubmitRunState } from "./durable-run.ts";
 export { createJobRunner } from "./runner.ts";
 export { resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";

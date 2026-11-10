@@ -11,7 +11,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import {
 	createFauxCore, createModels, fauxAssistantMessage, fauxText, fauxToolCall,
-	type JsonObject, type TranscriptContext, type Usage,
+	type JsonObject, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/platform/engines.ts";

@@ -334,8 +334,6 @@ describe("notes import transport", () => {
 		});
 
 	it("projects failures in selection order with the code/provider/slots suffix", () => {
-		const success = new File(["ok"], "success.md");
-		const selected = [success, ...files];
 		const results: NotesImportResult[] = [
 			{ requestIndex: 2, filePath: "same.md", ok: false, outcome: "partial", error: "second duplicate" },
 			{ ...completed(), filePath: "success.md" },

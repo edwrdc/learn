@@ -1,6 +1,6 @@
 import { processState } from "./platform/model/index.ts";
 import { effectiveSettings, stores } from "./stores.ts";
-import { configureBackgroundRuns, createJobRunner, recoverStaleJobs, resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation, setBackgroundRetire, setBackgroundRun, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
+import { configureBackgroundRuns, createJobRunner, recoverStaleJobs, resumeBackgroundRuns, runBackgroundConversation, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
 import { createExtractionPipeline, type ExtractionPipeline } from "./graph/index.ts";
 import { resolveRoleSpec, type ModelRole } from "./settings/model/index.ts";
 import type { PiEngine } from "./platform/index.ts";
@@ -60,9 +60,11 @@ export function boot(options: BootOptions = {}): AppServices {
 		const extraction = createExtractionPipeline({ ...stores, engineFor, providerKeyMissing: missingProviderKey, getChunkTokens: () => effectiveSettings().graph.extractionChunkTokens });
 		setTurnRunner(async (chatId, input) => (await handleChatInput(chatId, input)).status);
 		setJobRespawn((jobId) => void jobRunner.runJob(jobId));
-		configureBackgroundRuns({ resolveEngine: (descriptor) => engineForSnapshot(descriptor.model), searchProvider });
-		setBackgroundRun((request) => runBackgroundConversation(request));
-		setBackgroundRetire((chatId, jobId) => retireBackgroundRun(chatId, jobId));
+		configureBackgroundRuns({
+			resolveEngine: (descriptor) => engineForSnapshot(descriptor.model),
+			searchProvider,
+			run: runBackgroundConversation,
+		});
 		setRuntimeBootstrap(async (runtime) => {
 			await resumeBackgroundRuns(runtime);
 			await resumeForegroundTurn(runtime, (model) => options.engineFor?.("teacher") ?? engineForSnapshot(model));

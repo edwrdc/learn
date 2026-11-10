@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import { describe, it, type TestContext } from "node:test";
 import { Type } from "typebox";
 import {
-	questionResult,
 	serverExecute,
 	toToolResult,
 	type ToolExecuteContext,

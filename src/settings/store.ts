@@ -11,8 +11,6 @@
  */
 
 import { readJsonFile, writeJsonAtomic } from "../platform/index.ts";
-import fs from "node:fs";
-import path from "node:path";
 import { SETTINGS_FILE } from "../platform/index.ts";
 import { sanitizeUserSettings, type SettingsSection } from "./model/schema.ts";
 import { CURRENT_SETTINGS_VERSION, type UserSettings } from "./model/settings.ts";

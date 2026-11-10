@@ -460,16 +460,6 @@ export interface QuestionAnswerData {
 	answeredAt: string;
 }
 
-/** Client-facing question payload — deliberately omits the answer. */
-interface ClientQuestion {
-	id: string;
-	kind: QuestionKind;
-	question: string;
-	context?: string;
-	mode: QuestionMode;
-	options: QuizOption[];
-}
-
 /** What the server passes to the bridge when the learner answers. */
 export interface AnswerRequest {
 	dontKnow?: boolean;

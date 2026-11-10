@@ -34,7 +34,7 @@
  */
 
 import { processState } from "../platform/model/index.ts";
-import { buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type JobRecord, type JobResult, type SteerMessage } from "./model/types.ts";
+import { buildAbortSteer, buildSubagentSteer, isJobFailure, steerDelivered, type JobResult, type SteerMessage } from "./model/types.ts";
 import type { TurnInput } from "../session/model/index.ts";
 import { danglingQuestionOf, endsInDismissal, modelTextOf, type LhMessage } from "../session/model/index.ts";
 import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";

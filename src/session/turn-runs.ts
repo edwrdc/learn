@@ -4,10 +4,10 @@
  * GET /api/chats/[id]/stream resolves here, and the remote abort
  * (/api/activity/abort, kind "turn") kills through here.
  *
- * Registration lifecycle: chat-handler registers the handle the moment
- * the turn starts (after the 409 guard) and its onFinish unregisters LAST
- * — after persist, usage, extraction, and endTurn — so anything that sees
- * "no running turn" also sees an already-persisted record. The per-chat
+ * Registration lifecycle: the turn registers its handle the moment it
+ * starts (after the 409 guard); endTurn drops it with the claim, after the
+ * settle services ran — so anything that sees "no running turn" also sees
+ * an already-persisted record. The per-chat
  * 409 guard means a chatId can hold at most one handle, and beginTurn's
  * 30-minute TTL bounds the pathological never-settling case the same way
  * it does for the liveness map: if onFinish never fires, the stale entry
@@ -21,20 +21,22 @@
  */
 
 import { SSE_HEADERS } from "../platform/index.ts";
-import { processState } from "../platform/model/index.ts";
+import { emit, processState } from "../platform/model/index.ts";
 import type { PiTurnHandle } from "./pi/durable-turn.ts";
 
 function runs(): Map<string, PiTurnHandle> {
 	return processState("turnRuns", () => new Map<string, PiTurnHandle>());
 }
 
-/** Register the chat's running turn (chat-handler, right after the durable
- *  admission). One per chat by construction — the claim guard. */
+/** Register the chat's running turn right after its durable admission and
+ *  announce it (a listener that attaches reads a live conversation). One per
+ *  chat by construction — the claim guard. */
 export function registerTurn(chatId: string, handle: PiTurnHandle): void {
 	runs().set(chatId, handle);
+	emit("turn-started", { chatId });
 }
 
-/** Unregister at settle — chat-handler's onFinish, LAST (after endTurn). */
+/** Drop the handle; endTurn calls it with the claim release. */
 export function unregisterTurn(chatId: string): void {
 	runs().delete(chatId);
 }

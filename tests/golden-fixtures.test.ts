@@ -36,7 +36,6 @@ fs.cpSync(GOLDEN, TMP, { recursive: true });
 process.env.LH_DATA_DIR = TMP;
 
 const { chatStore } = await import("../src/session/store.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
 const { graphStore } = await import("../src/graph/store.ts");
 const { jobStore } = await import("../src/jobs/store.ts");
 const { readSettings } = await import("../src/settings/store.ts");
@@ -47,18 +46,6 @@ const { danglingQuestionOf, activeProblemOf } = await import("../src/session/mod
 
 const TEACH = "chat_mv27rrra_feff23b6";
 const PRACTICE = "chat_mv293wv5_10656952";
-
-function snapshotTree(dir: string): Map<string, Buffer> {
-	const out = new Map<string, Buffer>();
-	for (const name of fs.readdirSync(dir)) {
-		const p = path.join(dir, name);
-		const st = fs.statSync(p);
-		if (st.isDirectory()) for (const [k, v] of snapshotTree(p)) out.set(`${name}/${k}`, v);
-		else out.set(name, fs.readFileSync(p));
-	}
-	return out;
-}
-const BEFORE = snapshotTree(TMP);
 
 test.after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });

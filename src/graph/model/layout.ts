@@ -33,7 +33,7 @@ import {
 	type SimulationLinkDatum,
 	type SimulationNodeDatum,
 } from "d3-force";
-import type { GraphEdge, GraphNode, Position } from "./types.ts";
+import type { GraphNode, Position } from "./types.ts";
 import { seededRandom } from "../../session/model/index.ts";
 import { CHARGE_STRENGTH, CLUSTER_PULL_STRENGTH, INCREMENTAL_GRAVITY, LINK_DISTANCE, type DepthAnchorMode } from "../../settings/model/index.ts";
 

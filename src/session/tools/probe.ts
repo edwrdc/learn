@@ -1,7 +1,7 @@
 import type { AppTool } from "../../tools/index.ts";
 import { serverExecute } from "../../tools/index.ts";
 import { probeDoneInputSchema, PROBE_DONE_ACK_TEXT } from "../model/probe-types.ts";
-import { danglingQuestionOf, hasProbeDone, newHandoffMessage, type LhMessage } from "../model/transcript.ts";
+import { danglingQuestionOf, hasProbeDone, newHandoffMessage } from "../model/transcript.ts";
 import type { ChatStore } from "../model/ports.ts";
 import type { SteerMessage } from "../../jobs/model/index.ts";
 

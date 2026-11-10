@@ -126,7 +126,6 @@ test("an edited message is a ContextEdit over the entry that owns it", async () 
 test("repeated upserts of one message target its original entry, so the newest edit is the visible one", async () => {
 	const chat = chatStore.createChat("edit-twice");
 	const first = newUserMessage("first edit");
-	const second = newUserMessage("second edit");
 	await chatStore.saveMessages(chat.id, [first]);
 	await chatStore.saveMessages(chat.id, [{ ...first, content: "first edit" }]);
 	await chatStore.saveMessages(chat.id, [{ ...first, content: "second edit" }]);

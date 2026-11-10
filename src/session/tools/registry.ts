@@ -1,6 +1,5 @@
-import { Type } from "typebox";
 import type { AppTool } from "../../tools/index.ts";
-import { invalidInputResult, questionResult, serverExecute } from "../../tools/index.ts";
+import { invalidInputResult, questionResult } from "../../tools/index.ts";
 import {
 	askInputSchema,
 	askOptionProblems,
@@ -13,7 +12,6 @@ import {
 	quizInputProblems,
 } from "../model/questions.ts";
 import { enabledTools, quizMechanics, type EnabledTools } from "../../tools/model/index.ts";
-import type { JobRecord } from "../../jobs/model/index.ts";
 import type { JobStore } from "../../jobs/model/index.ts";
 import { jobTools, type SpawnJob } from "../../jobs/index.ts";
 import { planTools, type PlanToolContext } from "./plan.ts";

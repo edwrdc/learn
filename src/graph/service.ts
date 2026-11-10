@@ -5,7 +5,6 @@ import type { ExtractionRunView, GraphSnapshot } from "./model/types.ts";
 import type { GraphCostSummary } from "../session/model/index.ts";
 import { graphCostSummary } from "../session/model/index.ts";
 import { graphSnapshot } from "./snapshot.ts";
-import { birthSessionPartition } from "./model/session-clusters.ts";
 import {
 	deleteNodeTraces,
 	type NodeDeletionStats,

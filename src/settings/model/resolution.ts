@@ -30,7 +30,6 @@ import {
 	FACTORY_SETTINGS,
 	MODEL_SLOTS,
 	ROLE_SLOT,
-	type AgentSettings,
 	type BackgroundModelRole,
 	type ModelRole,
 	type FactorySettings,

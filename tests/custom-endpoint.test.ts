@@ -24,7 +24,7 @@ const {
 } = await import("../src/settings/custom-endpoint.ts");
 const { modelCatalog, validateModelsSettings } = await import("../src/settings/model-catalog.ts");
 const { keyStatuses } = await import("../src/settings/keys.ts");
-const { setCustomEndpointProvider, piEngineForSpec, piModels } = await import("../src/platform/engines.ts");
+const { setCustomEndpointProvider, piEngineForSpec } = await import("../src/platform/engines.ts");
 const { stores } = await import("../src/stores.ts");
 const { readSettings, writeSettings } = await import("../src/settings/store.ts");
 const { chatStore } = stores;

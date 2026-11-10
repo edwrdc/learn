@@ -22,13 +22,6 @@ import { PATHS } from "../src/platform/config.ts";
 const N = (id: string, title = id, summary?: string) => ({ id, title, ...(summary ? { summary } : {}) });
 const E = (from: string, to: string) => ({ from, to });
 
-function tree(ids: string[], edges: Array<[string, string]> = []): PlanTree {
-	return createTree(
-		ids.map((id) => N(id)),
-		edges.map(([from, to]) => E(from, to)),
-	);
-}
-
 /** Assert the op throws a PlanTreeError matching the given regex. */
 function assertReject(fn: () => unknown, needle: RegExp): void {
 	try {

@@ -14,7 +14,6 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 
 import {
 	activeProblemOf,
-	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
 } from "../src/session/model/transcript.ts";

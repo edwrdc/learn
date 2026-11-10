@@ -13,7 +13,6 @@ import { processState } from "./model/index.ts";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
-import type { ModelRole } from "../settings/model/index.ts";
 import { DEFAULT_THINKING_ORDER } from "../settings/model/index.ts";
 import {
 	CUSTOM_ENDPOINT_PROVIDER_ID,

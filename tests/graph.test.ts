@@ -24,7 +24,6 @@ import { after, describe, it } from "node:test";
 import type { AuditVerdicts, GraphChain, GraphNode } from "../src/graph/model/types.ts";
 import type { QuestionAnswerData } from "../src/session/model/questions.ts";
 import type { LhMessage } from "../src/session/model/transcript.ts";
-import { projectView as projectNative } from "../src/session/model/view.ts";
 import { deriveView, getGraph, graphSnapshot, mergeFindings, type GraphDeps } from "../src/graph/snapshot.ts";
 import { coverageSlots } from "../src/graph/coverage.ts";
 import { graphStore } from "../src/graph/store.ts";
@@ -264,7 +263,6 @@ const chat1 = await fixtureChat("Graph fixture", fixtureMessages());
 
 /** Set by the cross-session tests; the snapshot test (which runs after) reads them. */
 let chat2Id = "";
-let chat3Id = "";
 
 // ─── the merger ──────────────────────────────────────────────────────────────
 
@@ -567,7 +565,6 @@ describe("the merger (mergeFindings)", () => {
 
 	it("never string-matches without a verdict — an identical statement without linkTo is a NEW node", async () => {
 		const chat3 = await fixtureChat("Graph fixture 3", [user("u1", "third")].flat());
-		chat3Id = chat3.id;
 		const stats = mergeFindings(
 			chat3.id,
 			{

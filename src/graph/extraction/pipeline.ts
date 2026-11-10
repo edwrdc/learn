@@ -13,9 +13,8 @@ import {
 import type { PiEngine } from "../../platform/index.ts";
 import { BG_LLM_PERMITS, withBgLlmSlot } from "./llm-slots.ts";
 import type { AuditVerdicts, CoverageEntry, ExtractionPhase, EmissionStats } from "../model/types.ts";
-import { usageFromPi, type CallUsage, type ChatRecord, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
+import { usageFromPi, type CallUsage, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type GraphDeps } from "../snapshot.ts";
-import type { GraphStore } from "../model/ports.ts";
 import { emit, processState } from "../../platform/model/index.ts";
 import { settleGraphLayout } from "../layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../coverage.ts";

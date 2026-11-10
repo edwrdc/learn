@@ -56,7 +56,7 @@
  */
 
 import { isArgumentId, prunePositions } from "./rules.ts";
-import type { CoverageEntry, GraphChain, GraphNode, SessionCheckpoint } from "./types.ts";
+import type { GraphChain, GraphNode } from "./types.ts";
 import type { GraphStore } from "./ports.ts";
 
 /** The two deletion modes (owner-locked 2026-09-22). Machine-checkable on

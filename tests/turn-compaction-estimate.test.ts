@@ -15,7 +15,7 @@ const { handleChatInput } = await import("../src/session/turn.ts");
 await import("./support-durable.ts");
 const { services } = await import("../src/boot.ts");
 const { runningTurn } = await import("../src/session/turn-runs.ts");
-const { setBackgroundRun } = await import("../src/jobs/durable-run.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
 const { writeSettings } = await import("../src/settings/store.ts");
 const { promptOverrides } = await import("../src/session/prompts.ts");
 
@@ -33,11 +33,11 @@ it("the compaction gate counts the prompt the turn will actually send (phase + o
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 	await chatStore.saveMessages(chat.id, [newUserMessage("x".repeat(30_000)), newUserMessage("y".repeat(30_000))]);
 	let compactions = 0;
-	setBackgroundRun(async (request) => {
+	configureBackgroundRuns({ run: async (request) => {
 		assert.equal(request.kind, "compact");
 		compactions++;
 		return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
-	});
+	} });
 	services().upkeep = true;
 	try {
 		const faux = createFauxCore({});

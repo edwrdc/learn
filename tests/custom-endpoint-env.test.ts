@@ -14,7 +14,6 @@ const ENV_KEY = "env-owned-custom-key-123456";
 process.env.LH_CUSTOM_ENDPOINT_API_KEY = ENV_KEY;
 
 const {
-	customEndpointState,
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
 	saveCustomEndpoint,

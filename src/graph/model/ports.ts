@@ -1,4 +1,4 @@
-import type { ChatRecord, ExtractionRunUsage } from "../../session/model/index.ts";
+import type { ExtractionRunUsage } from "../../session/model/index.ts";
 import type { GraphChain, GraphNode, Position, CoverageEntry, SessionCheckpoint, NotesSource } from "./types.ts";
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────
