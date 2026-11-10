@@ -53,7 +53,7 @@ not fixed. The reproduction used an isolated profile, not a normal user install.
 
 ### Browser helper and page ownership
 
-[headless.ts](../src/agent/subagents/headless.ts) owns helper discovery and
+[headless.ts](../src/jobs/headless.ts) owns helper discovery and
 connection. [browser-service-readiness.cjs](../electron/browser-service-readiness.cjs)
 supplies the helper readiness wait. Executable presence is only an availability
 hint, not proof that a browser can start.
@@ -67,7 +67,7 @@ hint, not proof that a browser can start.
 | Caller has no reusable port | Binary resolves | Spawn with IPC after removing `ELECTRON_RUN_AS_NODE` and `LH_DEV_URL`. Wait up to 15 seconds for the handshake. Timeout kills the child. |
 | Caller has a port | Endpoint supplies a debugger URL | Connect to the helper. A live child with a stored port can be reused. |
 | Helper unavailable | No binary, missing handshake, or endpoint connection fails | Try per-job system Chrome. Close that browser in `finally`. A failure inside an already-selected helper page job does not switch to Chrome. |
-| Helper connected | Page job begins | Queue work through `helperPageChain` because the helper has one page target. Completion attempts navigation to `about:blank`. A failed job does not block the next queued job. |
+| Helper connected | Page job begins | Queue work through `withHelperPage` (a `keyedLock`) because the helper has one page target. Completion attempts navigation to `about:blank`. A failed job does not block the next queued job. |
 
 Only page work is serialized. Connection and helper startup occur before the
 page queue. Concurrent cold startup and complete listener cleanup between jobs
@@ -104,7 +104,7 @@ deleted in this reproduction. This generated-output loss is open, not fixed.
 
 ### Runtime slots
 
-[src/store/durable.ts](../src/store/durable.ts) owns `RuntimeSlot`,
+[src/session/durable.ts](../src/session/durable.ts) owns `RuntimeSlot`,
 `openChatRuntime`, and `closeChatRuntime`. Its process-global map owns one
 database handle per chat. Absence from the map is an implicit state.
 
@@ -124,7 +124,7 @@ Closing is not deletion. `removeChatRuntimeFiles` removes the directory after
 close, without a tombstone. Server admission and deletion now share the
 process-local operation queue described below. Existing assertions in
 [tests/durable-store.test.ts](../tests/durable-store.test.ts) cover shared opens,
-refusal while closing, reopening, and concurrent legacy import. They do not
+refusal while closing, and reopening. They do not
 establish that arbitrary retained runtime references are safe after deletion.
 
 ### Admission, execution, and settlement
@@ -133,11 +133,11 @@ No single boolean describes foreground state.
 
 | State component | Owner | Meaning |
 | --- | --- | --- |
-| Request claim | `beginTurn` and `endTurn` in [turn-liveness.ts](../src/server/turn-liveness.ts) | Process-local admission and settlement exclusion, with a 30-minute stale-claim limit. |
+| Request claim | `beginTurn` and `endTurn` in [turn-liveness.ts](../src/session/turn-liveness.ts) | Process-local admission and settlement exclusion, with a 30-minute stale-claim limit. |
 | Committed run | `LiveDoc.run`, read by `isCommittedRunLive` | A durable conversation has a run. Reads inspect an already-opening or open runtime. |
-| Finish descriptor | `ForegroundTurn` and `TurnDoc` in [turn-service.ts](../src/server/turn-service.ts) | Turn and request identities, safe model snapshot, phase, entry boundary, and `running`, `settling`, or `settled` mark. |
-| Server handle | [turn-runs.ts](../src/server/turn-runs.ts) | Memory-only handle for stream attachment and remote abort. |
-| Local settlement | `turnSettles` in [chat-handler.ts](../src/server/chat-handler.ts) | Shared promise per chat and turn prevents concurrent local finishers. |
+| Finish descriptor | `ForegroundTurn` and `TurnDoc` in [turn-service.ts](../src/session/turn-service.ts) | Turn and request identities, safe model snapshot, phase, entry boundary, and `running`, `settling`, or `settled` mark. |
+| Server handle | [turn-runs.ts](../src/session/turn-runs.ts) | Memory-only handle for stream attachment and remote abort. |
+| Local settlement | `turnSettles` in [turn.ts](../src/session/turn.ts) | Shared promise per chat and turn prevents concurrent local finishers. |
 
 `isTurnRunning` includes an unexpired claim and a committed run. Settlement
 therefore remains busy after generation ends. `isCommittedRunLive` excludes a
@@ -165,7 +165,7 @@ A `settled` mark does not prove that every external write succeeded. An outer
 settlement failure leaves `settling` for recovery but still releases local
 liveness and announces `turn-settled`.
 
-The [operation queue](../src/server/chat-operations.ts) covers admission,
+The [operation queue](../src/session/chat-operations.ts) covers admission,
 including compaction and cheap sibling-answer writes, but not generation.
 Deletion can wait behind compaction, then refuse the admitted turn with 409.
 Queue failures do not block later operations. The lock order is operation queue
@@ -188,7 +188,7 @@ covers claim rejection and lifecycle announcements.
 
 ### Conversation phase and learner pauses
 
-`chatPhase` in [durable-registry.ts](../src/server/durable-registry.ts) derives
+`chatPhase` in [phases.ts](../src/session/model/phases.ts) derives
 `practice` from chat kind. Otherwise, `hasProbeDone` selects `teach` instead of
 `probe`. A recovered turn uses its stored admission phase.
 
@@ -198,7 +198,7 @@ covers claim rejection and lifecycle announcements.
 | Generating | Question validation fails | Permit another generation round to repair the call. |
 | Question pending | Answer | `answerWrite` replaces the committed placeholder with a context edit. A legacy record without a placeholder appends the result. |
 | Question pending | Dismissal | Write the dismissal without starting a run. |
-| Turn busy | Dismissal arrives | [dismissal-park.ts](../src/server/dismissal-park.ts) stores one process-local intent per chat. Last write wins. |
+| Turn busy | Dismissal arrives | [dismissal-park.ts](../src/session/dismissal-park.ts) stores one process-local intent per chat. Last write wins. |
 | Dismissal parked | Settlement validates it | Apply it against the settled record. Drop `ChatInputError` if its target no longer exists. Retain intent on other write failures. |
 | Dismissal at transcript tail | Background result awaits delivery | Hold the idle wake until the learner sends again. |
 
@@ -219,13 +219,13 @@ boundary, not a newly approved persistence change.
 | Abort turn | No registered handle | Return 409 even if other liveness state remains. A registered handle receives abort and returns 200 without waiting for completion. |
 | Abort extraction | Any state | Request cancellation and return 200. Absence of work is success. |
 
-[turn-runs.ts](../src/server/turn-runs.ts) returns a `turn-settled` wire event
+[turn-runs.ts](../src/session/turn-runs.ts) returns a `turn-settled` wire event
 and `[DONE]` when a stream has no handle. An acknowledgment, a cancellation
 request, and a settled durable record are different observations.
 
 ### Durable turn wire and subscriber lifetime
 
-[durable-turn.ts](../src/server/pi/durable-turn.ts) projects committed entries,
+[durable-turn.ts](../src/session/pi/durable-turn.ts) projects committed entries,
 live generation, and tool slots into the wire protocol. The replay log is
 memory-only. The durable conversation remains authoritative.
 
@@ -251,13 +251,13 @@ is not the owner of generation or of durable admission.
 
 | Machine | State or event | Policy and invariant |
 | --- | --- | --- |
-| Tool registration | [tool-adapter.ts](../src/agent/tool-adapter.ts) adapts a tool | Only `quiz`, `explain`, `ask_user_question`, `problem`, and `conclude` receive replay policy `safe`. Every other name receives `unsafe`. Execution mode, argument preparation, abort signal, errors, termination, and usage pass through the adapter. |
-| Engine registry | `bindRunEngine(sessionId, engine, observer)` in [models.ts](../src/agent/models.ts) | Insert or replace that session binding in a process-global map. No single current engine governs all conversations. |
+| Tool registration | [adapter.ts](../src/tools/adapter.ts) adapts a tool | Tools marked `replaySafe` in the [tool catalog](../src/tools/model/catalog.ts) (`quiz`, `explain`, `probe`, `recall`, `ask_user_question`, `problem`, and `conclude`) receive replay policy `safe`. Every other name receives `unsafe`. Execution mode, argument preparation, abort signal, errors, termination, and usage pass through the adapter. |
+| Engine registry | `bindRunEngine(sessionId, engine, observer)` in [engines.ts](../src/platform/engines.ts) | Insert or replace that session binding in a process-global map. No single current engine governs all conversations. |
 | Bound request | Router receives a bound `options.sessionId` | Use the captured engine model and stream function. Forward both the upstream provider observer and the bound observer. |
 | Unbound request | Missing or unbound session ID | Use the base model collection. Registry absence is not itself a setup refusal. |
 | Model lookup | `getModel(provider, id)` | Prefer a matching bound model object. Request routing still selects the engine by session ID, not by whichever matching model lookup returned first. |
-| Foreground lifetime | [durable-registry.ts](../src/server/durable-registry.ts) binds the chat ID | [store/durable.ts](../src/store/durable.ts) unbinds on failed bootstrap or runtime close. Ordinary turn settlement does not itself remove the binding. |
-| Background lifetime | [durable-background.ts](../src/server/durable-background.ts) attaches a child | Bind its descriptor session ID. The attached runner uninstalls its extension and removes that binding in `finally`. Recovery restores required bindings before scheduling. |
+| Foreground lifetime | [durable-registry.ts](../src/session/durable-registry.ts) binds the chat ID | [durable.ts](../src/session/durable.ts) unbinds on failed bootstrap or runtime close. Ordinary turn settlement does not itself remove the binding. |
+| Background lifetime | [jobs/runtime.ts](../src/jobs/runtime.ts) attaches a child | Bind its descriptor session ID. The attached runner uninstalls its extension and removes that binding in `finally`. Recovery restores required bindings before scheduling. |
 
 These tables describe app registration policy, not dependency guarantees about
 crash replay or external side-effect deduplication.
@@ -299,11 +299,12 @@ the banner while stream cleanup returns to `ready`. `readyRef` follows
 states. `start` opens one `EventSource` per window. Every open, including
 reconnect, invokes resync callbacks. Notifications are not a durable event log.
 
-[ChatPage.svelte](../src/lib/chat/ChatPage.svelte) combines local stream status,
-`turnInFlight`, `pendingSync`, job status history, and `compacting`. Job completion
+[ChatPage.svelte](../src/lib/chat/ChatPage.svelte) combines local stream status with
+`ChatSync` in [chat-sync.svelte.ts](../src/lib/chat/chat-sync.svelte.ts), which holds
+`turnInFlight` handling, the owed sync, job status history, and `compacting`. Job completion
 adopts the record during a live turn and requests a full sync when idle.
 Mount and reconnect refresh jobs and fetch the authoritative `compacting` flag
-without replacing messages. `compactionRevision` rejects an older status read
+without replacing messages. `ChatSync`'s compaction revision rejects an older status read
 after a newer read or matching `compaction-changed` frame. A failed refresh
 leaves the current flag unchanged.
 
@@ -323,9 +324,9 @@ in this documentation pass.
 ### Job records and steer delivery
 
 `JobStatus` is `running`, `done`, or `error` in
-[contracts/jobs.ts](../src/core/contracts/jobs.ts). Running includes result
+[jobs/model/types.ts](../src/jobs/model/types.ts). Running includes result
 delivery, not just model execution. Executable behavior in
-[server/jobs.ts](../src/server/jobs.ts) takes precedence over older protocol
+[jobs/wake.ts](../src/jobs/wake.ts) takes precedence over older protocol
 comments that describe finalization only after the whole wake turn completes.
 
 | Logical state | Event | Effect |
@@ -349,8 +350,8 @@ live run because it must start the teacher phase in a fresh turn.
 Already-submitted markers cannot be recalled by filtering the local queue.
 Ordinary finalization does not overwrite terminal job status.
 
-`recoverStaleJobs` runs lazily from jobs reads outside tests, with a 30-second
-throttle. It skips terminal jobs, live abort registrations, missing chats, and
+`recoverStaleJobs` runs once at boot (`boot()` crash recovery in
+[src/boot.ts](../src/boot.ts), skipped when `upkeep` is off). It skips terminal jobs, live abort registrations, missing chats, and
 busy chats. Orphans with results are redelivered. Orphans without results are
 respawned. The transcript supplies delivery deduplication.
 
@@ -360,10 +361,10 @@ orphan recovery. This pass did not verify every overlap between those paths.
 
 ### Durable child conversations
 
-[durable-background.ts](../src/server/durable-background.ts) stores an index in
+[jobs/runtime.ts](../src/jobs/runtime.ts) stores an index in
 `BackgroundRunsDoc`. `BackgroundRunDoc` stores model identity, prompt, cap, and
-role state. Seven kinds are defined in
-[durable-run.ts](../src/agent/subagents/durable-run.ts).
+role state. Seven kinds (`BackgroundKind`) are defined in
+[durable-run.ts](../src/jobs/durable-run.ts).
 
 | Index state | Event | Transition |
 | --- | --- | --- |
@@ -396,7 +397,7 @@ compaction conversation reuse. They do not prove dependency scheduler internals.
 
 ### Extraction phases and coverage
 
-[extraction.ts](../src/agent/subagents/extraction.ts) owns source single-flight
+[pipeline.ts](../src/graph/extraction/pipeline.ts) owns source single-flight
 state, early cancellation controllers, and visible per-batch rows. A second
 request for an in-flight source returns zero counts instead of joining its result.
 
@@ -412,7 +413,7 @@ request for an in-flight source returns zero counts instead of joining its resul
 | Source aborted | Cancel current work and stop later batches | Unmerged work remains uncovered. Earlier successful merges remain. |
 | Source complete | Release early and single-flight state | Later requests can retry uncovered work. |
 
-Coverage in [core/coverage.ts](../src/core/coverage.ts) uses message fingerprints.
+Coverage in [graph/coverage.ts](../src/graph/coverage.ts) uses message fingerprints.
 Changed extractable content becomes uncovered again. Merge and coverage writes
 are synchronous app operations, not one crash-atomic transaction across files.
 Notes imports share this pipeline and graph writer but use source records and
@@ -426,7 +427,7 @@ cancellation schedules.
 
 ### Compaction gate
 
-[server/compaction.ts](../src/server/compaction.ts) tracks an in-flight promise
+[session/compaction.ts](../src/session/compaction.ts) tracks an in-flight promise
 per chat. `kickCompaction` starts after settlement. `ensureCompacted` waits for
 existing work and checks whether another summary is needed before the next turn.
 
@@ -476,14 +477,13 @@ ordering is covered separately in
 
 ### Chat metadata and transcript
 
-[store/chats.ts](../src/store/chats.ts) serializes metadata operations per chat.
+[session/store.ts](../src/session/store.ts) serializes metadata operations per chat.
 JSON stores metadata. Durable entries store messages and context edits.
 
 | State | Event | Result |
 | --- | --- | --- |
 | No record | Read | Return null at the record boundary. |
-| Legacy JSON has messages | First access | Back up original, import into empty durable history, then rewrite metadata without messages. |
-| Import committed but rewrite interrupted | Retry | Nonempty durable history prevents duplicate import. |
+| Legacy JSON has messages | Read | (Legacy import removed.) `readRecord` drops a `messages` field from the metadata; the transcript comes only from durable entries. |
 | Current metadata | Mutation | Reread under queue and rewrite once. Turn usage deduplicates by turn ID. Extraction usage deduplicates by start identity. |
 | Newer schema version | Access | Refuse rather than rewrite with an older build. |
 | Deleting | Store deletion | Hold metadata queue, close runtime, remove directory, then unlink metadata. |
@@ -494,9 +494,13 @@ operation queue now orders admission against server deletion before either
 entrypoint reads existence. It does not protect direct low-level callers or
 other processes. Close can still invalidate arbitrary retained references.
 
-Four confirmed JSON replacement writers truncate the destination in place:
-`writeMeta` here, `writeSettings` in `src/store/settings.ts`, `writeSourceMap` in
-`src/store/graph.ts`, and `writeRenderSettings` in `src/store/render-settings.ts`.
+Four JSON replacement writers were confirmed to truncate the destination in place:
+`writeMeta` (now in `src/session/store.ts`), `writeSettings` (now
+`src/settings/store.ts`), `writeSourceMap` (now `src/graph/store.ts`), and
+`writeRenderSettings` (removed; render settings now live in `settings.json`
+`graphRender`). In current code the three remaining writers call
+`writeJsonAtomic` ([platform/fs.ts](../src/platform/fs.ts), temporary file and
+rename). The findings below describe the code as it was when traced.
 Reported fault injection after truncation left each file at zero bytes. Settings
 read as null, sources as an empty list, render settings as null, and chat lookup
 as missing. The durable SQLite transcript survived the metadata failure.
@@ -504,13 +508,13 @@ Retries do not reliably recover old data. A section retry lost sibling settings,
 and reimport restored only one source without its previous usage history.
 Existing temporary-file-and-rename graph and auth writers retained their old
 bytes under the same injection. This comparison does not prove power-loss
-durability. Private-file replacement was approved for the four writers but is
-not implemented.
+durability. Private-file replacement was approved for the four writers; the
+current `writeJsonAtomic` calls pass no owner-only mode.
 
 ### Graph ledgers and session deletion
 
-[store/graph.ts](../src/store/graph.ts) appends shaped JSONL records and skips
-malformed lines on read. [core/graph.ts](../src/core/graph.ts) derives nodes and
+[graph/store.ts](../src/graph/store.ts) appends shaped JSONL records and skips
+malformed lines on read. [graph/snapshot.ts](../src/graph/snapshot.ts) (`getGraph`) derives nodes and
 chains from those records. Later lines add aliases and provenance to existing
 identities. Format stamps refuse incompatible newer graph formats.
 
@@ -524,7 +528,7 @@ identities. Format stamps refuse incompatible newer graph formats.
 | Chat removal | Await store deletion and runtime close. This stage is asynchronous despite the older orchestration comment describing a synchronous block. |
 | Chat removal fails | A false result or exception returns HTTP 500 with code `delete_failed` and message `Session deletion failed. Try again.`. Internal details stay in the server log. Graph and job purges may already have completed. |
 
-[core/graph-deletion.ts](../src/core/graph-deletion.ts) defines two explicit modes.
+[graph/model/deletion.ts](../src/graph/model/deletion.ts) defines two explicit modes.
 `preserve-graph` removes coverage and checkpoints but keeps nodes and chains.
 `delete-nodes` removes session provenance, nodes without surviving references,
 affected chains, and dead positions. Shared node identity survives even when
@@ -537,8 +541,8 @@ demonstrated exclusion guarantee.
 
 ### Single-node and partial selection deletion
 
-[server/graph.ts](../src/server/graph.ts) and
-[deleteNodeTraces](../src/core/graph-deletion.ts) implement node deletion.
+`deleteGraphNode` in [graph/service.ts](../src/graph/service.ts) and
+[deleteNodeTraces](../src/graph/model/deletion.ts) implement node deletion.
 This operation does not use session deletion's provenance-preservation policy.
 
 | State | Event or guard | Transition and invariant |
@@ -565,7 +569,7 @@ not cancel requests already sent.
 
 ### Settings and model resolution
 
-[core/settings.ts](../src/core/settings.ts) separates persisted overrides from
+[settings.ts](../src/settings/model/settings.ts) and [resolution.ts](../src/settings/model/resolution.ts) separate persisted overrides from
 effective settings. Missing preference overrides select factory preferences.
 Model selection has no fabricated fallback model. Conversation selection uses
 the chat override over the strong slot. Background roles use the role override
@@ -573,9 +577,9 @@ over the assigned slot.
 
 | State or operation | Transition |
 | --- | --- |
-| File absent or unparseable | [store/settings.ts](../src/store/settings.ts) returns null. Callers resolve defaults. |
+| File absent or unparseable | [settings/store.ts](../src/settings/store.ts) returns null. Callers resolve defaults. |
 | Object loaded | `sanitizeUserSettings` validates known sections independently and preserves actual unknown top-level keys. Malformed known sections cannot re-enter through unknown-key copying. |
-| Section PUT | [settings-body.ts](../src/server/settings-body.ts) rejects invalid known values and drops unknown body fields. |
+| Section PUT | `parseSection` in [schema.ts](../src/settings/model/schema.ts) rejects invalid known values and drops unknown body fields. |
 | Cross-validation | [section route](../src/routes/api/settings/[section]/+server.ts) checks catalog choices, clamps thinking levels, and removes orphaned enabled prompt switches. |
 | Section write | Replace the entire selected section. Missing fields mean absent overrides, not a patch into old values. |
 | UI write succeeds | [SettingsDialog.svelte](../src/lib/settings/SettingsDialog.svelte) adopts returned record and emits section notification. |
@@ -583,7 +587,8 @@ over the assigned slot.
 
 Compaction sanitation is independent of graph presence and rejects arrays.
 Known sections retain only their known fields. Unknown top-level keys survive,
-but the obsolete `chat` section is stripped.
+but the retired `chat` and `general` sections are stripped (`RETIRED_SECTIONS`
+in [schema.ts](../src/settings/model/schema.ts)).
 
 Stale same-section replacements are a confirmed open issue. The reported real
 route reproduction composed two `agent` bodies from the same record. Both PUTs
@@ -617,8 +622,8 @@ provider-key presence. This is a setup-stage selector, not provider authenticati
 | Real environment value present | Save a file value | Keep environment precedence. The status reports the shadowed file value. |
 | File or app-owned environment value | Delete | Remove the file value and only the app-owned environment copy. A real environment value remains active. |
 
-[server/keys.ts](../src/server/keys.ts) tracks real environment ownership and
-fill-gap ownership. [store/auth.ts](../src/store/auth.ts) rereads the file on
+[settings/keys.ts](../src/settings/keys.ts) tracks real environment ownership and
+fill-gap ownership. [settings/auth-store.ts](../src/settings/auth-store.ts) rereads the file on
 access, treats absent or malformed content as an empty map, and uses a
 mode-0600 temporary file and rename for writes. Write errors propagate.
 With `LH_IGNORE_ENV_KEYS=1`, boot removes known environment keys and only file
@@ -631,7 +636,7 @@ The full setup dialog remains outside this trace.
 
 ### Custom endpoint save, discovery, and removal
 
-[server/custom-endpoint.ts](../src/server/custom-endpoint.ts) owns one optional
+[settings/custom-endpoint.ts](../src/settings/custom-endpoint.ts) owns one optional
 endpoint and its key binding. Its GET state exposes configuration, key presence,
 and key source, never the key value.
 
@@ -658,18 +663,21 @@ returns the discovery status without persisting model rows.
 
 ### Settings dialog pending operations
 
-[SettingsDialog.svelte](../src/lib/settings/SettingsDialog.svelte) does not have
-a write queue, pending-write counter, request-generation guard, or close-time
+[SettingsDialog.svelte](../src/lib/settings/SettingsDialog.svelte) reads and writes
+through the `settings` store in
+[settings.svelte.ts](../src/lib/state/settings.svelte.ts), a `Resource`
+([resource.svelte.ts](../src/lib/state/resource.svelte.ts)). Neither has a write
+queue, pending-write counter, request-generation guard, or close-time
 cancellation. Visibility and request lifetime are separate states.
 
 | State | Event | Transition and limit |
 | --- | --- | --- |
-| Shown | Load starts | Fetch settings. Initial `record === undefined` displays loading. A reopen does not first clear the previous record. |
-| Load pending | Success or failure | Adopt returned settings or a version-only empty record. Failure sets `record = null`. A late response has no visibility or generation check. |
-| Record editable | Section changes | Clear shared write error and launch a PUT. Other writes can overlap. |
-| Write pending | Non-success HTTP response | Set a section-prefixed error. The function does not catch a rejected fetch. |
-| Write pending | Successful response | Replace the whole local record with returned settings, or merge the submitted section when no record is returned. Notify listeners. Appearance also updates local appearance state. |
-| Any request pending | Dialog closes | Hide the dialog without aborting or awaiting that request. Late completion can still update local state and emit notifications. |
+| Shown | Dialog opens | Call `settings.refresh()`. The dialog's `record` is `undefined` until the store's first load lands. A reopen does not first clear the previous record. |
+| Load pending | Success or failure | Adopt the returned settings, or a version-only empty record on first boot. A failed load with no earlier value shows `record = null`; a failed reload keeps the last value. A late response has no visibility or generation check. |
+| Record editable | Section changes | Clear the shared write error and call `settings.save(section, body)`. Other writes can overlap. |
+| Write pending | Rejected request (HTTP or network) | Set a section-prefixed error. |
+| Write pending | Successful response | Adopt the returned whole record in the store and emit the `settings-saved` page event for that section. |
+| Any request pending | Dialog closes | Hide the dialog without aborting or awaiting that request. Late completion can still update the store and emit notifications. |
 
 The absence of ordering guards and composition from the last adopted record are
 code-traced. Same-section lost updates are route-reproduced as described above,
@@ -679,9 +687,9 @@ unverified.
 
 ### Artifact dispatch projection
 
-[ArtifactPart.svelte](../src/lib/artifacts/ArtifactPart.svelte),
-[JobCards.svelte](../src/lib/artifacts/JobCards.svelte), and
-[DispatchCard.svelte](../src/lib/artifacts/DispatchCard.svelte) project job state.
+[ArtifactPart.svelte](../src/lib/chat/ArtifactPart.svelte) and
+[DispatchCard.svelte](../src/lib/artifacts/DispatchCard.svelte) project job state
+(the former `JobCards.svelte` no longer exists).
 They do not own durable job transitions.
 
 | State | Input or event | Display or transition |
@@ -691,7 +699,7 @@ They do not own durable job transitions.
 | Job terminal | Model or provider-key refusal | Show setup action when chat actions exist. Refusal checks precede the generic failure display. |
 | Job terminal | Other `error` or successful completion | Show failed or delivered respectively. |
 | Demo or visual part | Artifact renderer dispatches | Forward jobs directly to `DispatchCard`. |
-| Research or PDF part | Part reaches `output-available` | Forward jobs through `ArtifactPart` and `JobCards` to `DispatchCard`. Updated job records can change activity, terminal status, and setup refusal display. |
+| Research or PDF part | Part reaches `output-available` | Forward jobs through `ArtifactPart` to `DispatchCard`. Updated job records can change activity, terminal status, and setup refusal display. |
 
 Artifact job prop forwarding is integrated.
 `tests/browser/frontend-suite-dispatch.mjs` contains assertions for recorded
@@ -701,10 +709,10 @@ Other rich artifact rendering states were not traced.
 
 ### Practice progression
 
-[practice.ts](../src/agent/tools/practice.ts) shares one `PracticeGate` between
+[practice.ts](../src/session/tools/practice.ts) shares one `PracticeGate` between
 sequential `problem` and `conclude` tools. The lazy seed reads the transcript
 once per toolset. Tool results update the local gate immediately.
-[activeProblemOf](../src/core/native-messages.ts) reconstructs persisted state
+[activeProblemOf](../src/session/model/transcript.ts) reconstructs persisted state
 from successful acknowledgments, not from tool calls alone.
 
 | State | Event | Result |
@@ -760,7 +768,7 @@ These are selected local machines, not a complete UI inventory.
 | Dictation | `idle`, `connecting`, `recording`, `stopping`. Start acquires microphone, worklet, and token. Socket open enters recording. Stop waits for final results or three-second cleanup timeout. | [dictation.svelte.ts](../src/lib/chat/dictation.svelte.ts). Generation counter rejects stale callbacks. One abnormal socket close can reconnect with a fresh token. |
 | Dictation finish and cancel | Finish waits for cleanup and flushes buffered final text. Cancel clears the buffer first. Cleanup stops tracks, disconnects nodes, closes socket, resolves waiters, and returns idle. | Shared AudioContext and worklet promise are separate resource state. Hardware and navigation during capture were not exercised. |
 | Warm dictation token | Absent, pending or cached promise, expired, or rejected. Concurrent calls share a promise. Expiry and refresh mint again. Failure clears cache. | `createWarmMinter` has assertions in [dictation-warm.test.ts](../tests/dictation-warm.test.ts). These do not exercise hardware or the service. |
-| Message navigation | Invalid or absent hash, target missing, or target found. Later rendering can resolve a missing target. Matching hash and element suppress a repeated jump. | [session-navigation.ts](../src/core/session-navigation.ts), [session-nav.ts](../src/lib/chat/session-nav.ts), and `jumpToHash` in `ChatPage`. Jump stops automatic scroll and temporarily highlights the target. |
+| Message navigation | Invalid or absent hash, target missing, or target found. Later rendering can resolve a missing target. Matching hash and element suppress a repeated jump. | [navigation.ts](../src/session/model/navigation.ts), [session-nav.ts](../src/lib/chat/session-nav.ts), and `jumpToHash` in `ChatPage`. Jump stops automatic scroll and temporarily highlights the target. |
 
 [tests/session-navigation.test.ts](../tests/session-navigation.test.ts) asserts
 encoded IDs, malformed hashes, first provenance anchors, and distinct anchors
@@ -795,9 +803,9 @@ multi-marker, or interrupted-write path is exactly-once.
 
 | Work | Current implementation | Verification limit |
 | --- | --- | --- |
-| Marker-only compaction commit | [compaction.ts](../src/server/compaction.ts) passes only `[marker]` to `saveMessages`, preserving concurrent transcript edits. | Dismissal and reopen assertions are in `tests/compaction-dismissal.test.ts`. The final integrated test suite passed. |
-| Retain pending question during compaction | [core/compaction.ts](../src/core/compaction.ts) pins the cut to the pending call's assistant and retains the entire following tail. | Pure cut and provider-input assertions passed in the final integrated test suite. Obsolete summary projection remains open below. |
-| Artifact job prop forwarding | Research and PDF forward jobs through both component boundaries. | Dispatch browser assertions exist. The final integrated frontend browser suite passed. |
+| Marker-only compaction commit | [compaction.ts](../src/session/compaction.ts) passes only `[marker]` to `saveMessages`, preserving concurrent transcript edits. | Dismissal and reopen assertions are in `tests/compaction-dismissal.test.ts`. The final integrated test suite passed. |
+| Retain pending question during compaction | [session/model/compaction.ts](../src/session/model/compaction.ts) pins the cut to the pending call's assistant and retains the entire following tail. | Pure cut and provider-input assertions passed in the final integrated test suite. Obsolete summary projection remains open below. |
+| Artifact job prop forwarding | Research and PDF forward jobs through `ArtifactPart` to `DispatchCard`. | Dispatch browser assertions exist. The final integrated frontend browser suite passed. |
 | Partial graph deletion retry | The chain-table parent retains failed and unattempted nodes after partial success. | Deferred browser assertions cover HTTP and network failures. The final integrated frontend browser suite passed. |
 
 ## Ranked open confirmed issues
@@ -808,10 +816,10 @@ Temporary reproduction files are not permanent project references.
 
 | Rank | Reachable failure and concrete evidence | Current code and limits | Status |
 | --- | --- | --- | --- |
-| 1. P1. JSON replacement loses old data | Fault injection after truncation left settings, sources, render settings, and chat metadata at zero bytes. Reads hid the old records. Section retry and source reimport did not recover siblings or usage. | `src/store/settings.ts:writeSettings`, `src/store/graph.ts:writeSourceMap`, `src/store/render-settings.ts:writeRenderSettings`, and `src/store/chats.ts:writeMeta` use direct `writeFileSync`. SQLite chat history survived. Injection proves a reachable interrupted-write failure, not its real-world frequency or power-loss behavior. | OPEN, NOT FIXED. Private-file replacement approved, implementation absent. A controlled ACL reproduction showed copying mode bits alone can broaden read access, so the user selected owner-only POSIX replacement, not yet implemented. |
+| 1. P1. JSON replacement loses old data | Fault injection after truncation left settings, sources, render settings, and chat metadata at zero bytes. Reads hid the old records. Section retry and source reimport did not recover siblings or usage. | As traced, `writeSettings`, `writeSourceMap`, `writeRenderSettings`, and `writeMeta` used direct `writeFileSync`. Current code: `src/settings/store.ts:writeSettings`, `src/graph/store.ts:writeSourceMap`, and `src/session/store.ts:writeMeta` call `writeJsonAtomic` (`src/platform/fs.ts`); `writeRenderSettings` is removed. SQLite chat history survived. Injection proves a reachable interrupted-write failure, not its real-world frequency or power-loss behavior. | OPEN as traced. Current code uses temporary-file-and-rename for the three remaining writers, without an owner-only mode. Private-file replacement approved. A controlled ACL reproduction showed copying mode bits alone can broaden read access, so the user selected owner-only POSIX replacement, not yet implemented. |
 | 2. P2. Stale whole-section settings overwrite | Real route calls with two stale `agent` bodies both returned 200. Disabling demo removed the previous research override. A second body based on the first response preserved both. | Section PUT replaces the section. `SettingsDialog.svelte` adopts responses without write ordering. UI timing is code-traced, not browser-proven. Different-section synchronous server writes survived the reproduction. | OPEN, NOT FIXED. |
 | 3. P2. Desktop startup leaves an invisible locked process | Isolated real-Electron runs left no window after missing-server startup. The unchanged production main process remained alive after 33 seconds, and a second launch exited without starting a server. | `electron/main.cjs:startServer`, `waitUntilUp`, and the ready callback have no common startup-failure cleanup. A connected but silent HTTP endpoint also leaves readiness pending. The controlled run is not evidence of frequency on packaged user installs. | OPEN, NOT FIXED. |
-| 4. P2. Obsolete summary reaches provider input | With an 84,000-character prior summary, the reproduction completed two summaries. The captured actual provider request contained both `OBSOLETE_PRIOR_SUMMARY_` and `LATEST_SUMMARY_ONLY`. The pending question also survived. | `src/core/native-messages.ts:toLlmMessages` skips only the active marker after prepending its summary. An older marker inside the kept tail renders as user text. The large injected summary establishes reachability, not normal provider output size or measured answer harm. | OPEN, NOT FIXED. |
+| 4. P2. Obsolete summary reaches provider input | With an 84,000-character prior summary, the reproduction completed two summaries. The captured actual provider request contained both `OBSOLETE_PRIOR_SUMMARY_` and `LATEST_SUMMARY_ONLY`. The pending question also survived. | `src/session/model/transcript.ts:toLlmMessages` skips only the active marker after prepending its summary. An older marker inside the kept tail renders as user text. The large injected summary establishes reachability, not normal provider output size or measured answer harm. | OPEN, NOT FIXED. |
 | 5. P3. Failed source build deletes the previous payload | A curated payload first served HTTP 200. With adapter `handler.js` missing, source startup exited 1 and deleted that payload. Direct restart then failed with `MODULE_NOT_FOUND`. | `scripts/build-server.mjs:buildPayload` calls `fail`, which removes the payload. `scripts/start-server.mjs` rebuilds before import. This deletes generated output, not user data, in the isolated reproduction. | OPEN, NOT FIXED. |
 
 Marker-only persistence and pending-question retention do not fix obsolete

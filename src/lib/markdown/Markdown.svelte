@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
+	import { repairMathForDisplay, transformMathDelimiters } from "@/src/tools/model";
 	import HastNode from "./HastNode.svelte";
 	import { hasOpenFence, markdownToHast } from "./pipeline";
 

@@ -11,6 +11,7 @@
  * placeholder) and a record ending on it owes no continuation.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -26,15 +27,16 @@ import {
 	type FauxResponseStep,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import type { PiEngine } from "../src/agent/models.ts";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { runningTurn } from "../src/server/turn-runs.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { graphStore } from "../src/store/graph.ts";
-import { activeProblemOf, needsContinuation } from "../src/core/index.ts";
-import { PATHS } from "../config.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { runningTurn } from "../src/session/turn-runs.ts";
+import { chatStore } from "../src/session/store.ts";
+import { graphStore } from "../src/graph/store.ts";
+import { activeProblemOf, needsContinuation } from "../src/session/model/transcript.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { CONCLUDE_ACK_TEXT } from "../src/session/model/types.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
 // The BYOK key-presence gate reads env-first (chat-flow.test.ts's idiom).
@@ -94,13 +96,6 @@ function post(chatId: string, input: unknown): Request {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ chatId, input }),
 	});
-}
-
-async function drain(res: Response): Promise<string> {
-	if (res.status !== 200) {
-		assert.fail(`expected 200, got ${res.status}: ${await res.text()}`);
-	}
-	return res.text();
 }
 
 /** CONNECTION DIET B (owner, 2026-10-10): POST acks and closes; the turn's

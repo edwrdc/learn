@@ -9,30 +9,25 @@
  * Parser tests are PURE (no fs — parallel-test discipline); the registry
  * tests use an in-memory chat fixture like question-tools.test.ts.
  */
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
-import { z } from "zod";
 import { describe, it } from "node:test";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { createProberTools, type ProberToolContext } from "../src/agent/tools.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { parseAgentSettingsBody } from "../src/server/settings-body.ts";
-import { chatStore } from "../src/store/chats.ts";
-import type { AgentSettings } from "../src/core/settings.ts";
+import { createProberTools, type ProberToolContext } from "../src/session/tools/registry.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { parseSection } from "../src/settings/model/schema.ts";
+
+const parseAgentSettingsBody = (body: unknown) => parseSection("agent", body);
+import { chatStore } from "../src/session/store.ts";
+import type { AgentSettings } from "../src/settings/model/settings.ts";
 
 describe("the tool-toggle bridge (the P2 seam)", () => {
 	const toolNames = (tools: Record<string, unknown>) => Object.keys(tools).sort();
 
-	it("a job-tool delta is a no-op on the bare question set", () => {
-		// No ctx → bare fixture: quiz/ask only. A job-tool delta names tools
-		// that don't exist there — the filter must not crash on it.
-		assert.deepEqual(toolNames(bareQuestionTools()), ["ask_user_question", "quiz"]);
-	});
-
-	it("flows into the prober's registry; probe_done survives everything", () => {
-		const chatId = chatStore.createChat("Toggle bridge test").id;
+	it("flows into the prober's registry; probe_done survives everything", async () => {
+		const chatId = (await chatStore.createChat("Toggle bridge test")).id;
 		const ctx: ProberToolContext = { chatId, chatStore, deliver: () => {}, jobStore, spawn: () => {} };
-		const names = toolNames(createProberTools(ctx, { ask_user_question: false }));
-		assert.ok(!names.includes("ask_user_question"), "the delta dropped the tool");
+		const names = toolNames(createProberTools(ctx, { research: false }));
+		assert.ok(!names.includes("research"), "the delta dropped the tool");
 		assert.ok(names.includes("probe_done"), "probe_done always-on");
 	});
 });
@@ -40,19 +35,19 @@ describe("the tool-toggle bridge (the P2 seam)", () => {
 describe("parseAgentSettingsBody: tool keys validate at write time", () => {
 	const parse = (tools: Record<string, boolean>) =>
 		parseAgentSettingsBody({ tools }) as
-			| { ok: true; settings: AgentSettings }
+			| { ok: true; value: AgentSettings }
 			| { ok: false; error: string };
 
 	it("a valid job-tool delta parses", async () => {
 		const r = parse({ research: false, pdf: false });
 		assert.equal(r.ok, true);
-		assert.deepEqual(r.ok && r.settings.tools, { research: false, pdf: false });
+		assert.deepEqual(r.ok && r.value.tools, { research: false, pdf: false });
 	});
 
 	it("the quizzing-mechanics key (explain) is writable (owner 2026-09-27)", async () => {
 		const r = parse({ explain: true });
 		assert.equal(r.ok, true);
-		assert.deepEqual(r.ok && r.settings.tools, { explain: true });
+		assert.deepEqual(r.ok && r.value.tools, { explain: true });
 	});
 
 	it("unknown keys are rejected with the supported list (the quiz wedge never persists)", async () => {

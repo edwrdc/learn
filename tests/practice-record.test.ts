@@ -18,17 +18,16 @@ import {
 	newNextMessage,
 	newThinkingMessage,
 	needsContinuation,
-	newUserMessage,
 	pendingProblemDismissalOf,
 	toLlmMessages,
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
-} from "../src/core/native-messages.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
-import { dismissAppends, inputAppends, parseChatInput, parseDismissInput } from "../src/core/input-events.ts";
-import { modelSolutionForConclude } from "../src/core/native-messages.ts";
-import { projectView } from "../src/core/index.ts";
+} from "../src/session/model/transcript.ts";
+import { CONCLUDE_ACK_TEXT } from "../src/session/model/types.ts";
+import { dismissAppends, inputAppends, parseChatInput, parseDismissInput } from "../src/session/model/input-events.ts";
+import { modelSolutionForConclude } from "../src/session/model/transcript.ts";
+import { projectView } from "../src/session/model/view.ts";
 
 // ── builders (native-shaped test fixtures) ───────────────────────────────────
 

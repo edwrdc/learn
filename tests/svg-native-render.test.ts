@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { realHeadless } from "../src/agent/subagents/headless.ts";
+import { realHeadless } from "../src/jobs/headless.ts";
 
 function pngFacts(buf: Buffer): { w: number; h: number; idats: number } {
 	assert.equal(buf.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", "PNG signature");

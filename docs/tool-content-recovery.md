@@ -4,7 +4,7 @@
 
 Model-authored tool content is parsed against its schema before presentation. Math or document recovery must not change persisted tool arguments, option identities, learner answers, shuffling, grading, or future answer snapshots. Those use the source-derived, schema-parsed content.
 
-`ToolContentResponse` projects text through `repairMathForDisplay`, then uses the ordinary Markdown renderer. Teaching/probing questions, asks, recalls/explanations, and practice statements/solutions share this path. Ordinary assistant prose does not receive tool-content recovery.
+`Markdown.svelte` (`src/lib/markdown/`) with its `tool` flag projects text through `repairMathForDisplay` (`src/tools/model/math-delims.ts`, over the span reader in `src/tools/model/content-reader.ts`), then renders it as ordinary Markdown. Teaching/probing questions, asks, recalls/explanations, and practice statements/solutions share this path. Ordinary assistant prose does not receive tool-content recovery.
 
 There are three separate responsibilities:
 
@@ -51,13 +51,13 @@ Unbalanced, unsupported or ambiguous content is not generally corrected into new
 
 ## Historical answers
 
-`answerForPresentation` joins model-authored display fields to the original tool call without changing recorded answer facts. Option labels bind only through unambiguous selected values, exact/source-recovered labels, or one uniquely remaining pair in a complete bijection. Ambiguous rows keep their saved snapshots. Saved order, indices, selected values, verdicts, confidence and learner text are retained. Dismissed answers are unchanged. No migration or record rewrite is performed.
+`answerForPresentation` (`src/session/model/answer-presentation.ts`) joins model-authored display fields to the original tool call without changing recorded answer facts. Option labels bind only through unambiguous selected values, exact/source-recovered labels, or one uniquely remaining pair in a complete bijection. Ambiguous rows keep their saved snapshots. Saved order, indices, selected values, verdicts, confidence and learner text are retained. Dismissed answers are unchanged. No migration or record rewrite is performed.
 
 ## Verification
 
 - `tests/content-recovery.test.ts`: recovery/preservation rules and adversarial row/comment/code examples.
-- `tests/tool-content-presentation.test.tsx`: provenance-labeled synthetic corpus regressions, historical joins and ambiguity.
-- `tests/tool-content-interaction.test.tsx`: select/submit/persist/reveal flow and paragraph structure.
+- `tests/svelte-rich.test.ts` ("tool-text recovery"): the regression corpora in `tests/fixtures/tool-rendering/*.json`, historical joins and ambiguity.
+- `tests/browser/frontend-suite-tool-content.mjs`: the select/submit/persist/reveal flow in the packaged app.
 - Existing Markdown, card, practice, tool-shape and grading suites remain applicable.
 
-The local frozen corpus can be replayed offline with `scripts/replay-tool-rendering-corpus.ts`. Replay verifies source hashes and preserves baseline findings; it reports glyph loss, matrix rows, rendering errors, code bytes, schema regressions, answer facts and projection convergence. Corpus collection and larger diagnostic batches are separate from product recovery and are not prerequisites for running these unit tests.
+There is no replay script for a frozen corpus in `scripts/`; the checked-in regression fixtures under `tests/fixtures/tool-rendering/` are what the suites replay.

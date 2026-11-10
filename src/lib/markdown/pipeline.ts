@@ -4,7 +4,7 @@
  *   - remark-gfm + remark-breaks + the two CJK-friendly plugins (and the
  *     CJK link spacer) + remark-math with single-dollar text math;
  *   - legacy \(...\)/\[...\] delimiters are converted before parsing by
- *     core/math-delims.ts (call sites), so both authoring dialects render;
+ *     src/tools/model/math-delims.ts (call sites), so both authoring dialects render;
  *   - raw HTML is parsed (rehype-raw), then sanitized with the GitHub
  *     schema (+ code metastring, + tel), then hardened with the configured
  *     options;
@@ -29,8 +29,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { harden } from "rehype-harden";
 import { visit } from "unist-util-visit";
 
-/** The CJK-adjacent punctuation whose placement must survive link parsing
- *  (the retired Streamdown CJK spacer's exact set). */
+/** The CJK-adjacent punctuation whose placement must survive link parsing. */
 const CJK_PUNCT = new Set([
 	"\u3002", "\uFF0E", "\uFF0C", "\u3001", "\uFF1F", "\uFF01",
 	"\uFF1A", "\uFF1B", "\uFF08", "\uFF09", "\u3010", "\u3011",
@@ -68,8 +67,7 @@ const cjkLinkSpacer: Plugin<[], MdastRoot> = () => (tree) => {
 	});
 };
 
-/** Carry a fence's metastring (```js startLine=3) onto the <code> element,
- *  exactly Streamdown's codeMeta plugin. */
+/** Carry a fence's metastring (```js startLine=3) onto the <code> element. */
 const codeMeta: Plugin<[], MdastRoot> = () => (tree) => {
 	visit(tree, "code", (node: Code) => {
 		if (!node.meta) return;
@@ -78,8 +76,8 @@ const codeMeta: Plugin<[], MdastRoot> = () => (tree) => {
 	});
 };
 
-/** House data attributes: the CSS hooks (globals.css) and render tests from
- *  the Streamdown era target these names. */
+/** House data attributes: the CSS hooks (globals.css) and render tests
+ *  target these names. */
 const houseAttributes: Plugin<[], HastRoot> = () => (tree) => {
 	visit(tree, "element", (node: Element) => {
 		if (node.properties.dataStreamdown !== undefined) return;

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FACTORY_SETTINGS, type GraphSettings } from "@/src/core";
+	import { FACTORY_SETTINGS, type GraphSettings } from "@/src/settings/model";
 	import Controls from "./Controls.svelte";
 	import CommitInput from "./CommitInput.svelte";
 	import Toggle from "$lib/ui/Toggle.svelte";

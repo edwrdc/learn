@@ -22,14 +22,13 @@ import {
 	type Api,
 } from "@earendil-works/pi-ai";
 import {
-	APP_IDENTITY,
 	bindRunEngine,
 	piEngineForSpec,
 	routedModels,
 	setCustomEndpointProvider,
 	type PiEngine,
-} from "../src/agent/models.ts";
-import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../src/core/custom-endpoint.ts";
+} from "../src/platform/engines.ts";
+import { CUSTOM_ENDPOINT_PROVIDER_ID } from "../src/settings/model/custom-endpoint.ts";
 
 const KEY = "test-models-router-key-123456";
 const MODEL_ID = "router-model";
@@ -137,8 +136,8 @@ describe("the per-session Models router", () => {
 		// Next dev gives each route its own copy of this module; the Harness
 		// captures the router from the copy that opened the chat while the
 		// POST that binds the turn's engine runs in another copy.
-		const specifier = "../src/agent/models.ts?route-copy=2";
-		const copy = (await import(specifier)) as typeof import("../src/agent/models.ts");
+		const specifier = "../src/platform/engines.ts?route-copy=2";
+		const copy = (await import(specifier)) as typeof import("../src/platform/engines.ts");
 		const engine = fauxEngine("from copy B");
 		copy.bindRunEngine("session-cross-copy", engine);
 		try {
@@ -189,7 +188,6 @@ describe("the per-session Models router", () => {
 			"normalized events are a different shape entirely",
 		);
 		assert.ok(normalized.includes("text_delta"), "the normalized stream still reaches the consumer");
-		assert.equal(APP_IDENTITY.attribution.name, "learnharness", "provider identity is the app's");
 		setCustomEndpointProvider(null);
 	});
 });

@@ -29,9 +29,9 @@ let saveMessages: (id: string, messages: unknown[]) => Promise<void>;
 before(async () => {
 	const route = await import("../src/routes/api/chats/[id]/markdown/+server.ts");
 	GET = route.GET;
-	const server = await import("../src/server/chats.ts");
+	const server = await import("../src/session/operations.ts");
 	createChat = server.createChat;
-	const { chatStore } = await import("../src/store/chats.ts");
+	const { chatStore } = await import("../src/session/store.ts");
 	saveMessages = async (id, messages) => await chatStore.saveMessages(id, messages as never);
 });
 

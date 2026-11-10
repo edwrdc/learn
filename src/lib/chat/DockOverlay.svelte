@@ -2,7 +2,8 @@
 import { untrack } from "svelte";
 	import { tick, type Snippet } from "svelte";
 	import { ArrowDown } from "@lucide/svelte";
-	import type { Phase3, TurnUsage } from "@/src/core";
+	import type { ChatSettings, Phase3, TurnUsage } from "@/src/session/model";
+	import type { QuestionToolName } from "@/src/tools/model";
 	import { dockStateKey } from "$lib/chat/dock-state-key.ts";
 	import type { SteerQueueItem } from "$lib/chat/session-core.ts";
 	import QueuedSteers from "./QueuedSteers.svelte";
@@ -11,7 +12,7 @@ import { untrack } from "svelte";
 	import PracticeDock from "./PracticeDock.svelte";
 	import StatsBar from "./StatsBar.svelte";
 	import type { StickToBottom } from "./stick.svelte";
-	import type { QuestionAnswerData } from "@/src/core";
+	import type { QuestionAnswerData } from "@/src/session/model";
 
 	type Pending = { tool: string; toolCallId: string; input: unknown } | null;
 	type Practice = { toolCallId: string; input: unknown } | null;
@@ -25,11 +26,11 @@ import { untrack } from "svelte";
 		phase,
 		turns,
 		chatId,
+		chatSettings,
 		composer,
 		onSubmitAnswer,
 		onSubmitThinking,
 		dictationSlot,
-		dictationCancel,
 		setupCta,
 		queuedSteers,
 		plan,
@@ -47,11 +48,11 @@ import { untrack } from "svelte";
 		phase: Phase3;
 		turns: TurnUsage[];
 		chatId: string;
+		chatSettings: ChatSettings | undefined;
 		composer: Snippet;
 		onSubmitAnswer: (output: QuestionAnswerData) => void;
 		onSubmitThinking: (text: string) => void;
 		dictationSlot?: Snippet;
-		dictationCancel?: () => void;
 		setupCta?: Snippet;
 		queuedSteers: SteerQueueItem[];
 		plan?: Snippet;
@@ -294,7 +295,6 @@ import { untrack } from "svelte";
 				<ReadingThinking
 					value={readingThinking}
 					onChange={(value) => onReadingThinking(value)}
-					onEscape={dictationCancel}
 					onOpen={!expanded ? () => {
 						import("./dictation.svelte").then(({ finishDictation }) => {
 							void finishDictation().then(() => expandAndReveal());
@@ -308,7 +308,7 @@ import { untrack } from "svelte";
 					{#if pending}
 						{#key pending.toolCallId}
 						<QuestionDock
-							toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
+							toolName={pending.tool as QuestionToolName}
 							toolCallId={pending.toolCallId}
 							input={pending.input}
 							{expanded}
@@ -316,7 +316,6 @@ import { untrack } from "svelte";
 							{phase}
 							onExpand={expandAndReveal}
 							onSubmit={onSubmitAnswer}
-							onEscape={dictationCancel}
 							dictationClaim={!revealPending}
 							{compactionRunning}
 						/>
@@ -332,7 +331,6 @@ import { untrack } from "svelte";
 								suppressFold();
 							}}
 							onSubmit={onSubmitThinking}
-							onEscape={dictationCancel}
 							{compactionRunning}
 						/>
 						{/key}
@@ -341,7 +339,7 @@ import { untrack } from "svelte";
 					{/if}
 				</div>
 			</div>
-			<StatsBar {turns} chatId={chatId} {dictationSlot} />
+			<StatsBar {turns} {chatId} {chatSettings} {dictationSlot} />
 			{#if !stick.isAtBottom}
 				<button
 					type="button"

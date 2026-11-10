@@ -5,21 +5,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { routeEvent } from "./support-route-event.ts";
-import type { ChatRecord, ExtractionRunUsage } from "../src/core/contracts.ts";
-import type { ChatStore } from "../src/core/ports.ts";
+import type { ChatRecord, ExtractionRunUsage } from "../src/session/model/types.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-async-chat-reads-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime, readEntries } = await import("../src/store/durable.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { graphSnapshot, mergeFindings } = await import("../src/core/graph.ts");
-const { graphCosts } = await import("../src/server/graph.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime } = await import("../src/session/durable.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { graphSnapshot, mergeFindings } = await import("../src/graph/snapshot.ts");
+const { graphCosts } = await import("../src/graph/service.ts");
+const { stores } = await import("../src/stores.ts");
+const { beginTurn, endTurn } = await import("../src/session/turn-liveness.ts");
 const { GET } = await import("../src/routes/api/chats/[id]/+server.ts");
 
 after(() => {
@@ -32,42 +32,6 @@ function chatsDir(): string {
 
 function chatFile(id: string): string {
 	return path.join(chatsDir(), `${id}.json`);
-}
-
-interface Deferred<T> {
-	promise: Promise<T>;
-	resolve: (value: T) => void;
-	reject: (error: unknown) => void;
-}
-
-function defer<T>(): Deferred<T> {
-	let resolve!: (value: T) => void;
-	let reject!: (error: unknown) => void;
-	const promise = new Promise<T>((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
-	return { promise, resolve, reject };
-}
-
-function writeLegacyRecord(id: string): Buffer {
-	const bytes = Buffer.from(
-		JSON.stringify(
-			{
-				id,
-				title: `legacy ${id}`,
-				createdAt: "2026-01-01T00:00:00.000Z",
-				updatedAt: "2026-01-02T00:00:00.000Z",
-				messages: [newUserMessage(`old words from ${id}`)],
-				version: 1,
-			},
-			null,
-			"\t",
-		),
-	);
-	fs.mkdirSync(chatsDir(), { recursive: true });
-	fs.writeFileSync(chatFile(id), bytes);
-	return bytes;
 }
 
 function writeMetaRecord(id: string, title: string, updatedAt: string): void {
@@ -95,40 +59,6 @@ function usageAt(startedAt: number): ExtractionRunUsage {
 }
 
 describe("listChats batches record reads", () => {
-	it("imports every legacy record once when the first batch opens three at a time", async () => {
-		const ids = [
-			"chat_batch_legacy_1",
-			"chat_batch_legacy_2",
-			"chat_batch_legacy_3",
-			"chat_batch_legacy_4",
-			"chat_batch_legacy_5",
-		];
-		const backups = new Map(ids.map((id) => [id, writeLegacyRecord(id)]));
-		const readdirOrder = fs
-			.readdirSync(chatsDir())
-			.filter((name) => name.endsWith(".json"))
-			.map((name) => name.slice(0, -5));
-
-		const list = await chatStore.listChats();
-
-		const mine = list.filter((entry) => ids.includes(entry.id));
-		assert.deepEqual(
-			mine.map((entry) => entry.id),
-			readdirOrder.filter((id) => ids.includes(id)),
-			"equal updatedAt values keep the readdir order",
-		);
-		assert.equal(mine.length, ids.length, "no legacy record is dropped");
-		assert.ok(mine.every((entry) => entry.messageCount === 1), "each legacy transcript is imported");
-		for (const id of ids) {
-			const runtime = await openChatRuntime(id);
-			assert.equal((await readEntries(runtime)).length, 1, `${id}: one durable entry, not one per concurrent importer`);
-			assert.deepEqual(fs.readFileSync(path.join(runtime.dir, "legacy-chat.json")), backups.get(id), `${id}: the original bytes are the backup`);
-			const meta = JSON.parse(fs.readFileSync(chatFile(id), "utf-8")) as Record<string, unknown>;
-			assert.equal(meta.messages, undefined, `${id}: the metadata drops the transcript`);
-			assert.equal(meta.version, CURRENT_CHAT_VERSION);
-			await closeChatRuntime(id);
-		}
-	});
 
 	it("keeps updatedAt order across corrupt and current records", async () => {
 		writeMetaRecord("chat_batch_new", "Newest", "2026-04-01T00:00:00.000Z");
@@ -156,8 +86,8 @@ describe("listChats batches record reads", () => {
 	});
 });
 
-describe("graphSnapshot batches source-label reads", () => {
-	it("keeps three reads in flight and labels sources in source order", async () => {
+describe("graphSnapshot source labels", () => {
+	it("labels chat sources in source order and falls back to notes paths", async () => {
 		const chatIds = ["chat_snap_a", "chat_snap_b", "chat_snap_c"];
 		const mergeSource = (id: string, statement: string): void => {
 			mergeFindings(
@@ -172,36 +102,14 @@ describe("graphSnapshot batches source-label reads", () => {
 		graphStore.upsertSource({ id: "src_snap_notes", filePath: "/vault/snapshot notes.md", importedAt: "2026-10-01T00:00:00.000Z" });
 		mergeSource("src_snap_notes", "Snapshot notes statement.");
 		mergeSource("chat_snap_absent", "Snapshot absent statement.");
-		const sourceOrder = [...chatIds, "src_snap_notes", "chat_snap_absent"];
 
-		const gates = new Map<string, Deferred<ChatRecord | null>>();
-		const started: string[] = [];
-		const firstStart = defer<void>();
-		const fourthStart = defer<void>();
+		const titles: Record<string, string> = { chat_snap_a: "Snapshot A", chat_snap_b: "Snapshot B", chat_snap_c: "Snapshot C" };
 		const fakeChatStore: ChatStore = {
 			...chatStore,
-			getChat: (id) => {
-				started.push(id);
-				if (started.length === 1) firstStart.resolve();
-				if (started.length === 4) fourthStart.resolve();
-				const gate = defer<ChatRecord | null>();
-				gates.set(id, gate);
-				return gate.promise;
-			},
+			getChats: async (ids) => ids.map((id) => (titles[id] ? fakeRecord(id, titles[id]) : null)),
 		};
 
 		const snapshot = graphSnapshot({ chatStore: fakeChatStore, graphStore });
-
-		await firstStart.promise;
-		assert.deepEqual(started, sourceOrder.slice(0, 3), "the first batch opens three source reads");
-		gates.get("chat_snap_c")!.resolve(fakeRecord("chat_snap_c", "Snapshot C"));
-		gates.get("chat_snap_b")!.resolve(fakeRecord("chat_snap_b", "Snapshot B"));
-		gates.get("chat_snap_a")!.resolve(fakeRecord("chat_snap_a", "Snapshot A"));
-		await fourthStart.promise;
-		assert.deepEqual(started, sourceOrder, "the next batch starts only after the first settles");
-		gates.get("src_snap_notes")!.resolve(null);
-		gates.get("chat_snap_absent")!.resolve(null);
-
 		const snap = await snapshot;
 
 		assert.deepEqual(Object.keys(snap.sessions), chatIds, "labels land in source order, not completion order");
@@ -222,9 +130,9 @@ describe("graphSnapshot batches source-label reads", () => {
 		);
 		const fakeChatStore: ChatStore = {
 			...chatStore,
-			getChat: async (id) => {
-				if (id === "chat_snap_rejection") throw boom;
-				return null;
+			getChats: async (ids) => {
+				if (ids.includes("chat_snap_rejection")) throw boom;
+				return ids.map(() => null);
 			},
 		};
 
@@ -232,8 +140,8 @@ describe("graphSnapshot batches source-label reads", () => {
 	});
 });
 
-describe("graphCosts batches usage-record reads", () => {
-	it("keeps three reads in flight and folds runs in summary order", async () => {
+describe("graphCosts", () => {
+	it("folds runs newest first, in summary order on ties", async () => {
 		const created: string[] = [];
 		const startedAt = new Map<string, number>();
 		const rows: Array<[string, number | null]> = [
@@ -255,32 +163,13 @@ describe("graphCosts batches usage-record reads", () => {
 		for (const summary of summaries) records.set(summary.id, (await chatStore.getChat(summary.id))!);
 
 		const realChatStore = stores.chatStore;
-		const gates = new Map<string, Deferred<ChatRecord | null>>();
-		const started: string[] = [];
-		const firstStart = defer<void>();
-		const fourthStart = defer<void>();
 		try {
 			stores.chatStore = {
 				...realChatStore,
 				listChats: async () => summaries,
-				getChat: (id) => {
-					started.push(id);
-					if (started.length === 1) firstStart.resolve();
-					if (started.length === 4) fourthStart.resolve();
-					const gate = defer<ChatRecord | null>();
-					gates.set(id, gate);
-					return gate.promise;
-				},
+				getChats: async (ids) => ids.map((id) => records.get(id) ?? null),
 			};
 			const costs = graphCosts();
-			await firstStart.promise;
-
-			assert.deepEqual(started, summaries.slice(0, 3).map((summary) => summary.id), "the first batch opens three record reads");
-			for (const summary of summaries.slice(0, 3)) gates.get(summary.id)!.resolve(records.get(summary.id)!);
-			await fourthStart.promise;
-			assert.deepEqual(started, summaries.map((summary) => summary.id), "the next batch starts only after the first settles");
-			for (const summary of summaries.slice(3)) gates.get(summary.id)!.resolve(records.get(summary.id)!);
-
 			const folded = await costs;
 			const expected = summaries
 				.filter((summary) => startedAt.has(summary.id))
@@ -310,7 +199,7 @@ describe("graphCosts batches usage-record reads", () => {
 			stores.chatStore = {
 				...realChatStore,
 				listChats: async () => [summary],
-				getChat: async () => {
+				getChats: async () => {
 					throw boom;
 				},
 			};

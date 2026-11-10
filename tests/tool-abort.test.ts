@@ -9,22 +9,23 @@
  * (fs-tools.test.ts covers their side).
  */
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 import { Type } from "typebox";
 import {
-	questionResult,
 	serverExecute,
-	toolTimeoutMs,
 	toToolResult,
 	type ToolExecuteContext,
-} from "../src/agent/tool-execute.ts";
-import { askUserQuestionTool } from "../src/agent/tools.ts";
+} from "../src/tools/execute.ts";
+import { askUserQuestionTool } from "../src/session/tools/registry.ts";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-
-afterEach(() => {
-	toolTimeoutMs.current = DEFAULT_TIMEOUT_MS;
-});
+/** Run `pending` to its end with mocked timers: the per-call timeout and
+ *  the abort grace fire without waiting 30 real seconds. */
+async function pastToolTimeout(t: TestContext, pending: Promise<unknown>): Promise<void> {
+	await new Promise((resolve) => setImmediate(resolve));
+	t.mock.timers.tick(30_000);
+	t.mock.timers.tick(250);
+	await pending;
+}
 
 const probeSchema = Type.Object({});
 
@@ -32,7 +33,6 @@ const probeSchema = Type.Object({});
 function probeTool(captured: { signal?: AbortSignal }, opts: { hang?: boolean; value?: string } = {}) {
 	return {
 		name: "probe",
-		label: "probe",
 		description: "test probe",
 		parameters: probeSchema,
 		execute: serverExecute("probe", probeSchema, (_input: unknown, ctx: ToolExecuteContext) => {
@@ -73,10 +73,10 @@ describe("serverExecute abort + timeout guard", () => {
 		assert.equal(captured.signal!.aborted, true);
 	});
 
-	it("rejects a hanging tool at the system-level timeout", async () => {
-		toolTimeoutMs.current = 50;
+	it("rejects a hanging tool at the system-level timeout", async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
 		const pi = probeTool({}, { hang: true });
-		await assert.rejects(pi.execute("c3", {}), /timed out/);
+		await pastToolTimeout(t, assert.rejects(pi.execute("c3", {}), /timed out after 30s/));
 	});
 
 	it("a pre-aborted run rejects immediately with pi's wording", async () => {
@@ -88,11 +88,9 @@ describe("serverExecute abort + timeout guard", () => {
 });
 describe("serverExecute: cooperative settle, mapping parity, question bypass", () => {
 	it("a cooperative tool settles partial results before the grace", async () => {
-		toolTimeoutMs.current = 2_000;
 		const schema = Type.Object({});
 		const pi = {
 			name: "partial",
-			label: "partial",
 			description: "test",
 			parameters: schema,
 			execute: serverExecute("partial", schema, (_input: unknown, ctx: ToolExecuteContext) =>

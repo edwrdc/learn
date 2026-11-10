@@ -5,15 +5,17 @@
  * Verifies the cross-chat gathering, running-only filtering, title joins,
  * stable oldest-first ordering, and busy-chat reporting.
  */
+import "./support-tmp-data.ts";
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { PATHS } from "../config.ts";
-import { activityFeed } from "../src/server/observability.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { activityFeed } from "../src/activity.ts";
 
 test("activityFeed: running jobs across ALL chats, running-only, title-joined, oldest first", async () => {
 	const chatA = await chatStore.createChat("feed chat A");

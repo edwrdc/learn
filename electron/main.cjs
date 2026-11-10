@@ -31,9 +31,9 @@ const http = require("node:http");
 const path = require("node:path");
 const { freePort } = require("./free-port.cjs");
 
-// Mirrors SIDEBAR_AUTOCLOSE in src/lib/shell/Sidebar.svelte — keep in sync (the
-// renderer owns the number; this is the IPC widen target).
-const SIDEBAR_AUTOCLOSE = 928;
+// Shared with the renderer: the sidebar auto-close width (this process's
+// IPC widen target) and the app background.
+const { sidebarAutocloseWidth: SIDEBAR_AUTOCLOSE, backgroundColor: APP_BACKGROUND, browserServiceFlag: BROWSER_SERVICE_FLAG, browserServiceReady: BROWSER_SERVICE_READY } = require("./shared.json");
 
 const PRODUCT_NAME = "LearnHarness";
 
@@ -68,7 +68,7 @@ function serverEntry() {
 // MUST run before the single-instance lock — a helper is a second
 // instance of this very binary, and before the LH_DEV_URL redirect — the
 // helper owns no user data at all.
-if (process.argv.includes("--browser-service")) {
+if (process.argv.includes(BROWSER_SERVICE_FLAG)) {
 	const { waitForBrowserService } = require("./browser-service-readiness.cjs");
 	// Own the helper's entire startup lifetime, including the readiness wait.
 	const lifetime = new AbortController();
@@ -94,7 +94,7 @@ if (process.argv.includes("--browser-service")) {
 			// Window load is not a DevTools HTTP readiness barrier. Confirm the
 			// endpoint before both production and smoke clients see the handshake.
 			await waitForBrowserService(port, { signal: lifetime.signal });
-			if (!lifetime.signal.aborted) console.log(`BROWSER_SERVICE_CDP ${port}`);
+			if (!lifetime.signal.aborted) console.log(`${BROWSER_SERVICE_READY} ${port}`);
 		} catch (err) {
 			if (lifetime.signal.aborted) return; // Parent disconnect is normal.
 			console.error("browser-service failed:", err);
@@ -170,46 +170,44 @@ function log(line) {
 }
 
 function startServer(port) {
-	return new Promise((resolve, reject) => {
-		const child = spawn(
-			process.execPath,
-			[serverEntry()],
-			{
-				cwd: path.dirname(serverEntry()),
-				env: {
-					...process.env,
-					ELECTRON_RUN_AS_NODE: "1",
-					NODE_ENV: "production",
-					PORT: String(port),
-					HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
-					LH_DATA_DIR: DATA_DIR(),
-					// The auth/keys store — the child reads AND writes this file itself
-					// (no env injection anymore: a spawn-time copy would shadow every
-					// settings-page key change until restart; env wins over file).
-					LH_AUTH_FILE: AUTH_FILE(),
-				},
-				stdio: ["ignore", "pipe", "pipe"],
+	const child = spawn(
+		process.execPath,
+		[serverEntry()],
+		{
+			cwd: path.dirname(serverEntry()),
+			env: {
+				...process.env,
+				ELECTRON_RUN_AS_NODE: "1",
+				NODE_ENV: "production",
+				PORT: String(port),
+				HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
+				LH_DATA_DIR: DATA_DIR(),
+				// The auth/keys store — the child reads AND writes this file itself
+				// (no env injection anymore: a spawn-time copy would shadow every
+				// settings-page key change until restart; env wins over file).
+				LH_AUTH_FILE: AUTH_FILE(),
 			},
-		);
-		serverProcess = child;
-		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
-		child.stdout.on("data", fwd);
-		child.stderr.on("data", fwd);
-		child.on("exit", (code, signal) => {
-			log(`server exited (code=${code} signal=${signal})`);
-			serverProcess = null;
-		});
-		resolve(child);
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
+	serverProcess = child;
+	const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
+	child.stdout.on("data", fwd);
+	child.stderr.on("data", fwd);
+	child.on("exit", (code, signal) => {
+		log(`server exited (code=${code} signal=${signal})`);
+		serverProcess = null;
 	});
 }
 
-/** No "ready" event exists — poll until the server answers (docs-confirmed). */
+/** No "ready" event exists — poll until the server answers at all (any
+ *  status means it is listening; there is no health endpoint). */
 function waitUntilUp(url, tries = 150) {
 	return new Promise((resolve, reject) => {
 		const attempt = (n) => {
 			const req = http.get(url, (res) => {
 				res.resume();
-				resolve(res.statusCode !== undefined);
+				resolve();
 			});
 			req.on("error", () => {
 				if (n <= 0) reject(new Error(`server never answered on ${url}`));
@@ -263,7 +261,7 @@ function createWindow(url) {
 				// height. Do not force the zoom-invariant native overlay to match
 				// the renderer's 60 CSS px bar: zooming out would cover its border.
 				// The renderer reserves the actual width via env(titlebar-area-*).
-				titleBarOverlay: { color: "#141414", symbolColor: "#e5e5e5" },
+				titleBarOverlay: { color: APP_BACKGROUND, symbolColor: "#e5e5e5" },
 				// Keep the custom bar alone; Alt reveals the native menu.
 				autoHideMenuBar: true,
 			}),
@@ -277,16 +275,16 @@ function createWindow(url) {
 		// the native window surface changes size before Chromium's compositor
 		// has a frame at the new size, and the gap shows the window's NATIVE
 		// background — Electron's default is white, glaring on a dark app.
-		// The app background (#141414) fills the lag instead. `show: false` +
+		// The app background fills the lag instead. `show: false` +
 		// ready-to-show is the same treatment for first paint: the window
 		// appears only once the page has actually rendered.
-		backgroundColor: "#141414",
+		backgroundColor: APP_BACKGROUND,
 		show: false,
 		// Narrow-window behavior (owner, 2026-09-17): 640px is the floor —
 		// below it even a wrapped chrome row gets cramped and the chat header
 		// (lights gutter 92 + toggle + title) runs out of room. The sidebar
 		// auto-closes below 928 = 640 + 288 (sidebar) in the renderer
-		// (src/lib/shell/Sidebar.svelte, SIDEBAR_AUTOCLOSE); its "lh:expand-window"
+		// (shared.json sidebarAutocloseWidth); its "lh:expand-window"
 		// IPC widens the window back to that threshold.
 		minWidth: 640,
 		minHeight: 600,
@@ -372,7 +370,7 @@ function zoomStep(win, dir) {
 }
 
 function applyZoom(win, factor) {
-	factor = Math.min(2, Math.max(0.75, factor)); // ladder clamps; ⌘0 = 1
+	factor = Math.min(ZOOM_LADDER[ZOOM_LADDER.length - 1], Math.max(ZOOM_LADDER[0], factor));
 	win.webContents.setZoomFactor(factor);
 	win.webContents.send("lh:zoom", factor);
 }
@@ -448,10 +446,12 @@ async function main() {
 	if (!devUrl) {
 		log(`starting server: ${serverEntry()}`);
 		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
-		await startServer(new URL(url).port);
+		startServer(new URL(url).port);
 		await waitUntilUp(url);
 		log(`server up: ${url}`);
 	} else {
+		// `desktop:dev` starts vite and electron together.
+		await waitUntilUp(devUrl);
 		log(`dev mode: ${devUrl}`);
 	}
 

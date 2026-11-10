@@ -7,15 +7,15 @@ import "./support-tmp-data.ts";
 import "./support-durable.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createWebTools } from "../src/agent/tools/web.ts";
-import { jobTools } from "../src/agent/tools/jobs.ts";
-import { RESEARCHER_INSTRUCTIONS } from "../src/agent/subagents/researcher.ts";
-import { runBackgroundConversation } from "../src/server/durable-background.ts";
-import type { PiEngine } from "../src/agent/models.ts";
+import { createWebTools } from "../src/tools/web/web.ts";
+import { jobTools } from "../src/jobs/tools.ts";
+import { RESEARCH_ROLE } from "../src/jobs/roles/research.ts";
+import { runBackgroundConversation } from "../src/jobs/runtime.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
-import type { JobStore } from "../src/core/ports.ts";
-import type { JobRecord } from "../src/core/contracts.ts";
-import type { SearchHit, SearchProvider } from "../src/core/search.ts";
+import type { JobStore } from "../src/jobs/model/ports.ts";
+import type { JobRecord } from "../src/jobs/model/types.ts";
+import type { SearchHit, SearchProvider } from "../src/tools/model/search.ts";
 
 /** The researcher's real durable loop (a child conversation in a disposable
  *  test runtime); unique run keys keep tests from reattaching. */
@@ -31,7 +31,7 @@ async function runResearcherAgent(
 		role: "researcher",
 		engine: opts.engine,
 		maxTurns: 12,
-		systemPrompt: RESEARCHER_INSTRUCTIONS,
+		systemPrompt: RESEARCH_ROLE.instructions,
 		prompt,
 		search: opts.search,
 	});
@@ -240,24 +240,23 @@ function fakeJobStore(): JobStore {
 	};
 }
 
-function fakeCtx(available?: () => boolean) {
+function fakeCtx() {
 	return {
 		chatId: "chat-drop-test",
 		jobStore: fakeJobStore(),
 		spawn: () => {},
-		...(available ? { searchAvailable: available } : {}),
 	};
 }
 
 describe("keyless research dispatch (jobTools)", () => {
-	it("searchAvailable: false → research remains in the registry", () => {
-		const tools = jobTools(fakeCtx(() => false));
+	it("research is in the registry without a search provider", () => {
+		const tools = jobTools(fakeCtx());
 		assert.ok(tools.research, "research can fetch supplied URLs without a search provider");
 		assert.ok(tools.demo && tools.visual && tools.pdf, "the search-less server keeps its other sub-agents");
 	});
 
 	it("keyless dispatch preserves the async job acknowledgement and spawn contract", async () => {
-		const ctx = fakeCtx(() => false);
+		const ctx = fakeCtx();
 		const spawned: Array<{ job: JobRecord; input: unknown }> = [];
 		const tools = jobTools({ ...ctx, spawn: (job, input) => { spawned.push({ job, input }); } });
 		const input = { question: "Verify the supplied URL", context: "https://example.com/source" };
@@ -271,22 +270,13 @@ describe("keyless research dispatch (jobTools)", () => {
 		assert.deepEqual(spawned[0]!.input, input);
 	});
 
-	it("searchAvailable: true → research present", () => {
-		const tools = jobTools(fakeCtx(() => true));
-		assert.ok(tools.research, "a keyed server exposes research");
-	});
-
-	it("absent seam = available (tests + any wiring without search)", () => {
-		const tools = jobTools(fakeCtx());
-		assert.ok(tools.research, "the seam is optional — default is honest availability");
-	});
 });
 
 // Exercise live registry factories too: search status must not override
 // the existing per-role/user-toggle policy.
 
-import { createProberTools, createTeacherTools } from "../src/agent/tools.ts";
-import type { ChatStore } from "../src/core/ports.ts";
+import { createProberTools, createTeacherTools } from "../src/session/tools/registry.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
 
 /** A chat-store stub — the registry factories only CLOSE OVER it at build
  *  time (quiz/plan superRefines read it at execute time, never here). */
@@ -298,60 +288,39 @@ const fakeChatStore = {
 const ctxBase = { chatId: "chat-gate-test", chatStore: fakeChatStore };
 
 describe("keyless role registries", () => {
-	it("createTeacherTools: unavailable keeps research on the live wiring path", () => {
+	it("createTeacherTools: research is registered without a search key", () => {
 		const tools = createTeacherTools({
 			...ctxBase,
 			jobStore: fakeJobStore(),
 			spawn: () => {},
-			searchAvailable: () => false,
 		});
 		assert.ok(tools.research, "no search key is required to dispatch research");
 		assert.ok(tools.demo && tools.visual && tools.pdf, "the other job tools survive");
 	});
 
-	it("createTeacherTools: available keeps research", () => {
-		const tools = createTeacherTools({
-			...ctxBase,
-			jobStore: fakeJobStore(),
-			spawn: () => {},
-			searchAvailable: () => true,
-		});
-		assert.ok(tools.research, "a keyed server exposes research through the teacher");
-	});
-
-	it("createProberTools: research + pdf remain phase-omnipresent with or without search keys", () => {
-		const on = createProberTools({
-			...ctxBase,
-			deliver: () => {},
-			jobStore: fakeJobStore(),
-			spawn: () => {},
-			searchAvailable: () => true,
-		});
-		assert.ok(on.research && on.pdf, "the owner ruling: research + pdf in the probe phase");
-
+	it("createProberTools: research + pdf are in the probe phase without a search key", () => {
 		const off = createProberTools({
 			...ctxBase,
 			deliver: () => {},
 			jobStore: fakeJobStore(),
 			spawn: () => {},
-			searchAvailable: () => false,
 		});
 		assert.ok(off.research, "keyless research dispatch is available in the prober too");
 		assert.ok(off.pdf && off.probe_done, "pdf is keyless — it survives; probe_done always-on");
 	});
 
-	it("createProberTools: the user toggle still drops research without search keys", () => {
+	it("createProberTools: the user toggle drops research", () => {
 		const tools = createProberTools(
-			{ ...ctxBase, deliver: () => {}, jobStore: fakeJobStore(), spawn: () => {}, searchAvailable: () => false },
+			{ ...ctxBase, deliver: () => {}, jobStore: fakeJobStore(), spawn: () => {} },
 			{ research: false },
 		);
 		assert.equal("research" in tools, false, "toggle-filtered like the teacher side");
 		assert.ok(tools.pdf, "pdf unaffected by a research toggle");
 	});
 
-	it("createTeacherTools: the user toggle still drops research without search keys", () => {
+	it("createTeacherTools: the user toggle drops research", () => {
 		const tools = createTeacherTools(
-			{ ...ctxBase, jobStore: fakeJobStore(), spawn: () => {}, searchAvailable: () => false },
+			{ ...ctxBase, jobStore: fakeJobStore(), spawn: () => {} },
 			{ research: false },
 		);
 		assert.equal("research" in tools, false);

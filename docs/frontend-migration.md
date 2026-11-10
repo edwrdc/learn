@@ -6,7 +6,7 @@ This is a frontend and transport migration, not a storage or agent-engine migrat
 
 ## Approved decisions
 
-- Keep SSR and use direct file-based routes. There are 32 API endpoint files with 40 explicit methods. The page URLs remain /, `/chat/new`, `/chat/[id]`, and `/settings`. The last redirects to `/chat/new` with status 307.
+- Keep SSR and use direct file-based routes. At the migration there were 32 API endpoint files with 40 explicit methods (31 files today, after the render-settings endpoint was removed). The page URLs remain /, `/chat/new`, `/chat/[id]`, and `/settings`. The last redirects to `/chat/new` with status 307.
 - Keep one long-lived Node process. Turn ownership, queues, the event bus, and durable handles are process-local. Do not use a serverless adapter or multiple workers.
 - Keep loopback binding. The server has no request authentication and must not be exposed on a public interface.
 - Keep CSRF enabled. The packaged launcher stamps its own HTTP protocol header before importing the adapter handler. File imports retain the previous uncapped body-size policy.
@@ -19,11 +19,11 @@ This is a frontend and transport migration, not a storage or agent-engine migrat
 
 The toolchain pins Svelte 5.57.3, SvelteKit 2.70.3, adapter-node 5.5.7, and Vite 7.3.7. Vite development uses port 3000. `dev:fresh` explicitly forwards its separate port.
 
-The build writes `dist-server/`. `scripts/build-server.mjs` curates `dist-server/standalone/`. Electron ships that directory at `Resources/server/standalone/`, outside `app.asar`. The shell and updater remain inside `app.asar`.
+The build writes `dist-server/`. `scripts/build-server.mjs` curates `dist-server/standalone/`. Electron ships that directory at `Resources/server/standalone/`, outside `app.asar`. The shell remains inside `app.asar`. (The updater has since been removed; see [desktop-release.md](desktop-release.md).)
 
 Runtime packages remain external to the server bundle. The payload builder parses actual server imports and preserves installed dependency paths, including nested versions. It rejects missing dependencies, secrets, user data, checkout files, and missing platform-native binaries. Before replacing an existing payload, it refuses if that payload contains mutable data or a root auth file. Vite runs the same guard before adapter cleanup. Boot smokes copy the payload outside the checkout so Node cannot hide a missing package by resolving it from the checkout.
 
-UI domain imports use the core barrel. Server handlers and loads can also use the server barrel. ESLint tests cover both allowed imports and rejected client-to-server imports. The client Vite build substitutes a throwing crypto module for unused server-only hashing imports in shared core modules. SSR keeps native Node crypto.
+At the time, UI domain imports used the core barrel and server handlers could also use the server barrel. Since the feature-folder refactor, the UI imports only the features' `model/index.ts`, and server routes also import the features' `index.ts` (`eslint.config.mjs`; `tests/lint-boundaries.test.ts` covers allowed and rejected imports). See [architecture.md](architecture.md#2-import-rules-and-dependency-direction).
 
 ## Preserved data and protocols
 
@@ -31,7 +31,7 @@ The migration does not change durable record formats, message IDs, schema stamps
 
 `POST /api/chat` still acknowledges an input event before generation finishes. `GET /api/chats/:id/stream` still replays and streams the durable run. `GET /api/events` still sends fact-only change notifications. Disconnecting a page does not cancel the turn. Explicit abort remains the cancellation protocol.
 
-The Electron bridge, local-storage keys, existing fonts, and static-asset URLs remain unchanged. The browser cannot import the server or store layers.
+The Electron bridge, local-storage keys, existing fonts, and static-asset URLs remain unchanged. The browser cannot import server code.
 
 ## Corrections found during verification
 
@@ -78,6 +78,6 @@ The [file mapping](frontend-test-port.tsv) records all 59 affected test files. T
 
 Real provider quality, microphone and Deepgram hardware, native window controls, GPU behavior, and native updater installation were not exercised. macOS and Windows packages were not run locally. The browser preload mock is not a native Electron IPC test. Linux qualification used an unpacked directory, not AppImage or deb installation.
 
-This migration makes no performance claim and does not change release or signing policy. The update feed still points to amosblomqvist/learnharness. Review that feed before distributing the fork. No release, signing, or deployment was performed during verification.
+This migration makes no performance claim and does not change release or signing policy. (At the time the update feed pointed to amosblomqvist/learnharness; the in-app updater has since been removed.) No release, signing, or deployment was performed during verification.
 
 One earlier browser run timed out waiting for the key input after a provider selection. Eight isolated repeats and the final full command passed without a code change. The cause was not established; this remains an intermittent browser-test risk.

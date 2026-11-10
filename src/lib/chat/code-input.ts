@@ -8,7 +8,6 @@ export function codeKeydown(
 	event: KeyboardEvent & { currentTarget: HTMLTextAreaElement },
 	onChange: (value: string) => void,
 	onSubmit: () => void,
-	onEscape?: () => void,
 	onLeave?: () => void,
 ): void {
 	if (event.key === "Tab") {
@@ -23,15 +22,9 @@ export function codeKeydown(
 		if (event.isComposing || !(event.ctrlKey || event.metaKey)) return;
 		event.preventDefault();
 		onSubmit();
-	} else if (event.key === "Escape") {
-		if (onEscape) {
-			event.preventDefault();
-			event.stopPropagation();
-			onEscape();
-		} else if (onLeave) {
-			event.preventDefault();
-			event.stopPropagation();
-			onLeave();
-		}
+	} else if (event.key === "Escape" && onLeave) {
+		event.preventDefault();
+		event.stopPropagation();
+		onLeave();
 	}
 }

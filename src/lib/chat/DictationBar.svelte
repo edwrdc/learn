@@ -10,7 +10,6 @@
 	let cellCount = $state(METER_CELLS);
 	let meter = $state<HTMLDivElement | null>(null);
 
-	const recording = $derived(dictation.phase === "recording" || dictation.phase === "stopping");
 	const keyless = $derived(dictation.error === DICTATION_KEYLESS);
 
 	$effect(() => {

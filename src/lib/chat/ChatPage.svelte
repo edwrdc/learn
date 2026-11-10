@@ -1,45 +1,29 @@
 <script lang="ts">
-import { untrack } from "svelte";
-	import { onMount, setContext, tick } from "svelte";
+	import ThinkingBlock from "./ThinkingBlock.svelte";
+	import { type GraphContextPick } from "@/src/session/model";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
+	import SetupCta from "$lib/settings/SetupCta.svelte";
+	import { emitAppEvent, emitKeyAction, onAppEvent, onKeyAction } from "$lib/events";
+	import { abortProcess } from "$lib/api/chats";
+	import { ChatSync } from "./chat-sync.svelte";
+	import { renameSession } from "$lib/state/sessions";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { onMount, setContext, tick, untrack } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
-	import {
-		activeProblemOf,
-		continuationSignature,
-		dismissedAnswer,
-		findPendingToolCall,
-		firstSourceTextParts,
-		isProviderKeyRefusal,
-		kbdEventForAction,
-		messageAnchorId,
-		messageIdFromHash,
-		needsContinuation,
-		phaseAt3,
-		phaseTimeline,
-		questionNeedsReveal,
-		slotsConfigured,
-		teachStepIndex,
-		textPartMessageId,
-		toolQuestionKind,
-		type ChatSettings,
-		type GraphSnapshot,
-		type LhMessage,
-		type LhViewMessage,
-		type ModelsSettings,
-		type QuestionAnswerData,
-		type TurnUsage,
-	} from "@/src/core";
+	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, hasPracticeProblem, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type LhMessage, type QuestionAnswerData } from "@/src/session/model";
+	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import PhaseChip from "./PhaseChip.svelte";
 	import PhaseDivider from "./PhaseDivider.svelte";
-	import TopBar from "./TopBar.svelte";
+	import TopBar from "$lib/shell/TopBar.svelte";
 	import Composer from "./Composer.svelte";
 	import { withCode } from "./code-input";
 	import DockOverlay from "./DockOverlay.svelte";
 	import SessionFind from "./SessionFind.svelte";
 	import CoverageRing from "./CoverageRing.svelte";
 	import AnsweredCard from "./AnsweredCard.svelte";
-	import ArtifactPart from "$lib/artifacts/ArtifactPart.svelte";
+	import ArtifactPart from "$lib/chat/ArtifactPart.svelte";
 	import SteerCard from "$lib/artifacts/SteerCard.svelte";
 	import LiveToolCard from "$lib/artifacts/LiveToolCard.svelte";
 	import PlanBlock from "./PlanBlock.svelte";
@@ -49,29 +33,19 @@ import { untrack } from "svelte";
 	import AbortTurnDialog from "./AbortTurnDialog.svelte";
 	import CompactionDivider from "./CompactionDivider.svelte";
 	import GraphContextCard from "./GraphContextCard.svelte";
-	import ThinkingCard from "./ThinkingCard.svelte";
 	import Reasoning from "./Reasoning.svelte";
 	import DictationBar from "./DictationBar.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
-	import { DictationController, joinDictation } from "./dictation.svelte";
+	import { afterDictation, DictationController, joinDictation } from "./dictation.svelte";
 	import { SessionView } from "./session.svelte";
 	import { StickToBottom } from "./stick.svelte";
-	import { CHAT_ACTIONS } from "./actions-context";
-	import { SESSION_MERMAID } from "./session-context";
-	import { sidebar } from "$lib/state/sidebar.svelte";
-	import { keys } from "$lib/state/keys.svelte";
+	import { CHAT_ACTIONS } from "$lib/session-context";
+	import { SESSION_MERMAID } from "$lib/session-context";
 	import { serverEvents } from "$lib/state/server-events";
-	import { watchSettings } from "$lib/state/settings-signal";
 	import { hint } from "$lib/hint";
 	import { toggleUserThinking } from "./thinking-store.svelte";
 	import { scrollSessionTarget } from "./session-nav";
-	import {
-		escAbortTarget,
-		initialPromptOwed,
-		parseModelsRefusal,
-		parseModelUnavailableRefusal,
-		parseProviderKeyRefusal,
-	} from "./chat-logic";
+	import { escAbortTarget, initialPromptOwed, parseRefusal } from "./chat-logic";
 
 	type Props = {
 		chatId: string;
@@ -104,16 +78,11 @@ import { untrack } from "svelte";
 	const steerQueue = $derived(session.state.steerQueue);
 
 	let turnInFlight = $state(untrack(() => initiallyInFlight ?? false));
-	let compacting = $state(untrack(() => initiallyCompacting));
-	let compactionRevision = 0;
 	let text = $state("");
 	let code = $state("");
 	let textMirror = "";
-	let configured = $state(untrack(() => initialConfigured));
+	const configured = $derived(userSettings.configured ?? initialConfigured);
 	let setupOpen = $state(false);
-	let turns = $state.raw<TurnUsage[]>([]);
-	let jobs = $state.raw<import("@/src/core").JobRecord[]>([]);
-	let coverageTick = $state(0);
 	let dockReserve = $state(208);
 	let planOpen = $state(false);
 	let mermaidFocus = $state<string | null>(null);
@@ -129,15 +98,10 @@ import { untrack } from "svelte";
 	let scope = $state<HTMLDivElement | null>(null);
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
 	let lastJump: { hash: string; target: HTMLElement } | null = null;
-	let sentInitial = false;
 	let mountContinuation = false;
 	let continuedTail: string | null = null;
 	let draft: { text: string; code: string } | null = null;
 	let handlingRefusal = false;
-	let pendingSync = false;
-	let jobStatuses = new Map<string, string>();
-	let firstJobsFetch = true;
-	let jobsDebounce: ReturnType<typeof setTimeout> | undefined;
 	let turnTimers: ReturnType<typeof setTimeout>[] = [];
 	let adoptionWindow = false;
 
@@ -154,6 +118,13 @@ import { untrack } from "svelte";
 	const activeProblem = $derived(activeProblemOf(nativeMessages));
 	const phases = $derived(phaseTimeline(messages));
 	const localStream = $derived(status === "submitted" || status === "streaming");
+	const sync = new ChatSync(
+		untrack(() => chatId),
+		session,
+		{ streaming: () => localStream, onRecord: (next) => status === "ready" && autoContinue(next) },
+		untrack(() => initiallyCompacting),
+	);
+	const compacting = $derived(sync.compacting);
 	const busy = $derived(localStream || turnInFlight);
 	const sourceTextParts = $derived(firstSourceTextParts(messages));
 	const planTree = $derived.by(() => {
@@ -162,7 +133,7 @@ import { untrack } from "svelte";
 			for (let p = parts.length - 1; p >= 0; p--) {
 				const part = parts[p]!;
 				if (!part.type.startsWith("tool-plan_") || part.state !== "output-available") continue;
-				const tree = (part.output as { tree?: import("@/src/core").PlanTree } | undefined)?.tree;
+				const tree = (part.output as { tree?: import("@/src/session/model").PlanTree } | undefined)?.tree;
 				if (tree && Array.isArray(tree.nodes)) return tree;
 			}
 		}
@@ -179,19 +150,11 @@ import { untrack } from "svelte";
 			!activeProblem &&
 			!compacting &&
 			!busy &&
-			nativeMessages.some(
-				(m) =>
-					(m as { role?: string }).role === "assistant" &&
-					Array.isArray((m as { content?: unknown[] }).content) &&
-					(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-						(b) => b.type === "toolCall" && b.name === "problem",
-					),
-			),
+			hasPracticeProblem(nativeMessages),
 	);
 
 	setContext(CHAT_ACTIONS, {
 		chatId: untrack(() => chatId),
-		syncFromServer: () => syncFromServer(),
 		sendText: (value: string) => session.send({ type: "text", text: value }),
 		openSetup: () => (setupOpen = true),
 	});
@@ -202,18 +165,8 @@ import { untrack } from "svelte";
 
 	session.setReattachSettled(() => {
 		turnInFlight = false;
-		void syncFromServer();
+		void sync.syncRecord();
 	});
-
-	async function syncTurns(): Promise<void> {
-		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { turns?: TurnUsage[] };
-			if (Array.isArray(record.turns)) turns = record.turns;
-		} catch {
-		}
-	}
 
 	function autoContinue(next: LhMessage[]): void {
 		if (!needsContinuation(next)) {
@@ -224,72 +177,6 @@ import { untrack } from "svelte";
 		if (continuedTail === tail) return;
 		continuedTail = tail;
 		session.send({ type: "continue" });
-	}
-
-	async function syncFromServer(): Promise<void> {
-		const res = await fetch(`/api/chats/${chatId}`);
-		if (!res.ok) return;
-		const record = (await res.json()) as { messages?: LhMessage[]; turns?: TurnUsage[] };
-		if (Array.isArray(record.turns)) turns = record.turns;
-		if (!Array.isArray(record.messages)) return;
-		session.setMessages(record.messages);
-		if (status === "ready") autoContinue(record.messages);
-	}
-
-	async function syncCompaction(): Promise<void> {
-		const revision = ++compactionRevision;
-		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { compacting?: boolean };
-			// A frame that arrived after the read started owns the state.
-			if (revision !== compactionRevision) return;
-			if (typeof record.compacting === "boolean") compacting = record.compacting;
-		} catch {
-		}
-	}
-
-	async function adoptAppendOnly(): Promise<void> {
-		try {
-			const res = await fetch(`/api/chats/${chatId}`);
-			if (!res.ok) return;
-			const record = (await res.json()) as { messages?: LhMessage[] };
-			if (Array.isArray(record.messages)) session.adoptRecord(record.messages);
-		} catch {
-		}
-	}
-
-	async function fetchJobs(): Promise<void> {
-		try {
-			const res = await fetch(`/api/jobs?chatId=${encodeURIComponent(chatId)}`);
-			if (!res.ok) return;
-			const data = (await res.json()) as { jobs?: import("@/src/core").JobRecord[]; turnInFlight?: boolean };
-			const list = data.jobs ?? [];
-			for (const job of list) {
-				const previous = jobStatuses.get(job.id);
-				if (previous === "running" && job.status !== "running") {
-					if (localStream || data.turnInFlight === true) {
-						pendingSync = true;
-						void adoptAppendOnly();
-					} else {
-						void syncFromServer();
-					}
-				}
-				jobStatuses.set(job.id, job.status);
-			}
-			if (pendingSync && !localStream && data.turnInFlight !== true) {
-				pendingSync = false;
-				void syncFromServer();
-			}
-			jobs = list;
-			firstJobsFetch = false;
-		} catch {
-		}
-	}
-
-	function scheduleJobs() {
-		clearTimeout(jobsDebounce);
-		jobsDebounce = setTimeout(() => void fetchJobs(), 250);
 	}
 
 	function doSend(): void {
@@ -317,11 +204,7 @@ import { untrack } from "svelte";
 
 	function onSend(): void {
 		if (pending || compacting) return;
-		if (!dictation.active) {
-			doSteerOrSend();
-			return;
-		}
-		void dictation.finish().then(() => doSteerOrSend());
+		afterDictation(doSteerOrSend);
 	}
 
 	function sendNext(): void {
@@ -336,11 +219,7 @@ import { untrack } from "svelte";
 
 	function abortInFlightTurn(): void {
 		session.stop();
-		void fetch("/api/activity/abort", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ kind: "turn", id: chatId }),
-		}).catch(() => {});
+		abortProcess("turn", chatId).catch((error) => console.error(`[chat ${chatId}] turn abort failed:`, error));
 	}
 
 	function confirmAbort(mode: "turn" | "question" | "problem"): void {
@@ -364,20 +243,15 @@ import { untrack } from "svelte";
 		}
 	}
 
+	/** Enter and blur both commit; the first one ends the edit, so the
+	 *  blur that follows an Enter (or an Escape) saves nothing. */
 	async function commitRename(next: string): Promise<void> {
+		if (!renaming) return;
 		renaming = false;
-		const value = next.trim();
-		if (!value || value === titleText) return;
 		try {
-			const res = await fetch(`/api/chats/${chatId}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: value }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			titleText = value;
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id: chatId, title: value } }));
-		} catch {
+			await renameSession(chatId, next, titleText);
+		} catch (error) {
+			console.error(`[chat ${chatId}] rename failed:`, error);
 		}
 	}
 
@@ -424,7 +298,7 @@ import { untrack } from "svelte";
 		const running = status === "submitted" || status === "streaming";
 		if (running === previousRunning) return;
 		previousRunning = running;
-		window.dispatchEvent(new CustomEvent("lh:turn-state", { detail: { id: chatId, running } }));
+		emitAppEvent("turn-state", { id: chatId, running });
 	});
 
 	let previousStatus = $state(untrack(() => status));
@@ -434,9 +308,8 @@ import { untrack } from "svelte";
 		if (was === status) return;
 		if (turnInFlight && (status === "submitted" || status === "streaming")) turnInFlight = false;
 		if (was !== "ready" && status === "ready") {
-			void syncTurns();
-			coverageTick += 1;
-			void syncFromServer();
+			void sync.syncTurns();
+			void sync.syncRecord();
 		}
 	});
 
@@ -447,7 +320,7 @@ import { untrack } from "svelte";
 		for (const ms of [400, 1000, 2000]) {
 			turnTimers.push(
 				setTimeout(() => {
-					if (adoptionWindow) void adoptAppendOnly();
+					if (adoptionWindow) void sync.adoptAppended();
 				}, ms),
 			);
 		}
@@ -455,30 +328,27 @@ import { untrack } from "svelte";
 
 	$effect(() => {
 		if (!error || handlingRefusal) return;
-		const missing = parseModelsRefusal(error.message);
-		const keyRefused = parseProviderKeyRefusal(error.message);
-		const unavailable = parseModelUnavailableRefusal(error.message);
-		if (!missing && !keyRefused && !unavailable) return;
+		const refusal = parseRefusal(error.message);
+		if (!refusal) return;
+		const unavailable = refusal === "model_unavailable";
 		handlingRefusal = true;
 		let cancelled = false;
 		void (async () => {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`).catch(() => null);
+			const record = await sync.read();
 			if (cancelled) return;
-			const record = res?.ok ? ((await res.json().catch(() => null)) as { messages?: LhMessage[] } | null) : null;
-			if (cancelled) return;
-			if (Array.isArray(record?.messages)) session.setMessages(record.messages);
+			if (record) session.setMessages(record.messages);
 			if (draft !== null) {
 				applyText(draft.text);
 				code = draft.code;
 				draft = null;
 			}
-			if (unavailable && !Array.isArray(record?.messages)) {
+			if (unavailable && !record) {
 				handlingRefusal = false;
 				return;
 			}
 			session.stop();
 			session.clearError();
-			if (unavailable) window.dispatchEvent(new Event(kbdEventForAction("open-model-picker")));
+			if (unavailable) emitKeyAction("open-model-picker");
 			else setupOpen = true;
 			handlingRefusal = false;
 		})();
@@ -502,28 +372,27 @@ import { untrack } from "svelte";
 					if (status === "error") {
 						turnInFlight = false;
 						session.clearError();
-						void syncFromServer();
+						void sync.syncRecord();
 					}
 					return;
 				}
-				void syncFromServer();
+				void sync.syncRecord();
 			}),
 			serverEvents.subscribe("compaction-changed", (payload) => {
 				if (payload.chatId !== chatId) return;
-				compactionRevision += 1;
-				compacting = payload.running;
+				sync.setCompacting(payload.running);
 			}),
 			serverEvents.subscribe("record-changed", (payload) => {
 				if (payload.chatId !== chatId || localStream || turnInFlight) return;
-				void syncFromServer();
+				void sync.syncRecord();
 			}),
 			serverEvents.subscribe("jobs-changed", (payload) => {
 				if (payload.chatId != null && payload.chatId !== chatId) return;
-				scheduleJobs();
+				sync.scheduleJobs();
 			}),
 			serverEvents.onResync(() => {
-				void fetchJobs();
-				void syncCompaction();
+				void sync.syncJobs();
+				void sync.syncCompaction();
 			}),
 		];
 		return () => {
@@ -531,20 +400,8 @@ import { untrack } from "svelte";
 		};
 	});
 
-	$effect(() => {
-		if (typeof window === "undefined") return;
-		const off = watchSettings((section) => {
-			if (section !== "models") return;
-			fetch("/api/settings")
-				.then((r) => r.json() as Promise<{ settings?: { models?: ModelsSettings } | null } | null>)
-				.then((body) => (configured = slotsConfigured(body?.settings?.models)))
-				.catch(() => {});
-		});
-		return off;
-	});
 
 	onMount(() => {
-		keys.init();
 		// Initial pin: fonts, KaTeX and images land after the first paint;
 		// the baseline opens a session at the exact bottom. An explicit hash
 		// (an anchor arrival) owns the position instead.
@@ -554,13 +411,12 @@ import { untrack } from "svelte";
 			setTimeout(() => { if (!window.location.hash) stick.scrollToBottom("instant"); }, 900);
 		}
 		const unmountDictation = dictation.mount();
-		void fetchJobs();
-		void syncTurns();
-		void syncCompaction();
+		void sync.syncJobs();
+		void sync.syncTurns();
+		void sync.syncCompaction();
 		// A mount full sync would replace the view while the ?prompt send is optimistic.
 
 		if (initialPromptOwed(initialMessages, initialPrompt) && initialPrompt) {
-			sentInitial = true;
 			session.send({ type: "text", text: initialPrompt });
 		}
 		if (initiallyInFlight) session.resumeStream(false);
@@ -569,43 +425,20 @@ import { untrack } from "svelte";
 			if (!turnInFlight && status === "ready") autoContinue(initialMessages);
 		}
 
-		const onRename = () => beginRename();
-		const onRenamed = (event: Event) => {
-			const { id, title: next } = (event as CustomEvent<{ id: string; title: string }>).detail;
+		const offRename = onKeyAction("rename-session", () => beginRename());
+		const offRenamed = onAppEvent("chat-renamed", ({ id, title: next }) => {
 			if (id === chatId) titleText = next;
-		};
+		});
 		const onAbort = () => {
-			const target = escAbortTarget({
-				abortAsk: abortAsk !== null,
-				mermaidFocus: mermaidFocus !== null || figureFocus !== null,
-				planOpen,
-				setupOpen,
-				pending: pending !== null,
-				problem: activeProblem !== null,
-				busy,
-			});
-			if (target === "question" || target === "problem" || target === "turn") abortAsk = target;
-			else if (target === "mermaid") {
-				mermaidFocus = null;
-				figureFocus = null;
-			} else if (target === "plan") planOpen = false;
+			const target = escAbortTarget({ abortAsk: abortAsk !== null, pending: pending !== null, problem: activeProblem !== null, busy });
+			if (target) abortAsk = target;
 		};
-		const onToggleThinking = () => toggleUserThinking();
-		window.addEventListener("lh:kbd-rename-session", onRename);
-		window.addEventListener("lh:chat-renamed", onRenamed);
-		window.addEventListener("lh:kbd-abort-turn", onAbort);
-		window.addEventListener(kbdEventForAction("toggle-user-thinking"), onToggleThinking);
+		const offAbort = onKeyAction("abort-turn", onAbort);
+		const offToggleThinking = onKeyAction("toggle-user-thinking", () => toggleUserThinking());
 
-		let hashTicks = 0;
-		const hashTimer = window.location.hash
-			? window.setInterval(() => {
-					if (++hashTicks > 300) {
-						clearInterval(hashTimer);
-						return;
-					}
-					jumpToHash();
-				}, 64)
-			: undefined;
+		// An anchor arrival waits for its message to render.
+		const hashWait = window.location.hash && !jumpToHash() ? new MutationObserver(() => jumpToHash() && hashWait?.disconnect()) : null;
+		hashWait?.observe(document.body, { childList: true, subtree: true });
 		const onHash = () => {
 			lastJump = null;
 			if (flashTimer) clearTimeout(flashTimer);
@@ -619,13 +452,13 @@ import { untrack } from "svelte";
 			unmountDictation();
 			session.stop();
 			for (const timer of turnTimers) clearTimeout(timer);
-			clearTimeout(jobsDebounce);
-			if (hashTimer) clearInterval(hashTimer);
+			sync.dispose();
+			hashWait?.disconnect();
 			if (flashTimer) clearTimeout(flashTimer);
-			window.removeEventListener("lh:kbd-rename-session", onRename);
-			window.removeEventListener("lh:chat-renamed", onRenamed);
-			window.removeEventListener("lh:kbd-abort-turn", onAbort);
-			window.removeEventListener(kbdEventForAction("toggle-user-thinking"), onToggleThinking);
+			offRename();
+			offRenamed();
+			offAbort();
+			offToggleThinking();
 			window.removeEventListener("hashchange", onHash);
 			window.removeEventListener("popstate", onHash);
 		};
@@ -635,7 +468,7 @@ import { untrack } from "svelte";
 		if (!pending) return;
 		const reading = readingThinking.trim() || undefined;
 		readingThinking = "";
-		session.submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
+		session.submitAnswer(pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
 	}
 </script>
 
@@ -649,7 +482,6 @@ import { untrack } from "svelte";
 		onSend={onSend}
 		onStop={abortInFlightTurn}
 		canSend={canSend}
-		onEscape={dictation.active ? dictation.cancel : undefined}
 		nextProblem={nextReady}
 		onNext={sendNext}
 		placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
@@ -661,22 +493,14 @@ import { untrack } from "svelte";
 {/snippet}
 
 {#snippet setupCta()}
-	{#if keys.zero}
-		<div class="pointer-events-auto mb-2 flex justify-center">
-			<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
-		</div>
-	{:else if !configured}
-		<div class="pointer-events-auto mb-2 flex justify-center">
-			<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>
-		</div>
-	{/if}
+	<SetupCta {configured} onOpen={() => (setupOpen = true)} wrap="pointer-events-auto mb-2 flex justify-center" />
 {/snippet}
 
 <div class="flex h-dvh">
 	<div class="flex min-w-0 flex-1 flex-col">
 		<TopBar
 			drag={!renaming}
-			onMouseDown={(event) => {
+			onmousedown={(event) => {
 				if (renaming && event.target !== titleInput) titleInput?.blur();
 			}}
 		>
@@ -713,7 +537,7 @@ import { untrack } from "svelte";
 					type="button"
 					data-testid="plan-chip"
 					onclick={(event) => {
-						if (event.detail !== 0) (event.currentTarget as HTMLElement).blur();
+						blurAfterPointerClick(event);
 						planOpen = true;
 					}}
 					{@attach hint("Open the full plan", { side: "bottom" })}
@@ -724,7 +548,7 @@ import { untrack } from "svelte";
 				</button>
 			{/if}
 			{#if kind !== "practice"}
-				<CoverageRing {chatId} refreshKey={coverageTick} />
+				<CoverageRing {chatId} />
 			{/if}
 			{#if kind === "practice"}
 				<span data-testid="phase-chip" data-phase="practice" aria-hidden="true" class="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -764,13 +588,13 @@ import { untrack } from "svelte";
 								{:else if message.role === "user" && message.parts.length > 0 && message.parts.every((p) => p.type.startsWith("data-"))}
 									{#each message.parts as part, pi (pi)}
 										{#if part.type === "data-graph-context"}
-											<GraphContextCard data={part.data as { propositions: { id: string; name: string; statement: string }[]; chains: string[] }} />
+											<GraphContextCard data={part.data as { propositions: GraphContextPick[]; chains: string[] }} />
 										{:else if part.type === "data-compaction"}
-											<CompactionDivider data={part.data as { content: string; details: import("@/src/core").CompactionDetails }} />
+											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} />
 										{:else if part.type === "data-compaction-cut"}
-											<CompactionDivider data={part.data as { content: string; details: import("@/src/core").CompactionDetails }} cut />
+											<CompactionDivider data={part.data as { content: string; details: import("@/src/session/model").CompactionDetails }} cut />
 										{:else if part.type === "data-practice-thinking"}
-											<ThinkingCard data={part.data as { problemCallId: string; text: string }} />
+											<ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={(part.data as { text: string }).text} defaultOpen />
 										{:else if part.type === "data-practice-next"}
 											<div data-testid="practice-next-line" class="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
 												<span aria-hidden="true">→</span>
@@ -812,15 +636,15 @@ import { untrack } from "svelte";
 															<hr class="my-3 border-border" />
 														{/if}
 													{:else if part.type === "data-plan-block"}
-														<PlanBlock data={part.data as import("@/src/core").PlanBlockData} onOpen={() => (planOpen = true)} />
-													{:else if ["tool-quiz", "tool-probe", "tool-ask_user_question", "tool-explain", "tool-recall"].includes(part.type)}
+														<PlanBlock data={part.data as import("@/src/session/model").PlanBlockData} onOpen={() => (planOpen = true)} />
+													{:else if part.type.startsWith("tool-") && isQuestionTool(part.type.slice("tool-".length))}
 														{#if part.state === "output-available"}
 															<AnsweredCard answer={part.output as QuestionAnswerData} input={part.input} />
 														{/if}
 													{:else if part.type.startsWith("tool-") && part.state === "input-streaming"}
 														<LiveToolCard part={part as never} />
 													{:else if part.type.startsWith("tool-")}
-														<ArtifactPart part={part as never} {jobs} />
+														<ArtifactPart part={part as never} jobs={sync.jobs} />
 													{/if}
 												{/each}
 											</div>
@@ -855,13 +679,13 @@ import { untrack } from "svelte";
 					{readingThinking}
 					onReadingThinking={(value) => (readingThinking = value)}
 					phase={phases.at(-1) ?? "probe"}
-					{turns}
+					turns={sync.turns}
 					{chatId}
+					chatSettings={sync.settings}
 					{composer}
 					onSubmitAnswer={(output) => void submitAnswer(output)}
 					onSubmitThinking={submitThinking}
 					{dictationSlot}
-					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					{setupCta}
 					{queuedSteers}
 					plan={hasPlan ? planMarginalia : undefined}
@@ -880,7 +704,7 @@ import { untrack } from "svelte";
 			{#if planOpen}
 				<PlanPopup messages={messages} onClose={() => (planOpen = false)} />
 			{/if}
-			<AbortTurnDialog mode={abortAsk} onClose={() => (abortAsk = null)} onConfirm={confirmAbort} busy={busy} />
+			<AbortTurnDialog mode={abortAsk} onClose={() => (abortAsk = null)} onConfirm={confirmAbort} turnRunning={busy} />
 		</div>
 	</div>
 </div>
@@ -892,8 +716,5 @@ import { untrack } from "svelte";
 <SetupDialog
 	open={setupOpen}
 	onClose={() => (setupOpen = false)}
-	onDone={() => {
-		setupOpen = false;
-		configured = true;
-	}}
+	onDone={() => (setupOpen = false)}
 />

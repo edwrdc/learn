@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { plural } from "$lib/format";
 	import { Check, CircleX } from "@lucide/svelte";
-	import { isSubagentFailure, type LhMessage, type LhViewMessage, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/core";
+	import { isJobFailure, type PdfResult, type ResearchResult, type SubagentArtifactData } from "@/src/jobs/model";
+	import type { LhViewMessage } from "@/src/session/model";
 	import DemoOutputCard from "./DemoOutputCard.svelte";
 	import VisualOutputCard from "./VisualOutputCard.svelte";
 	import ResearchBrief from "./ResearchBrief.svelte";
@@ -25,7 +27,7 @@
 		<div class="rounded-xl border bg-card p-4 text-sm text-muted-foreground">A sub-agent finished, but its result could not be displayed.</div>
 	{/if}
 {:else if data.kind === "research"}
-	{#if isSubagentFailure("research", data.result as ResearchResult)}
+	{#if isJobFailure(data.result)}
 		<ResearchBrief output={data.result} kind="research" />
 	{:else}
 		<details data-testid="research-complete-badge" class="group w-full text-xs text-muted-foreground">
@@ -43,7 +45,7 @@
 		</details>
 	{/if}
 {:else if data.kind === "pdf"}
-	{#if isSubagentFailure("pdf", data.result as PdfResult)}
+	{#if isJobFailure(data.result)}
 		<ResearchBrief output={data.result} kind="pdf" />
 	{:else}
 		<details data-testid="pdf-complete-badge" class="group w-full text-xs text-muted-foreground">
@@ -52,7 +54,7 @@
 				<span class="font-medium uppercase tracking-wide">PDF</span>
 				<span>reading complete</span>
 				{#if (data.result as PdfResult).pagesRead.length > 0}
-					<span>· read {(data.result as PdfResult).pagesRead.length} page{(data.result as PdfResult).pagesRead.length === 1 ? "" : "s"}</span>
+					<span>· read {plural((data.result as PdfResult).pagesRead.length, "page")}</span>
 				{/if}
 				<span class="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
 				<span class="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide brief</span>

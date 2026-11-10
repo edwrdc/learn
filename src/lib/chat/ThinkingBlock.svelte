@@ -19,7 +19,7 @@ import { untrack } from "svelte";
 	} = $props();
 
 	import { userThinking } from "./thinking-store.svelte";
-	import { blurAfterPointerClick } from "./enter-submits";
+	import { blurAfterPointerClick } from "$lib/ui/enter-submits";
 
 	let open = $state(untrack(() => userThinking.value ?? defaultOpen));
 	$effect(() => {

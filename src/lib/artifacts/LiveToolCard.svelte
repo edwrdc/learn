@@ -1,20 +1,12 @@
 <script lang="ts">
 	import { ChevronRight } from "@lucide/svelte";
-	import { toolActivityLabel } from "@/src/core";
+	import { toolActivityLabel, toolArg } from "@/src/tools/model";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 
 	let { part }: { part: { type: string; state: string; toolCallId: string; input?: unknown } } = $props();
 	const tool = $derived(part.type.replace(/^tool-/, ""));
 	const input = $derived((part.input ?? {}) as Record<string, unknown>);
-	const arg = $derived(
-		typeof input.path === "string" && input.path
-			? input.path
-			: typeof input.pattern === "string" && input.pattern
-				? input.pattern
-				: typeof input.session === "string" && input.session
-					? input.session
-					: "",
-	);
+	const arg = $derived(toolArg(tool, part.input));
 	const hasInput = $derived(part.input != null && Object.keys(input).length > 0);
 </script>
 

@@ -1,6 +1,6 @@
 /** Reading-font menu and composer (pure): row-set and factory semantics. */
-import { fuzzyScore } from "@/src/core";
-import type { AppearanceSettings } from "@/src/core";
+import { fuzzyScore } from "@/src/platform/model";
+import type { AppearanceSettings } from "@/src/settings/model";
 
 export const DEFAULT_READING_FONT = "Source Sans 3";
 export const CURATED_FALLBACK_FONTS = [

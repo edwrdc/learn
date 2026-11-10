@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PlanNodeStatus } from "@/src/core";
+	import type { PlanNodeStatus } from "@/src/session/model";
 	import {
 		ARROW_HEAD, GLOW_BLUR, GLOW_MARGIN, HEAD_W, LINE_H, NODE_H, NODE_W_MIN, STROKE_W,
 		blockLayout, edgePathD, wrapTitle, type LayoutNode,
@@ -11,25 +11,25 @@
 		statusOf,
 		glowId,
 		markerId,
-		viewBoxOverride,
 		pad: padUnits,
 		textCapScale,
-		naturalSize,
-		monochrome,
-		fill,
+		variant,
 	}: {
 		nodes: readonly LayoutNode[];
 		edges: ReadonlyArray<{ from: string; to: string }>;
 		statusOf: (id: string) => PlanNodeStatus;
 		glowId?: string | null;
 		markerId: string;
-		viewBoxOverride?: string;
 		pad?: number;
 		textCapScale?: number;
-		naturalSize?: boolean;
-		monochrome?: boolean;
-		fill?: boolean;
+		/** block: the transcript card (monochrome, full width); margin: the
+		 *  dock marginalia (fills its box); popup: the full plan (natural size). */
+		variant: "block" | "margin" | "popup";
 	} = $props();
+
+	const monochrome = $derived(variant === "block");
+	const fill = $derived(variant === "margin");
+	const naturalSize = $derived(variant === "popup");
 
 	const BOX: Record<PlanNodeStatus, string> = {
 		visited: "fill-background/50 stroke-white",
@@ -43,18 +43,18 @@
 	};
 
 	const layout = $derived(blockLayout(nodes, edges));
-	const pad = $derived(viewBoxOverride ? 0 : (padUnits ?? 0));
+	const pad = $derived(padUnits ?? 0);
 	const w = $derived(Math.max(layout.width, 1));
 	const h = $derived(Math.max(layout.height, 1));
-	const ox = $derived(viewBoxOverride ? 0 : layout.originX);
-	const oy = $derived(viewBoxOverride ? 0 : layout.originY);
+	const ox = $derived(layout.originX);
+	const oy = $derived(layout.originY);
 	const vbW = $derived(w + 2 * pad);
 	const vbH = $derived(h + 2 * pad);
 	const HEAD_H = 16 * (STROKE_W / 1.5);
 </script>
 
 <svg
-	viewBox={viewBoxOverride ?? `${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
+	viewBox={`${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
 	class="block {fill ? 'h-full w-full' : `h-auto${naturalSize ? '' : ' w-full'}`}{textCapScale ? ' mx-auto' : ''}"
 	style="font-family: var(--font-prose);{textCapScale
 		? `max-width: ${Math.round(vbW * textCapScale * 100) / 100}px;`

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { browserServiceSpawnEnv, parseBrowserServiceLine } from "../src/agent/subagents/headless.ts";
+import { browserServiceSpawnEnv, parseBrowserServiceLine } from "../src/jobs/headless.ts";
 
 describe("browser-service helper (pure halves)", () => {
 	it("parses the handshake line into a port", () => {

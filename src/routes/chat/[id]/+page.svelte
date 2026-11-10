@@ -1,14 +1,8 @@
 <script lang="ts">
 	import type { PageProps } from "./$types";
 	import ChatPage from "$lib/chat/ChatPage.svelte";
-	import { keys } from "$lib/state/keys.svelte";
-	import { onMount } from "svelte";
 
 	let { data }: PageProps = $props();
-
-	onMount(() => {
-		keys.init();
-	});
 </script>
 
 {#key data.chatId}

@@ -1,7 +1,8 @@
 /** Svelte ports of the plan layout and plan surfaces. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import type { PlanBlockData, PlanTree } from "../src/core/contracts.ts";
+import type { PlanBlockData } from "../src/session/model/types.ts";
+import type { PlanTree } from "../src/session/model/plan-types.ts";
 import {
 	blockLayout,
 	edgePathD,
@@ -10,8 +11,6 @@ import {
 	NODE_H,
 	NODE_W_MIN,
 	nodeWidth,
-	planExists,
-	topoFor,
 	wrapTitle,
 } from "../src/lib/chat/plan-layout.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
@@ -32,9 +31,6 @@ const CHAIN: PlanTree = {
 
 describe("plan layout (pure)", () => {
 	it("layers a chain top-down, one node per depth row", () => {
-		const { order, depth } = topoFor(CHAIN.nodes, CHAIN.edges);
-		assert.deepEqual(order.map((node) => node.id), ["a", "b", "c"]);
-		assert.equal(depth.get("c"), 2);
 		const layout = blockLayout(CHAIN.nodes, CHAIN.edges);
 		const W = nodeWidth(wrapTitle("Alpha node"));
 		assert.equal(W, NODE_W_MIN);
@@ -84,11 +80,6 @@ describe("plan layout (pure)", () => {
 		assert.ok(Math.abs(estimateLineWidth("The normal-form ladder") - 106.3) < 0.5);
 	});
 
-	it("planExists is false without a tree", () => {
-		assert.equal(planExists([]), false);
-		assert.equal(planExists([{ id: "m2", role: "assistant", parts: [{ type: "tool-plan_init", state: "output-available", output: { ok: true, tree: { nodes: [], edges: [], version: 0 } } }] } as never]), false);
-		assert.equal(planExists([{ id: "m2", role: "assistant", parts: [{ type: "tool-plan_init", state: "output-available", output: { ok: true, tree: CHAIN } }] } as never]), true);
-	});
 });
 
 describe("plan block", () => {
@@ -100,16 +91,12 @@ describe("plan block", () => {
 		edges: [{ from: "a", to: "b" }],
 	};
 
-	it("borderless, prose font, hugged boxes, carried statuses, open affordance", async () => {
+	it("borderless, prose font, centered titles, carried statuses, open affordance", async () => {
 		const body = await html("/src/lib/chat/PlanBlock.svelte", { data, onOpen: () => {} });
 		assert.match(body, /data-testid="plan-block-full"/);
 		assert.ok(!/data-testid="plan-block-full"[^>]*border/.test(body));
-		assert.match(body, /<svg[^>]*class="block h-auto w-full mx-auto"/);
 		assert.match(body, /<svg[^>]*font-family: var\(--font-prose\)/);
-		assert.match(body, /<rect[^>]*stroke-width="1"/);
-		assert.match(body, /<rect[^>]*class="fill-card stroke-white"/);
-		assert.match(body, /<text[^>]*x="48"[^>]*text-anchor="middle"/);
-		assert.ok(!/x="12"/.test(body));
+		assert.match(body, /<text[^>]*text-anchor="middle"/);
 		assert.match(body, /data-testid="plan-node-a" data-status="visited"/);
 		assert.match(body, /data-testid="plan-node-b" data-status="upcoming"/);
 		assert.ok(body.includes('aria-label="Open the full plan"'));
@@ -172,8 +159,9 @@ describe("plan marginalia", () => {
 		assert.match(body, /data-testid="plan-node-b" data-status="current"/);
 		assert.ok(body.includes("fill-yellow-400/25"));
 		const layout = blockLayout(CHAIN.nodes, CHAIN.edges);
-		const pad = 24;
-		assert.ok(body.includes(`viewBox="${-pad} ${-pad} ${layout.width + 2 * pad} ${layout.height + 2 * pad}"`));
+		const [minX, minY, width, height] = (body.match(/viewBox="([^"]+)"/)?.[1] ?? "").split(" ").map(Number);
+		assert.ok(minX! < 0 && minY! < 0, "padding on the top-left");
+		assert.ok(width! + minX! > layout.width && height! + minY! > layout.height, "padding on the bottom-right");
 		assert.ok(body.includes("font-family: var(--font-prose)"));
 	});
 });

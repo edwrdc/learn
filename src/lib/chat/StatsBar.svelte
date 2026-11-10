@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
 	import type { Snippet } from "svelte";
-	import { contextWindow, sessionCost, turnCost, type TurnUsage } from "@/src/core";
+	import { contextWindow, sessionCost, turnCost, type ChatSettings, type TurnUsage } from "@/src/session/model";
 	import { formatTokens, formatUsd, prettyModel } from "$lib/format";
 	import ModelControl from "./ModelControl.svelte";
 	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
@@ -9,38 +10,25 @@
 		turns,
 		dictationSlot,
 		chatId,
+		chatSettings,
 		leadingSlot,
 	}: {
 		turns: TurnUsage[];
 		dictationSlot?: Snippet;
 		chatId?: string;
+		chatSettings?: ChatSettings;
 		leadingSlot?: Snippet;
 	} = $props();
 
 	let open = $state(false);
 	let bar = $state<HTMLDivElement | null>(null);
-	modelCatalog.ensure();
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			if (bar && !bar.contains(event.target as Node)) open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			open = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [bar] });
 	});
 
-	const limits = $derived(modelCatalog.catalog ? catalogLimits(modelCatalog.catalog) : undefined);
+	const limits = $derived(modelCatalog.value ? catalogLimits(modelCatalog.value) : undefined);
 	const ctx = $derived(contextWindow({ turns }, limits));
 	const costInfo = $derived(sessionCost({ turns }));
 	const pricedCount = $derived(turns.length - costInfo.unpriced);
@@ -103,5 +91,5 @@
 	{#if dictationSlot}
 		<div class="flex min-w-0 flex-1 items-center justify-center">{@render dictationSlot()}</div>
 	{/if}
-	<ModelControl {chatId} />
+	<ModelControl {chatId} {chatSettings} />
 </div>

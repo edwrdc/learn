@@ -1,3 +1,5 @@
+import { parseModelKey } from "@/src/settings/model";
+
 /** Money/token presentation helpers. */
 export function formatUsd(value: number): string {
 	return value >= 1 ? `$${value.toFixed(2)}` : `$${value.toFixed(4)}`;
@@ -9,14 +11,8 @@ export function formatTokens(n: number): string {
 	return String(n);
 }
 
-export function splitQualified(id: string): { provider: string | null; id: string } {
-	const colon = id.indexOf(":");
-	if (colon === -1) return { provider: null, id };
-	return { provider: id.slice(0, colon), id: id.slice(colon + 1) };
-}
-
 export function prettyModel(id: string, qualified = false): string {
-	const { provider, id: bare } = splitQualified(id);
+	const { provider, id: bare } = parseModelKey(id);
 	const short = bare.includes("/") ? bare.slice(bare.lastIndexOf("/") + 1) : bare;
 	const parts = short.split("-");
 	const trimmed = /^\d+$/.test(parts[parts.length - 1] ?? "") ? parts.slice(0, -1) : parts;
@@ -37,4 +33,9 @@ export function timeAgo(iso: string, now = new Date()): string {
 	const mm = String(date.getMonth() + 1).padStart(2, "0");
 	const dd = String(date.getDate()).padStart(2, "0");
 	return `${date.getFullYear()}-${mm}-${dd}`;
+}
+
+/** "1 node", "3 nodes". */
+export function plural(count: number, noun: string): string {
+	return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }

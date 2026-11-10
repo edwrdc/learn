@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ClipboardCheck } from "@lucide/svelte";
-	import { parseProbeDoneInput, type ProbeDoneResult } from "@/src/core";
+	import { parseProbeDoneInput, type ProbeDoneResult } from "@/src/session/model";
 
 	let { part }: { part: { input?: unknown; output?: unknown; state?: unknown } } = $props();
 	const output = $derived(part.output as ProbeDoneResult | undefined);

@@ -1,45 +1,29 @@
 <script lang="ts">
-	import { getContext } from "svelte";
+	import { dismissLayer } from "$lib/ui/layer";
 	import { hint } from "$lib/hint";
-	import { formatUsd, prettyModel } from "$lib/format";
+	import { prettyModel } from "$lib/format";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import ModelMenuList from "$lib/settings/ModelMenuList.svelte";
 	import ThinkingMenuList from "$lib/settings/ThinkingMenuList.svelte";
-	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
-	import { watchSettings } from "$lib/state/settings-signal";
-	import { composeSlotModel, defaultOrderLevel, populateLevel, THINKING_LABEL } from "$lib/settings/compose";
-	import type { ChatSettings, ModelCatalogEntry, ModelsSettings, UserSettings, ModelSlotName } from "@/src/core";
+	import { modelCatalog } from "$lib/state/model-catalog.svelte";
+	import { onKeyAction } from "$lib/events";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { saveChatSettings } from "$lib/api/chats";
+	import { failureMessage } from "$lib/api/http";
+	import { composeSlotModel, defaultOrderLevel, populateLevel, thinkingLabel } from "$lib/settings/compose";
+	import type { ChatSettings } from "@/src/session/model";
+	import type { ModelCatalogEntry, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
-	let { chatId }: { chatId?: string } = $props();
+	/** `chatSettings`: the chat record's own settings (a chat view only). */
+	let { chatId, chatSettings }: { chatId?: string; chatSettings?: ChatSettings } = $props();
 
-	let models = $state<ModelsSettings | undefined>(undefined);
-	let session = $state<ChatSettings | undefined>(undefined);
+	const models = $derived(userSettings.record?.models);
+	// A save adopts what the write returned until the record reloads.
+	let session = $derived(chatSettings);
 	let open = $state<"model" | "thinking" | null>(null);
 	let error = $state<string | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
-
-	modelCatalog.ensure();
-
-	function readRecord() {
-		if (chatId) {
-			fetch(`/api/chats/${chatId}`)
-				.then((r) => r.json() as Promise<{ settings?: ChatSettings }>)
-				.then((body) => (session = body.settings))
-				.catch(() => {});
-		}
-		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
-			.then((body) => (models = body.settings?.models ?? undefined))
-			.catch(() => {});
-	}
-
-	$effect(() => {
-		readRecord();
-	});
-	$effect(() => watchSettings((section) => {
-		if (section === "models") readRecord();
-	}));
 
 	const strong = $derived(models?.strong);
 	const override = $derived<ChatSettings | undefined>(
@@ -50,70 +34,38 @@
 	const effectiveId = $derived(override?.model?.id);
 	const effectiveProvider = $derived(override?.model?.provider);
 	const storedLevel = $derived(override?.thinkingLevel);
-	const entry = $derived(modelCatalog.catalog?.models.find((m) => m.id === effectiveId && m.provider === effectiveProvider));
+	const entry = $derived(modelCatalog.value?.models.find((m) => m.id === effectiveId && m.provider === effectiveProvider));
 	const levels = $derived(entry?.supportedLevels ?? []);
 	const effectiveLevel = $derived(storedLevel ?? (entry ? defaultOrderLevel(levels) : undefined));
 
 	$effect(() => {
-		if (open === null || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Element;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (container && !container.contains(target)) open = null;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			open = null;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (open === null) return;
+		return dismissLayer(() => (open = null), { inside: () => [container], menus: true });
 	});
 
+	/** A refused write shows the server's reason; anything else is the network. */
+	function showFailure(err: unknown) {
+		error = failureMessage(err, "Could not reach the server — try again.");
+	}
+
 	async function save(next: ModelsSettings) {
-		setError(null);
+		error = null;
 		try {
-			const res = await fetch("/api/settings/models", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(next),
-			});
-			if (!res.ok) {
-				const body = (await res.json().catch(() => ({}))) as { error?: string };
-				error = body.error ?? `settings rejected (${res.status})`;
-				return;
-			}
-			const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings?.models;
-			models = stored ?? next;
+			await userSettings.save("models", next);
 			open = null;
-			window.dispatchEvent(new CustomEvent("lh:settings-saved", { detail: { section: "models" } }));
-		} catch {
-			error = "Could not reach the server — try again.";
+		} catch (err) {
+			showFailure(err);
 		}
 	}
 
 	async function saveChat(next: ChatSettings) {
-		setError(null);
+		if (!chatId) return;
+		error = null;
 		try {
-			const res = await fetch(`/api/chats/${chatId}/settings`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(next),
-			});
-			if (!res.ok) {
-				const body = (await res.json().catch(() => ({}))) as { error?: string };
-				error = body.error ?? `settings rejected (${res.status})`;
-				return;
-			}
-			const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
-			session = stored?.settings ?? next;
+			session = (await saveChatSettings(chatId, next)).settings;
 			open = null;
-		} catch {
-			error = "Could not reach the server — try again.";
+		} catch (err) {
+			showFailure(err);
 		}
 	}
 
@@ -126,12 +78,7 @@
 		apply(model.provider, model.id, populateLevel(storedLevel, model.supportedLevels));
 	}
 
-	function setError(value: string | null) {
-		error = value;
-	}
-
 	$effect(() => {
-		if (typeof window === "undefined") return;
 		const onOpenPicker = () => {
 			open = "model";
 			error = null;
@@ -143,11 +90,9 @@
 			const next = levels[(idx + 1) % levels.length];
 			if (next !== undefined) apply(effectiveProvider ?? "", effectiveId ?? "", next);
 		};
-		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
-		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
+		const offs = [onKeyAction("open-model-picker", onOpenPicker), onKeyAction("cycle-thinking", onCycleThinking)];
 		return () => {
-			window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-			window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
+			for (const off of offs) off();
 		};
 	});
 
@@ -181,7 +126,7 @@
 		{@attach hint("Thinking", { action: "cycle-thinking", side: "bottom" })}
 		class="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
 	>
-		<span class="text-card-foreground">{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}</span>
+		<span class="text-card-foreground">{effectiveLevel === undefined ? "—" : thinkingLabel(effectiveLevel)}</span>
 		<span aria-hidden="true" class="text-xs text-muted-foreground">▾</span>
 	</button>
 
@@ -189,11 +134,11 @@
 		<MenuShell anchor={container} testid="model-menu" preferredSide="up" menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl">
 			{#if error}<div class="mb-1.5 text-destructive">{error}</div>{/if}
 			<ModelMenuList
-				models={modelCatalog.catalog?.models}
+				models={modelCatalog.value?.models}
 				{effectiveId}
 				{effectiveProvider}
 				onPick={pickModel}
-				footer={modelCatalog.catalog && modelCatalog.catalog.models.length === 0
+				footer={modelCatalog.value && modelCatalog.value.models.length === 0
 					? "No models — add a provider key in Keys"
 					: chatId
 						? "This session's model"
@@ -204,10 +149,10 @@
 	{#if open === "thinking"}
 		<MenuShell anchor={container} testid="thinking-menu" preferredSide="up" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl">
 			<ThinkingMenuList
-				levels={modelCatalog.catalog ? levels : []}
+				levels={modelCatalog.value ? levels : []}
 				{effectiveLevel}
 				onPick={(level) => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
-				empty={modelCatalog.catalog ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
+				empty={modelCatalog.value ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
 				footer="Levels this model actually supports"
 			/>
 			{#if error}<div class="mt-1 text-destructive">{error}</div>{/if}

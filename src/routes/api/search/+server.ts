@@ -1,6 +1,5 @@
 /**
- * GET /api/search — the search engines' status (search wave, 2026-09-20):
- * the honest availability signal the settings UI explains from (the
+ * GET /api/search — the search engines' status: the honest availability signal the settings UI explains from (the
  * gray-out affordance) and any client surface can read.
  *
  * { available, engine, reason } — never a key, never a secret: `engine` is
@@ -9,7 +8,7 @@
  * search API key", or the pinned-engine-key-missing case).
  */
 
-import { searchStatus } from "@/src/server";
+import { searchStatus } from "@/src/settings";
 
 export async function GET() {
 	return Response.json(searchStatus());

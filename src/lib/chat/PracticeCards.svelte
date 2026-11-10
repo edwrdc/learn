@@ -1,17 +1,9 @@
 <script lang="ts">
 	import PracticeMetadata from "./PracticeMetadata.svelte";
-	import type { ArtifactPartProps } from "@/src/core";
+	import { outcomeLabel, PRACTICE_PROBLEM_TOOL, type ArtifactPartProps, type PracticeOutcome } from "@/src/session/model";
 	import Markdown from "$lib/markdown/Markdown.svelte";
-	import ThinkingBlock from "./ThinkingBlock.svelte";
 
-	const OUTCOME_LABEL: Record<string, string> = {
-		solved: "Solved",
-		solvedWithHints: "Solved with hints",
-		movedOn: "Moved on",
-		surrendered: "Surrendered",
-		dismissed: "Dismissed",
-	};
-	const OUTCOME_CHIP: Record<string, string> = {
+	const OUTCOME_CHIP: Record<PracticeOutcome, string> = {
 		solved: "bg-green-500/15 text-green-500",
 		solvedWithHints: "bg-amber-500/15 text-amber-500",
 		movedOn: "bg-muted text-muted-foreground",
@@ -21,7 +13,7 @@
 
 	let { part }: { part: ArtifactPartProps["part"] } = $props();
 
-	const isProblem = $derived(part.type === "tool-problem");
+	const isProblem = $derived(part.type === `tool-${PRACTICE_PROBLEM_TOOL}`);
 	const input = $derived((part.input ?? {}) as Record<string, unknown>);
 	const outcome = $derived(typeof input.outcome === "string" ? input.outcome : "");
 	const verdict = $derived(typeof input.verdict === "string" ? input.verdict : "");
@@ -33,6 +25,7 @@
 				: "",
 	);
 	const statement = $derived(typeof input.statement === "string" ? input.statement : "");
+	const chip = $derived(Object.hasOwn(OUTCOME_CHIP, outcome) ? OUTCOME_CHIP[outcome as PracticeOutcome] : null);
 </script>
 
 {#if isProblem}
@@ -46,8 +39,8 @@
 	<div data-testid="conclude-card" class="lh-card-enter relative my-1 rounded-xl border bg-card p-4">
 		<div class="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 			Concluded
-			{#if OUTCOME_LABEL[outcome] && outcome !== "dismissed"}
-				<span class="rounded px-1.5 py-0.5 {OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn}">{OUTCOME_LABEL[outcome]}</span>
+			{#if chip}
+				<span class="rounded px-1.5 py-0.5 {chip}">{outcomeLabel(outcome)}</span>
 			{/if}
 		</div>
 		{#if verdict.length > 0}

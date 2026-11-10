@@ -1,34 +1,37 @@
 <script lang="ts">
-import { untrack } from "svelte";
+	import { picksFor, type GraphContextPick } from "@/src/session/model";
+	import SetupCta from "$lib/settings/SetupCta.svelte";
+	import { plural } from "$lib/format";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { startDraftSession } from "./new-session";
-	import { strongKeyless } from "$lib/state/keys";
-	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { CornerDownLeft, Dumbbell } from "@lucide/svelte";
-	import type { TurnUsage } from "@/src/core";
-	import { DictationController, joinDictation } from "$lib/chat/dictation.svelte";
+	import type { TurnUsage } from "@/src/session/model";
+	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
 	import StatsBar from "$lib/chat/StatsBar.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import GraphView from "./GraphView.svelte";
 	import MinimalHome from "./MinimalHome.svelte";
-	import SidebarToggle from "$lib/chat/SidebarToggle.svelte";
-	import { keys } from "$lib/state/keys.svelte";
-	import { hint } from "$lib/hint";
+	import ChainTableOverlay from "./ChainTableOverlay.svelte";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
+	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
+	import { needsSetup, noProviderKey } from "$lib/state/keys.svelte";
+	import { settings } from "$lib/state/settings.svelte";
 	import { focusOnMount } from "$lib/dom";
 
 	let { initialConfigured, rendering = true }: { initialConfigured: boolean; rendering?: boolean } = $props();
 
 	let topic = $state("");
 	let topicMirror = "";
-	let configured = $state(untrack(() => initialConfigured));
+	const configured = $derived(settings.configured ?? initialConfigured);
 	let setupOpen = $state(false);
 	let busy = $state(false);
 	let mode = $state<"teach" | "practice">("teach");
-	let practiceProps = $state<Array<{ id: string; name: string; statement: string }>>([]);
+	let practiceProps = $state<GraphContextPick[]>([]);
 	let chainSelectOpen = $state(false);
-	let applied = false;
+	let chainsOpen = $state(false);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 
 	const dictation = new DictationController((value) => applyTopic(joinDictation(topicMirror, value)));
 
@@ -40,36 +43,27 @@ import { untrack } from "svelte";
 	async function begin() {
 		const text = topicMirror.trim();
 		if (!text || busy) return;
-		if (!configured) {
-			setupOpen = true;
-			return;
-		}
-		if (keys.zero || strongKeyless(modelCatalog.catalog)) {
+		if (needsSetup(configured)) {
 			setupOpen = true;
 			return;
 		}
 		busy = true;
 		try {
-			const target = await startDraftSession(text, fetch, mode, practiceProps);
+			const target = await startDraftSession(text, mode, practiceProps);
 			if (target) void goto(target);
 			else busy = false;
-		} catch {
+		} catch (error) {
+			console.error("[new session] create failed:", error);
 			busy = false;
 		}
 	}
 
 	function start() {
-		if (!dictation.active) {
-			void begin();
-			return;
-		}
-		void dictation.finish().then(() => begin());
+		afterDictation(() => void begin());
 	}
 
 	onMount(() => {
-		keys.init();
 		const off = dictation.mount();
-		fetch("/api/models").catch(() => {});
 		return off;
 	});
 </script>
@@ -79,20 +73,21 @@ import { untrack } from "svelte";
 
 	<main class="absolute inset-0">
 		{#if rendering}
-			<GraphView
-				{chainSelectOpen}
-				practiceSelection={new Set(practiceProps.map((p) => p.id))}
-				onPracticeSelectionChange={(nodes) => (practiceProps = nodes)}
-				onChainSelectClose={() => (chainSelectOpen = false)}
-			/>
+			<GraphView onOpenChains={() => (chainsOpen = true)} />
 		{:else}
-			<MinimalHome
-				{chainSelectOpen}
-				practiceSelection={new Set(practiceProps.map((p) => p.id))}
-				onPracticeSelectionChange={(nodes) => (practiceProps = nodes)}
-				onChainSelectClose={() => (chainSelectOpen = false)}
-			/>
+			<MinimalHome onOpenChains={() => (chainsOpen = true)} />
 		{/if}
+		<ChainTableOverlay
+			open={(chainsOpen || chainSelectOpen) && (snapshot?.propositions.length ?? 0) > 0}
+			{snapshot}
+			onClose={() => {
+				chainsOpen = false;
+				chainSelectOpen = false;
+			}}
+			selectMode={chainSelectOpen}
+			controlledSelection={new Set(practiceProps.map((p) => p.id))}
+			onSelectionChange={(ids) => (practiceProps = picksFor(ids, snapshot?.propositions ?? []))}
+		/>
 	</main>
 
 	<header class="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 py-2">
@@ -101,24 +96,20 @@ import { untrack } from "svelte";
 
 	<div class="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 		<div class="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
-			{#if practiceProps.length > 0 || mode === "practice" || keys.zero || !configured}
+			{#if practiceProps.length > 0 || mode === "practice" || noProviderKey.value || !configured}
 				<div data-testid="composer-actions" class="pointer-events-auto mb-2 flex flex-wrap items-center gap-2 {practiceProps.length > 0 || mode === 'practice' ? 'justify-start' : 'justify-center'}">
 					{#if practiceProps.length > 0 || mode === "practice"}
 						<div class="flex items-center gap-1.5">
 							<button type="button" data-testid="practice-props-chip" onclick={() => (chainSelectOpen = true)} class="flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors {practiceProps.length > 0 ? 'border-border bg-card text-foreground hover:bg-accent' : 'border-dashed border-border/80 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground'}">
 								<Dumbbell aria-hidden="true" class="size-3.5 text-muted-foreground" />
-								{practiceProps.length > 0 ? `${practiceProps.length} ${practiceProps.length === 1 ? "node" : "nodes"} selected` : "Pick nodes"}
+								{practiceProps.length > 0 ? `${plural(practiceProps.length, "node")} selected` : "Pick nodes"}
 							</button>
 							{#if practiceProps.length > 0}
 								<button type="button" data-testid="practice-props-clear" onclick={() => (practiceProps = [])} class="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Clear</button>
 							{/if}
 						</div>
 					{/if}
-					{#if keys.zero}
-						<button type="button" data-testid="setup-cta-keys" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Add a provider key</button>
-					{:else if !configured}
-						<button type="button" data-testid="setup-cta" onclick={() => (setupOpen = true)} class="cursor-pointer rounded-sm border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 hover:bg-accent">Set up your models</button>
-					{/if}
+					<SetupCta {configured} onOpen={() => (setupOpen = true)} />
 				</div>
 			{/if}
 			<form class="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg" onsubmit={(event) => { event.preventDefault(); start(); }}>
@@ -126,12 +117,6 @@ import { untrack } from "svelte";
 					value={topic}
 					oninput={(event) => applyTopic((event.currentTarget as HTMLTextAreaElement).value)}
 					onkeydown={(event) => {
-						if (event.key === "Escape" && dictation.active) {
-							event.preventDefault();
-							event.stopPropagation();
-							dictation.cancel();
-							return;
-						}
 						if (event.key === "Enter" && !event.shiftKey) {
 							event.preventDefault();
 							start();
@@ -146,7 +131,7 @@ import { untrack } from "svelte";
 					<CornerDownLeft class="size-5" />
 				</button>
 			</form>
-			<StatsBar turns={[] as TurnUsage[]} chatId={undefined}>
+			<StatsBar turns={[] as TurnUsage[]}>
 				{#snippet dictationSlot()}<DictationBar {dictation} />{/snippet}
 				{#snippet leadingSlot()}
 					<div class="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
@@ -162,5 +147,5 @@ import { untrack } from "svelte";
 		</div>
 	</div>
 
-	<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => { configured = true; setupOpen = false; }} />
+	<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => (setupOpen = false)} />
 </div>

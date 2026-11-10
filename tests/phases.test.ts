@@ -12,8 +12,8 @@
  */
 import assert from "node:assert";
 import test from "node:test";
-import type { LhViewMessage } from "../src/core/view.ts";
-import { phaseAt3, phaseTimeline, type Phase3 } from "../src/core/phases.ts";
+import type { LhViewMessage } from "../src/session/model/view.ts";
+import { phaseAt3, phaseTimeline, type Phase3 } from "../src/session/model/phases.ts";
 
 /** Text-only user message. */
 function user(text: string): LhViewMessage {
@@ -42,7 +42,7 @@ function assistantQuiz(input: Record<string, unknown> | undefined): LhViewMessag
 	};
 }
 
-const DONE_ASSESSMENT = { assessment: { strands: [{ strand: "s", assessment: "a" }] } };
+const DONE_ASSESSMENT = { ok: true };
 const PLAN_OK = { ok: true, tree: { nodes: [{ id: "n1", title: "N" }], edges: [] } };
 
 test("phaseAt3: probe until a concluded probe_done; plan until the first nodeId-tagged quiz; teach after", () => {
@@ -120,7 +120,6 @@ test("phaseTimeline: folds messages into phase spans for the dividers", () => {
 		assistantQuiz({ question: "q2", nodeId: "n2", correctAnswer: "a" }),
 	]);
 	assert.deepEqual(timeline satisfies Phase3[], ["probe", "probe", "plan", "plan", "plan", "plan", "teach", "teach"]);
-	assert.equal(timeline.length, 8);
 });
 
 test("phaseAt3: empty transcript is probe", () => {
@@ -129,11 +128,11 @@ test("phaseAt3: empty transcript is probe", () => {
 
 // ─── the native fold (phaseAt3Lh over LhMessage[]) ──────────────────────────
 
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { phaseAt3Lh } from "../src/core/phases.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { chatPhase, phaseAt3Lh } from "../src/session/model/phases.ts";
 
-/** A native toolResult (the probe_done conclusion). */
-function toolResult(toolName: string, isError = false): LhMessage {
+/** A native toolResult (the probe_done conclusion; details {ok:true} on success). */
+function toolResult(toolName: string, isError = false, details: unknown = { ok: true }): LhMessage {
 	return {
 		id: `tr_${toolName}_${Math.random().toString(36).slice(2, 6)}`,
 		role: "toolResult",
@@ -141,6 +140,7 @@ function toolResult(toolName: string, isError = false): LhMessage {
 		toolName,
 		content: [{ type: "text", text: "ok" }],
 		isError,
+		details,
 		timestamp: Date.now(),
 	} as LhMessage;
 }
@@ -171,12 +171,21 @@ test("phaseAt3Lh (native fold): probe→plan at the clean probe_done result; pla
 		"probe",
 		"an ERRORED probe_done concludes nothing",
 	);
+	const refused = toolResult("probe_done", false, { ok: false, error: "A question is still open" });
+	assert.equal(phaseAt3Lh([refused, tagged]), "probe", "a REFUSED probe_done concludes nothing");
+	assert.equal(chatPhase([refused], undefined), "probe", "a refused probe_done keeps the prober");
+	assert.equal(chatPhase([refused, done], undefined), "teach", "the retry that succeeds hands over");
+	assert.equal(
+		phaseAt3([assistantTool("probe_done", "output-available", { ok: false, error: "open question" })]),
+		"probe",
+		"the view fold agrees: a refusal keeps the probe open",
+	);
 	// The two folds agree on the same settled transcript (the view projection
 	// of the tagged call carries its arguments as the part input).
 	assert.equal(
 		phaseAt3Lh([done, tagged]),
 		phaseAt3([
-			{ parts: [{ type: "tool-probe_done", state: "output-available" } as never] },
+			{ parts: [{ type: "tool-probe_done", state: "output-available", output: { ok: true } } as never] },
 			{ parts: [{ type: "tool-quiz", input: { nodeId: "gravity-basics" } } as never] },
 		]),
 	);
@@ -204,7 +213,7 @@ test("phaseAt3 + phaseAt3Lh: a tagged explain CALL is the plan→teach seam too"
 	assert.equal(
 		phaseAt3Lh([done, tagged]),
 		phaseAt3([
-			{ parts: [{ type: "tool-probe_done", state: "output-available" } as never] },
+			{ parts: [{ type: "tool-probe_done", state: "output-available", output: { ok: true } } as never] },
 			{ parts: [{ type: "tool-explain", input: { nodeId: "gravity-basics" } } as never] },
 		]),
 		"the two folds agree on the explain mechanic",

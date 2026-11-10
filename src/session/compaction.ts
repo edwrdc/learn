@@ -1,0 +1,266 @@
+/**
+ * THE COMPACTION SERVICE: the trigger plumbing around model/compaction.ts's
+ * pure cuts and markers.
+ *
+ * TOPOLOGY (why this is simple): question and problem poses TERMINATE
+ * their runs, so the "user is thinking" pause is always a BETWEEN-RUNS
+ * window. Compaction therefore never touches a live run:
+ *
+ *   - SETTLE KICK — a turn settles (onFinish, after persist) and the
+ *     projected context is over threshold: the summary starts NOW, in
+ *     the background, while the learner reads/answers — usually done
+ *     long before the next input arrives.
+ *   - TURN-START GATE — every turn (client POST or wake) awaits any
+ *     in-flight compaction for its chat BEFORE appends or beginTurn;
+ *     if the record is STILL over threshold (cold sessions, kicks that
+ *     lost their engine), compaction runs synchronously inside the
+ *     request. Structurally gated: nothing model-facing for the chat
+ *     interleaves with a running compaction (minimal surface for
+ *     anything to go wrong).
+ *   - OVERFLOW RECOVERY — a run that dies on context length needs no
+ *     special path: the next turn's gate compacts and the fresh run
+ *     starts small.
+ *
+ * The summary is written by the session's OWN conversation model via the
+ * zero-tool one-shot sub-agent seam; its usage lands in
+ * the chat's append-only turns log (the money channel) keyed by the
+ * marker's id.
+ */
+
+import { processState } from "../platform/model/index.ts";
+import type { Usage } from "@earendil-works/pi-ai";
+import { activeCompactionOf, buildCompactionPrompt, compactionCutIndex, COMPACTION_RESERVE_TOKENS, estimateContextTokens, estimateTokens, newCompactionMarker, planTreeToText, serializeForSummary, type CompactionDetails } from "./model/compaction.ts";
+import { toLlmMessages, type LhMessage } from "./model/transcript.ts";
+import { emit } from "../platform/model/index.ts";
+import type { ChatStore } from "./model/ports.ts";
+import { usageFromPi } from "./model/types.ts";
+import type { ChatPhase } from "./model/phases.ts";
+import { createHash } from "node:crypto";
+import type { PiEngine } from "../platform/index.ts";
+import { backgroundRun, type DurableRole } from "../jobs/index.ts";
+
+/** The summarizer's run: no tools, the answer is the summary. */
+export const COMPACT_ROLE: DurableRole<{ kind: "compact" }> = { initialState: () => ({ kind: "compact" }), tools: () => ({}) };
+
+/** The summarizer's system prompt — server-owned operational framing,
+ *  not model-facing doctrine (buildCompactionPrompt carries the shape). */
+const SUMMARIZER_SYSTEM_PROMPT =
+	"You are the session-compaction summarizer for a tutoring agent. You receive the transcript span to summarize and write exactly the summary the instructions demand — nothing else, no preamble, no meta-commentary.";
+
+/** The one-shot summary call: zero tools, one turn, text out. The engine
+ *  is the chat's own conversation engine. Injectable for tests. */
+type Summarizer = (
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+) => Promise<{ summary: string; usage: Usage | undefined }>;
+
+/** The production summarizer over the durable background seam: one child
+ *  conversation in the chat's own database. The run key is the span's
+ *  digest, so a restart between the summary and the marker reattaches the
+ *  same conversation instead of paying for the summary twice. */
+export async function subagentSummarizer(
+	prompt: string,
+	engine: PiEngine,
+	chatId: string,
+): Promise<{ summary: string; usage: Usage | undefined }> {
+	const outcome = await backgroundRun({
+		// The compact role resolves no settings.
+		jobId: `compact:${chatId}:${createHash("sha256").update(prompt).digest("hex").slice(0, 16)}`,
+		chatId,
+		kind: "compact",
+		role: "compact",
+		engine,
+		maxTurns: 1,
+		systemPrompt: SUMMARIZER_SYSTEM_PROMPT,
+		prompt,
+	});
+	return { summary: outcome.text, usage: outcome.steps.at(-1)?.usage };
+}
+
+/** Everything the service needs from its host (turn.ts wires the
+ *  production versions; tests inject). */
+export interface CompactionDeps {
+	chatStore: ChatStore;
+	/** The chat's conversation engine — also the summarizer's. */
+	engine: PiEngine;
+	/** provider:id of the engine (usage + marker provenance). */
+	modelId: string;
+	/** The session kind (summarizer wording: tutor vs practice). */
+	kind: ChatPhase;
+	/** The effective trigger threshold, RESOLVED by the caller:
+	 *  min(settings threshold, contextWindow − reserve). The catalog window
+	 *  lookup is the caller's. */
+	thresholdTokens: number;
+	/** The composed system prompt's token estimate (chars/4) — the
+	 *  projection the provider actually receives starts with it. */
+	systemPromptTokens: number;
+	/** Injectable summarizer (tests); default = the sub-agent one-shot. */
+	summarize?: Summarizer;
+}
+
+interface CompactionState {
+	inFlight: Map<string, Promise<void>>;
+}
+function state(): CompactionState {
+	return processState("compaction", () => ({ inFlight: new Map() }));
+}
+
+/** Is a compaction running for this chat? (The client status event's
+ *  server-side twin — tests and the SSE emitter read it.) */
+export function compactionInFlight(chatId: string): boolean {
+	return state().inFlight.has(chatId);
+}
+
+/** Await any in-flight compaction for the chat — the structural gate
+ *  every model interaction for the chat passes through. */
+export async function awaitCompaction(chatId: string): Promise<void> {
+	const running = state().inFlight.get(chatId);
+	if (running) await running;
+}
+
+// ─── the effective threshold: min(setting, window − reserve) ────────────────
+
+/** Resolve the effective trigger. Unknown window → the setting alone
+ *  (no fake window). */
+export function effectiveThresholdTokens(settingTokens: number, contextWindowTokens: number | undefined): number {
+	if (contextWindowTokens === undefined) return settingTokens;
+	return Math.min(settingTokens, Math.max(contextWindowTokens - COMPACTION_RESERVE_TOKENS, 1));
+}
+
+// ─── the estimate over the ACTIVE projection ────────────────────────────────
+
+/** The projected context estimate: what the next LLM call would carry.
+ *  THE TRIGGER LAW (pi's): anchor on the last
+ *  assistant message's provider-reported usage — it already counted
+ *  the system prompt, tool declarations, and the provider's own
+ *  tokenizer — and chars/4-estimate ONLY messages appended after it.
+ *  estimateContextTokens refuses anchors that predate a compaction
+ *  marker (that usage described context the next request will NOT
+ *  carry), so the fallback path runs the plain heuristic over the
+ *  CUT-HONORED projection (never the dropped span) plus the additive
+ *  prompt term the anchor would have covered. */
+export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number): number {
+	const est = estimateContextTokens(messages);
+	if (est.lastUsageIndex !== null) return est.tokens;
+	return estimateTokens(toLlmMessages(messages)) + systemPromptTokens;
+}
+
+// ─── the compaction run ─────────────────────────────────────────────────────
+
+/** Run one compaction for the chat (the registry mutex is HELD by the
+ *  caller — ensureCompacted). Reads the record fresh, cuts, summarizes,
+ *  appends the marker, records usage, notifies. Never throws upward
+ *  past the registry cleanup. */
+async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
+	const record = await deps.chatStore.getChat(chatId);
+	if (!record) return;
+	const messages = record.messages;
+	const tokensBefore = projectedContextTokens(messages, deps.systemPromptTokens);
+	if (tokensBefore <= deps.thresholdTokens) return; // settled beneath while we waited
+
+	const cut = compactionCutIndex(messages);
+	if (cut >= messages.length) return; // nothing to drop (defensive)
+
+	// Chained compactions summarize the old summary + what rode after it.
+	const previous = activeCompactionOf(messages);
+	const prevKept = previous ? messages.findIndex((m) => m.id === previous.details.firstKeptMessageId) : -1;
+	// ANTI-CHURN GUARD: when the cut cannot advance past the previous
+	// kept boundary, the span is empty (or repeats it) — the kept tail
+	// alone carries the projection and re-summarizing the same span
+	// cannot shrink it. A pending question can pin an oversized tail;
+	// skipping preserves it without repeatedly summarizing the same span.
+	if (previous && prevKept !== -1 && cut <= prevKept) {
+		console.info(
+			`[chat ${chatId}] compaction skipped — the kept tail alone exceeds the threshold (raise it or shrink the tail)`,
+		);
+		return;
+	}
+
+	let spanStart = 0;
+	let priorSummary: string | null = null;
+	if (previous && prevKept > 0) {
+		spanStart = prevKept;
+		priorSummary = previous.content;
+	}
+	const spanText = serializeForSummary(messages.slice(spanStart, cut));
+	const fullSpan = priorSummary ? `[SYSTEM NOTE — prior compaction summary, still authoritative where not superseded]\n${priorSummary}\n\n${spanText}` : spanText;
+
+	const prompt = buildCompactionPrompt({
+		spanText: fullSpan,
+		planTreeText: planTreeToText(record.tree, messages),
+		kind: deps.kind,
+	});
+
+	emit("compaction-changed", { chatId, running: true });
+	try {
+		const summarize = deps.summarize ?? subagentSummarizer;
+		const { summary, usage } = await summarize(prompt, deps.engine, chatId);
+		const trimmed = summary.trim();
+		if (!trimmed) return; // an empty summary is a refusal artifact — leave the record honest
+
+		const firstKept = messages[cut]!;
+		const details: CompactionDetails = {
+			firstKeptMessageId: firstKept.id,
+			tokensBefore,
+			model: deps.modelId,
+			at: new Date().toISOString(),
+		};
+		const marker = newCompactionMarker(trimmed, details);
+		await deps.chatStore.saveMessages(chatId, [marker]);
+		// The money channel: the summary is a real model call on the
+		// session's own engine — its usage keys to the marker (provenance:
+		// the transcript shows the compaction divider at the marker).
+		if (usage) {
+			await deps.chatStore.appendTurnUsage(chatId, {
+				id: crypto.randomUUID(),
+				messageId: marker.id,
+				at: details.at,
+				model: deps.modelId,
+				steps: [usageFromPi(usage)],
+			});
+		}
+		// Notify-then-fetch: the record gained the marker (the client's
+		// dividers appear) and the status event ends the send gate.
+		emit("record-changed", { chatId });
+	} catch (err) {
+		// A failed compaction leaves the record untouched — the next
+		// turn-start gate retries.
+		console.error(`[chat ${chatId}] compaction failed:`, err);
+	} finally {
+		emit("compaction-changed", { chatId, running: false });
+	}
+}
+
+/** Register a compaction run for the chat until it ends. */
+function startCompaction(chatId: string, run: () => Promise<void>): Promise<void> {
+	const running = run().finally(() => state().inFlight.delete(chatId));
+	state().inFlight.set(chatId, running);
+	return running;
+}
+
+/**
+ * The gate + trigger in one: await any in-flight compaction, then — if
+ * the record is STILL over threshold — run one synchronously (the
+ * caller's request waits — the structural gate). Idempotent
+ * under concurrency through the registry mutex.
+ */
+export async function ensureCompacted(deps: CompactionDeps, chatId: string): Promise<void> {
+	await awaitCompaction(chatId);
+	await (state().inFlight.get(chatId) ?? startCompaction(chatId, () => compact(deps, chatId)));
+}
+
+/**
+ * The settle kick (fire-and-forget): the turn settled, the learner is
+ * about to read/answer — if the projection is over threshold, the
+ * summary starts NOW and finishes inside the pause. Engineless or
+ * under-threshold are silent no-ops. The next turn's ensureCompacted gate
+ * picks up whatever this leaves running.
+ */
+export function kickCompaction(buildDeps: () => Promise<CompactionDeps | null> | CompactionDeps | null, chatId: string): void {
+	if (state().inFlight.has(chatId)) return;
+	void startCompaction(chatId, async () => {
+		const deps = await buildDeps();
+		if (deps) await compact(deps, chatId);
+	}).catch((err: unknown) => console.error(`[chat ${chatId}] compaction kick failed:`, err));
+}

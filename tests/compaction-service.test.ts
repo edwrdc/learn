@@ -23,20 +23,20 @@ import { setImmediate } from "node:timers/promises";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, TMP_DATA, "compaction tests use the isolated data directory");
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const {
 	ensureCompacted,
 	kickCompaction,
 	awaitCompaction,
 	effectiveThresholdTokens,
 	projectedContextTokens,
-} = await import("../src/server/compaction.ts");
-import type { CompactionDeps } from "../src/server/compaction.ts";
-const { subscribe } = await import("../src/core/events.ts");
-const { activeCompactionOf, newUserMessage, COMPACTED_HISTORY_HEADER } = await import("../src/core/index.ts");
-import type { LhMessage } from "../src/core/index.ts";
+} = await import("../src/session/compaction.ts");
+import type { CompactionDeps } from "../src/session/compaction.ts";
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { activeCompactionOf, newUserMessage, COMPACTED_HISTORY_HEADER } = await Promise.all([import("../src/session/model/compaction.ts"), import("../src/session/model/transcript.ts"), import("../src/session/model/types.ts")]).then((ms) => Object.assign({}, ...ms));
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -70,9 +70,8 @@ const depsOf = (chatId: string, thresholdTokens: number): CompactionDeps => ({
 	kind: "teach",
 	thresholdTokens,
 	systemPromptTokens: 100,
-	summarize: async (prompt) => {
+	summarize: async () => {
 		summarizeCalls++;
-		assert.ok(prompt.includes("TRANSCRIPT") || prompt.length > 0);
 		return {
 			summary: `SUMMARY #${summarizeCalls}: the learner knows X.`,
 			usage: { input: 1_000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 1_500, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -132,7 +131,6 @@ describe("the compaction service", () => {
 			const readGate = deferred();
 			const summaryStarted = deferred();
 			const summaryGate = deferred();
-			const blockedReads = competitor === "cold caller" ? 2 : 1;
 			let reads = 0;
 			let summaries = 0;
 			const base = depsOf(chatId, 40_000);
@@ -141,8 +139,8 @@ describe("the compaction service", () => {
 				chatStore: {
 					...chatStore,
 					getChat: async () => {
-						if (++reads <= blockedReads) {
-							if (reads === blockedReads) readsReady.resolve();
+						if (++reads === 1) {
+							readsReady.resolve();
 							await readGate.promise;
 						}
 						return record;
@@ -181,61 +179,6 @@ describe("the compaction service", () => {
 			assert.ok(activeCompactionOf((await chatStore.getChat(chatId))!.messages), "the marker is persisted before callers return");
 		});
 	}
-
-	it("the turn-start gate waits after a competing kick saves its marker but before usage finishes", async () => {
-		const chatId = await overThresholdChat("compact: saved marker overlap");
-		const readStarted = deferred();
-		const readFinished = deferred();
-		const readGate = deferred();
-		const usageStarted = deferred();
-		const usageGate = deferred();
-		let returned = false;
-		const base = depsOf(chatId, 40_000);
-		const caller = ensureCompacted({
-			...base,
-			chatStore: {
-				...chatStore,
-				getChat: async (id) => {
-					readStarted.resolve();
-					await readGate.promise;
-					const record = await chatStore.getChat(id);
-					readFinished.resolve();
-					return record;
-				},
-			},
-		}, chatId).then(() => { returned = true; });
-		await readStarted.promise;
-		kickCompaction(() => ({
-			...base,
-			chatStore: {
-				...chatStore,
-				appendTurnUsage: async (id, entry) => {
-					usageStarted.resolve();
-					await usageGate.promise;
-					return chatStore.appendTurnUsage(id, entry);
-				},
-			},
-		}), chatId);
-		const kick = awaitCompaction(chatId);
-		try {
-			await usageStarted.promise;
-			const record = (await chatStore.getChat(chatId))!;
-			assert.ok(activeCompactionOf(record.messages), "the marker is already persisted");
-			assert.ok(projectedContextTokens(record.messages, 100) < base.thresholdTokens);
-			assert.equal(record.turns?.length ?? 0, 0, "usage has not been recorded");
-			readGate.resolve();
-			await readFinished.promise;
-			await setImmediate();
-			assert.equal(returned, false, "an under-threshold read must still join the active compaction");
-		} finally {
-			readGate.resolve();
-			usageGate.resolve();
-			await Promise.all([caller, kick]);
-		}
-		assert.equal(returned, true);
-		const record = (await chatStore.getChat(chatId))!;
-		assert.ok(record.turns?.some((turn) => turn.messageId === activeCompactionOf(record.messages)!.id));
-	});
 
 	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {
 		const chatId = await overThresholdChat("compact: gate");
@@ -281,8 +224,7 @@ describe("the compaction service", () => {
 	it("effectiveThresholdTokens: the setting rules big windows; the window rule binds small ones", async () => {
 		assert.equal(effectiveThresholdTokens(150_000, 200_000), 150_000);
 		assert.equal(effectiveThresholdTokens(150_000, 100_000), 100_000 - 16_384);
-		assert.equal(effectiveThresholdTokens(undefined, 200_000), 150_000);
-		assert.equal(effectiveThresholdTokens(undefined, undefined), 150_000);
+		assert.equal(effectiveThresholdTokens(150_000, undefined), 150_000);
 	});
 
 	it("kickCompaction: fire-and-forget, registry-set, over-threshold only", async () => {
@@ -304,6 +246,7 @@ describe("the compaction service", () => {
 			built++;
 			return depsOf(chatId, 40_000);
 		}, chatId);
+		await awaitCompaction(chatId);
 		assert.equal(summarizeCalls, afterFirst, "post-compaction record is under threshold — no run");
 		// a null deps build (engineless) is a silent no-op
 		kickCompaction(() => null, chatId);

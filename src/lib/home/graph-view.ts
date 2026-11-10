@@ -1,6 +1,7 @@
 /** Graph-home pure display seams: search predicate, live-rename patch,
  *  ledger seeding, and the pipeline cost fold. */
-import type { GraphCostSummary, GraphNode, GraphSnapshot } from "@/src/core";
+import type { GraphCostSummary } from "@/src/session/model";
+import type { GraphNode, GraphSnapshot } from "@/src/graph/model";
 
 export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query: string): boolean {
 	const q = query.trim().toLowerCase();

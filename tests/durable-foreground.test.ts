@@ -8,6 +8,7 @@
  * delete/metadata single-owner boundary.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -23,14 +24,16 @@ import {
 import { Type } from "typebox";
 import { defineExtension, defineTool, type LiveState } from "@earendil-works/pi-durable";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { runningTurn, settledTurnResponse, abortTurn } from "../src/server/turn-runs.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { appendRunUsage } from "../src/server/turn-service.ts";
-import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/server/jobs.ts";
-import { buildProbeHandoffSteer, buildSubagentSteer, type ResearchResult } from "../src/core/contracts.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { runningTurn, settledTurnResponse, abortTurn } from "../src/session/turn-runs.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { appendRunUsage } from "../src/session/turn-service.ts";
+import { deliverJobResult, setTurnRunner, steerLiveChat } from "../src/jobs/wake.ts";
+import { buildSubagentSteer, type ResearchResult } from "../src/jobs/model/types.ts";
+import { newHandoffMessage } from "../src/session/model/transcript.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
 import {
 	CONTINUATION_KIND,
 	appendEntries,
@@ -39,22 +42,22 @@ import {
 	durableDir,
 	openChatRuntime,
 	readEntries,
-} from "../src/store/durable.ts";
+} from "../src/session/durable.ts";
 import {
 	continuationSignature,
 	danglingQuestionOf,
 	needsContinuation,
-} from "../src/core/native-messages.ts";
-import { prepareConversation } from "../src/server/durable-registry.ts";
-import { effectiveSettings, stores } from "../src/server/stores.ts";
+} from "../src/session/model/transcript.ts";
+import { prepareConversation, turnProfile } from "../src/session/durable-registry.ts";
+import { effectiveSettings, stores } from "../src/stores.ts";
 import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+server.ts";
-import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
-import { projectView } from "../src/core/view.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { providerEventsDir } from "../src/agent/provider-events.ts";
-import { PATHS } from "../config.ts";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { AppTool } from "../src/agent/tool-adapter.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { projectView } from "../src/session/model/view.ts";
+import { bareQuestionTools } from "./support-tools.ts";
+import { PATHS } from "../src/platform/config.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
+import { posedPlaceholder } from "./support-tools.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -69,11 +72,13 @@ const QUIZ_INPUT = {
 
 type Step = FauxResponseStep;
 
-function scripted(steps: Step[]): { engine: PiEngine; calls: string[][] } {
+function scripted(steps: Step[]): { engine: PiEngine; calls: string[][]; roles: string[][] } {
 	const calls: string[][] = [];
+	const roles: string[][] = [];
 	const faux = createFauxCore({});
 	const wrap = (step: Step) => (context: { messages: unknown[] }) => {
 		calls.push(context.messages.map((m) => JSON.stringify((m as { content: unknown }).content)));
+		roles.push(context.messages.map((m) => (m as { role: string }).role));
 		return typeof step === "function"
 			? (step as (c: unknown, a: unknown, n: unknown, m: unknown) => unknown)(context, undefined, undefined, undefined)
 			: step;
@@ -93,6 +98,7 @@ function scripted(steps: Step[]): { engine: PiEngine; calls: string[][] } {
 			},
 		},
 		calls,
+		roles,
 	};
 }
 
@@ -235,7 +241,6 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		const gate = new Promise<void>((r) => (release = r));
 		const slow: AppTool = {
 			name: "slow",
-			label: "slow",
 			description: "waits",
 			parameters: Type.Object({}),
 			executionMode: "sequential",
@@ -322,7 +327,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		const sibling = results.find((m) => (m as { toolCallId?: string }).toolCallId === "call-x") as { isError?: boolean };
 		assert.equal(quiz.isError, false, "the clean question stands");
 		assert.equal(sibling.isError, true, "the unoffered sibling keeps its error");
-		const entries = await readEntries(await import("../src/store/durable.ts").then((m) => m.openChatRuntime(chat.id)));
+		const entries = await readEntries(await import("../src/session/durable.ts").then((m) => m.openChatRuntime(chat.id)));
 		const assistantEntries = entries.filter((e) => (e.model?.[0] as { role?: string } | undefined)?.role === "assistant");
 		assert.equal(assistantEntries.length, 1, "the run ended at the question — no retry request");
 	});
@@ -353,8 +358,10 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				timestamp: 4,
 			} as never,
 		]);
-		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("ok")])]);
+		const { engine, calls, roles } = scripted([fauxAssistantMessage([fauxText("ok")])]);
 		await turn(chat.id, { type: "text", text: "continue" }, engine);
+		assert.equal(roles[0]![0], "system", "the system prompt survives the cut");
+		assert.ok(calls[0]![1]!.includes("SUMMARY-TEXT"), "the summary head follows the system prompt");
 		const prompt = calls[0]!.join("\n");
 		assert.ok(prompt.includes("SUMMARY-TEXT"), "the active summary renders once at the head");
 		assert.equal(prompt.split("SUMMARY-TEXT").length - 1, 1, "the marker never renders twice");
@@ -362,11 +369,33 @@ describe("durable foreground turn", { concurrency: false }, () => {
 		assert.ok(!prompt.includes("OLD-SECRET"), "the dropped span never reaches the provider");
 	});
 
+	it("the compaction cut applies when the first kept message is a UI-only plan block", async () => {
+		const chat = await createChat("Durable: cut at a plan block");
+		await appendMessages(chat.id, [
+			{ id: "msg_u1", role: "user", content: "OLD-SECRET", timestamp: 1 } as never,
+			{ id: "msg_pb", role: "custom", customType: "plan-block", content: "", display: true, details: {}, timestamp: 2 } as never,
+			{ id: "msg_u2", role: "user", content: "KEEP-ME", timestamp: 3 } as never,
+			{
+				id: "msg_marker",
+				role: "custom",
+				customType: "compaction",
+				content: "## Compacted history\n\nSUMMARY-TEXT",
+				display: true,
+				details: { firstKeptMessageId: "msg_pb", tokensBefore: 1, at: new Date().toISOString() },
+				timestamp: 4,
+			} as never,
+		]);
+		const { engine, calls } = scripted([fauxAssistantMessage([fauxText("ok")])]);
+		await turn(chat.id, { type: "text", text: "continue" }, engine);
+		const prompt = calls[0]!.join("\n");
+		assert.equal(prompt.split("SUMMARY-TEXT").length - 1, 1);
+		assert.ok(prompt.includes("KEEP-ME"));
+		assert.ok(!prompt.includes("OLD-SECRET"), "the dropped span never reaches the provider");
+	});
+
 	it("the raw provider recorder captures the durable run's stream events", async () => {
 		const chat = await createChat("Durable: provider events");
-		const dir = fs.mkdtempSync(path.join(PATHS.data, "provider-events-"));
-		const previous = providerEventsDir.current;
-		providerEventsDir.current = dir;
+		const dir = path.join(PATHS.debug, "provider-events");
 		process.env.LH_PROVIDER_EVENTS = "1";
 		try {
 			const { engine } = scripted([fauxAssistantMessage([fauxText("recorded")])]);
@@ -383,9 +412,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			);
 			assert.ok(lines.some((line) => typeof line.note === "string" && line.note.includes("run start")), "the run marker records");
 		} finally {
-			process.env.LH_PROVIDER_EVENTS = undefined;
-			providerEventsDir.current = previous;
-			fs.rmSync(dir, { recursive: true, force: true });
+			delete process.env.LH_PROVIDER_EVENTS;
 		}
 	});
 
@@ -407,7 +434,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			return 200;
 		});
 		await handleChatRequest(post(chat.id, { type: "text", text: "probe me" }), { engine, tools: bareQuestionTools() });
-		const delivery = deliverJobResult(buildProbeHandoffSteer(chat.id));
+		const delivery = deliverJobResult(chat.id, newHandoffMessage(chat.id));
 		await new Promise((r) => setTimeout(r, 900));
 		assert.equal(wakes, 0, "the handoff waits while the run is live (it must START the teacher's run)");
 		release();
@@ -429,13 +456,12 @@ describe("durable foreground turn", { concurrency: false }, () => {
 
 		const faux = createFauxCore({});
 		const engine: PiEngine = { model: faux.getModel(), streamFn: faux.streamSimple };
-		await prepareConversation(runtime, chat.id, [], undefined, engine, effectiveSettings(), {
+		await prepareConversation(runtime, [], turnProfile("probe", engine, effectiveSettings()), {
 			chatStore: stores.chatStore,
 			graphStore: stores.graphStore,
 			jobStore: stores.jobStore,
 			spawn: () => undefined,
 			deliver: () => undefined,
-			searchAvailable: () => false,
 			graphNodes: () => [],
 		});
 		const agent = await runtime.root.agent(BACKGROUND_CONTEXT);
@@ -502,6 +528,8 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("q-a"),
+			posedPlaceholder("q-b"),
 		]);
 		await new Promise((resolve) => setTimeout(resolve, 5));
 		const afterSeed = (await chatStore.getChat(chat.id))!.updatedAt;
@@ -548,6 +576,8 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("q-touch-a"),
+			posedPlaceholder("q-touch-b"),
 		]);
 		const originalTouch = chatStore.touchChat;
 		try {
@@ -866,7 +896,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 				false,
 				"a steer is refused while the run is already gone",
 			);
-			const delivered = deliverJobResult(steer);
+			const delivered = deliverJobResult(chat.id, steer);
 			const entriesAtHold = (await readEntries(runtime)).length;
 			await new Promise((resolve) => setTimeout(resolve, 900));
 			assert.equal(requests, 1, "no unmanaged model request from the steer or job result");
@@ -1010,8 +1040,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" },
 		});
 		const deleted = chatStore.deleteChat(chat.id);
-		const [mutation] = await Promise.allSettled([changed, deleted]);
-		assert.ok(mutation.status === "fulfilled" || mutation.status === "rejected", "the mutation settles either way");
+		await Promise.allSettled([changed, deleted]);
 		assert.equal(fs.existsSync(path.join(PATHS.chats, `${chat.id}.json`)), false, "no metadata file survives");
 		assert.equal(fs.existsSync(durableDir(chat.id)), false, "no runtime directory survives");
 		assert.equal(await chatStore.getChat(chat.id), null, "the chat is gone");

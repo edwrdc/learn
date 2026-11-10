@@ -8,21 +8,19 @@ import "./support-tmp-data.ts";
 import "./support-durable.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { describe, it } from "node:test";
 import {
 	createFauxCore, createModels, fauxAssistantMessage, fauxText, fauxToolCall,
-	type JsonObject, type TranscriptContext, type Usage,
+	type JsonObject, type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/agent/models.ts";
-import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
-import { runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
-import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
-import { AUTH_PROVIDER_KEYS } from "../src/core/auth-keys.ts";
-import { providerEventsDir } from "../src/agent/provider-events.ts";
-import type * as appContracts from "../src/core/contracts.ts";
+import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/platform/engines.ts";
+import { VISUAL_ROLE } from "../src/jobs/roles/visual.ts";
+import { PDF_ROLE } from "../src/jobs/roles/pdf.ts";
+import { runRole } from "../src/jobs/roles/role.ts";
+import type { HeadlessApi } from "../src/jobs/headless.ts";
+import { AUTH_PROVIDER_KEYS } from "../src/settings/model/auth-keys.ts";
+import type * as appContracts from "../src/jobs/model/types.ts";
 
 const OR_KEY = "dummy-openrouter-MUST-NOT-REACH-other-endpoints";
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><rect width="20" height="20" fill="white"/></svg>';
@@ -54,9 +52,6 @@ const TRANSPORTS: Transport[] = [
 async function isolated<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
 	const previous = process.env;
 	const fetch = globalThis.fetch;
-	const previousEventsDir = providerEventsDir.current;
-	const eventsDir = mkdtempSync(path.join(tmpdir(), "lh-provider-neutral-"));
-	providerEventsDir.current = eventsDir;
 	globalThis.fetch = async () => { throw new Error("CLOSED: unexpected fetch"); };
 	process.env = { NODE_ENV: "test", HOME: "/nonexistent/provider-neutral-test-home", ...env };
 	try {
@@ -64,8 +59,6 @@ async function isolated<T>(env: Record<string, string>, run: () => Promise<T>): 
 	} finally {
 		process.env = previous;
 		globalThis.fetch = fetch;
-		providerEventsDir.current = previousEventsDir;
-		rmSync(eventsDir, { recursive: true, force: true });
 	}
 }
 
@@ -81,7 +74,6 @@ function callsFor(loop: Loop, round: number): Call[] {
 
 function fakeHeadless(renders: string[]): HeadlessApi {
 	return {
-		available: () => true,
 		unavailableReason: () => null,
 		runDemo: async () => { throw new Error("unexpected demo"); },
 		renderSvg: async (svg) => {
@@ -100,21 +92,19 @@ function fakeHeadless(renders: string[]): HeadlessApi {
 }
 
 let runCounter = 0;
-async function runLoop(loop: Loop, engine: PiEngine, signal = new AbortController().signal) {
+async function runLoop(loop: Loop, engine: PiEngine, abort = new AbortController()) {
 	const renders: string[] = [];
 	const activities: string[] = [];
 	const usages: appContracts.JobUsage[] = [];
 	const opts = {
-		engine, headless: fakeHeadless(renders), abortSignal: signal,
+		engine, headless: fakeHeadless(renders), signal: abort.signal,
 		run: { chatId: "provider-neutral-offline", jobId: `${loop}-${++runCounter}` },
 		onActivity: (line: string) => activities.push(line),
 		onUsage: (usage: appContracts.JobUsage) => usages.push(usage),
-		// Direct recording cases enable the observer into an isolated temp dir.
-		chatId: "provider-neutral-offline",
 	};
 	const result = loop === "visual"
-		? await runVisualMaker({ brief: "A white square, no external resources" }, opts)
-		: await runPdfReaderAgent({ path: FIXTURE, question: "Read page 1" }, opts);
+		? await runRole(VISUAL_ROLE, VISUAL_ROLE.input({ brief: "A white square, no external resources" }), opts)
+		: await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "Read page 1" }), opts);
 	return { result, renders, activities, usages };
 }
 
@@ -148,7 +138,6 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 				}));
 				const requests: { context: TranscriptContext; options: Record<string, unknown> }[] = [];
 				const controller = new AbortController();
-				const signal = controller.signal;
 				const engine: PiEngine = {
 					model: faux.getModel(), level: "medium",
 					streamFn: (model, context, options) => {
@@ -156,7 +145,7 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						return faux.streamSimple(model, context, options);
 					},
 				};
-				const run = await runLoop(loop, engine, signal);
+				const run = await runLoop(loop, engine, controller);
 				assertSuccess(loop, run);
 				assert.equal(requests.length, 3);
 				const sessionId = requests[0]!.options.sessionId;
@@ -176,7 +165,7 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 				}
 				assert.match(JSON.stringify(requests[2]!.context), /image\/png/);
 				assert.match(JSON.stringify(requests[2]!.context), /toolResult/);
-				const second = await runLoop(loop, engine, signal);
+				const second = await runLoop(loop, engine, controller);
 				assertSuccess(loop, second);
 				assert.equal(requests.length, 6);
 				const secondId = requests[3]!.options.sessionId;
@@ -185,17 +174,13 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 			});
 		});
 
-		it(`${loop}: abort still reaches the stream and retains the loop's failure semantics`, async () => {
+		it(`${loop}: an abort stops the run before any spend`, async () => {
 			await isolated({ OPENROUTER_API_KEY: OR_KEY }, async () => {
 				const faux = createFauxCore({});
 				faux.setResponses([fauxAssistantMessage([fauxText("must not be delivered")])]);
 				const controller = new AbortController();
 				controller.abort();
-				const run = await runLoop(loop, { model: faux.getModel(), streamFn: faux.streamSimple }, controller.signal);
-				const failure = "svg" in run.result ? run.result.notes : run.result.brief;
-				assert.match(failure ?? "", /crashed — aborted/);
-				assert.deepEqual(run.renders, []);
-				assert.equal(run.usages.at(-1)?.steps ?? 0, 0, "an aborted attempt is never billed");
+				await assert.rejects(runLoop(loop, { model: faux.getModel(), streamFn: faux.streamSimple }, controller), { name: "AbortError" });
 			});
 		});
 	}
@@ -236,7 +221,7 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						globalThis.fetch = async () => { fetches++; throw new Error("CLOSED: no fetch allowed"); };
 						const engine = piEngineForSpec({ provider: transport.provider, id: transport.id, thinkingLevel: "off" });
 						const run = await runLoop(loop, engine);
-						const failure = "svg" in run.result ? run.result.notes : run.result.brief;
+						const failure = run.result.failure;
 						assert.match(failure ?? "", new RegExp(`Provider is not configured: ${transport.provider}`));
 						assert.equal(fetches, 0, "SDK Models guard rejects missing selected-provider auth before transport");
 						// The guard failure is an error message with no billed

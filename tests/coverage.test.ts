@@ -1,20 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import * as fs from "node:fs";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { newAnswerResult, newPlanBlockMessage, newUserMessage } from "../src/core/native-messages.ts";
-import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { newAnswerResult, newPlanBlockMessage, newUserMessage } from "../src/session/model/transcript.ts";
 
 import {
 	batchRuns,
-	batchTag,
 	coverageOf,
-	coverageSlots,
-	messageFingerprint,
 	messageViewLines,
-	teacherProseBlocks,
-} from "../src/core/coverage.ts";
-import type { CoverageEntry } from "../src/core/contracts/graph.ts";
+} from "../src/graph/coverage.ts";
+import type { CoverageEntry } from "../src/graph/model/types.ts";
 
 /**
  * Extraction coverage — the pure core under the TEACHER-PROSE ruling
@@ -53,37 +47,33 @@ function result(id: string, callId: string, name: string, details: unknown): LhM
 }
 
 function slot(messages: ReadonlyArray<LhMessage>, id: string) {
-	const found = coverageSlots(messages).find((s) => s.message.id === id);
+	const found = coverageOf(messages, [], "c1").slots.find((s) => s.message.id === id);
 	assert.ok(found, `slot ${id}`);
 	return found;
 }
 
-describe("messageFingerprint — what changes it, what never does", () => {
-	it("a text edit changes the fingerprint; role participates", () => {
-		const a = messageFingerprint(teacher("m1", "hello world"));
-		const b = messageFingerprint(teacher("m1", "hello worlds"));
-		const same = messageFingerprint(teacher("m1", "hello world"));
-		assert.notEqual(a, b);
-		assert.equal(a, same);
-		// Role is hashed too — the same words from a LEARNER have no view
-		// lines at all (teacher prose only), so the fingerprints differ.
-		assert.notEqual(a, messageFingerprint(user("m1", "hello world")));
+function foldAll(messages: ReadonlyArray<LhMessage>): CoverageEntry[] {
+	return coverageOf(messages, [], "c1").slots.map((s) => ({
+		chatId: "c1",
+		fp: s.fp,
+		tokens: s.tokens,
+		foldedAt: "2026-09-15T00:00:00.000Z",
+	}));
+}
+
+describe("coverage fingerprint — what re-opens a folded message, what never does", () => {
+	it("a text edit re-opens a folded teacher message; the same text stays covered", () => {
+		const folded = foldAll([teacher("m1", "hello world")]);
+		assert.equal(coverageOf([teacher("m1", "hello worlds")], folded, "c1").uncoveredCount, 1);
+		assert.equal(coverageOf([teacher("m1", "hello world")], folded, "c1").uncoveredCount, 0);
 	});
 
-	it("the message id is the provenance tag — part of exactly what the extractor saw", () => {
-		// The view lines carry the [id] tag, so identical content under a
-		// different id is a DIFFERENT fingerprint: coverage matches the
-		// extraction view byte-for-byte. (Ids are stable in practice — the
-		// write-ahead persist owns them.)
-		assert.notEqual(messageFingerprint(teacher("m1", "same")), messageFingerprint(teacher("m2", "same")));
-		// The same id + content re-fingerprints equal.
-		assert.equal(messageFingerprint(teacher("m1", "same")), messageFingerprint(teacher("m1", "same")));
+	it("the message id is the provenance tag — the same prose under another id is not covered", () => {
+		const folded = foldAll([teacher("m1", "same")]);
+		assert.equal(coverageOf([teacher("m2", "same")], folded, "c1").uncoveredCount, 1);
 	});
 
 	it("marker messages are invisible — a plan-block attach never re-opens anything", () => {
-		// Wave D: the marker is its OWN message (not a part on another one);
-		// its view is empty, so it neither re-opens others nor itself
-		// carries any learning evidence.
 		const marker = newPlanBlockMessage("call_p1", {
 			kind: "full",
 			at: "2026-09-26T00:00:00.000Z",
@@ -92,14 +82,9 @@ describe("messageFingerprint — what changes it, what never does", () => {
 			edges: [],
 		}) as LhMessage;
 		assert.deepEqual(messageViewLines(marker, marker.id), []);
-		// And the message it rides beside keeps its fingerprint untouched:
-		const before = messageFingerprint(teacher("t1", "the chain rule"));
-		const withMarker = [teacher("t1", "the chain rule"), marker];
-		assert.equal(
-			messageFingerprint(withMarker[0]!),
-			before,
-			"the neighbour's fingerprint is unchanged by the attach",
-		);
+		const folded = foldAll([teacher("t1", "the chain rule")]);
+		const cov = coverageOf([teacher("t1", "the chain rule"), marker], folded, "c1");
+		assert.equal(cov.uncoveredCount, 0, "the attach re-opens neither the neighbour nor itself");
 	});
 
 	it("quiz Q&A is INVISIBLE under the teacher-prose ruling (owner, 2026-09-28)", () => {
@@ -124,15 +109,6 @@ describe("messageFingerprint — what changes it, what never does", () => {
 		assert.deepEqual(messageViewLines(failed, "r9"), []);
 	});
 
-	it("teacherProseBlocks — the prompt material: teacher text blocks only, plain, in order", () => {
-		const blocks = teacherProseBlocks([
-			user("u1", "learner asks"),
-			teacher("t1", " first insight "),
-			assistantWithCalls("a1", [{ id: "q1", name: "quiz" }]),
-			teacher("t2", "second insight"),
-		]);
-		assert.deepEqual(blocks, ["first insight", "second insight"]);
-	});
 });
 
 describe("coverageOf — uncovered is DERIVED, never dual-tracked", () => {
@@ -158,12 +134,7 @@ describe("coverageOf — uncovered is DERIVED, never dual-tracked", () => {
 
 	it("a mutated covered message re-opens itself, and only itself", () => {
 		const messages = [teacher("m1", "aaaa"), teacher("m2", "bbbb")];
-		const entries: CoverageEntry[] = coverageSlots(messages).map((s) => ({
-			chatId: "c1",
-			fp: s.fp,
-			tokens: s.tokens,
-			foldedAt: "2026-09-15T00:00:00.000Z",
-		}));
+		const entries = foldAll(messages);
 		assert.equal(coverageOf(messages, entries, "c1").uncoveredCount, 0);
 		const mutated = [teacher("m1", "aaaa!"), messages[1]!];
 		const cov = coverageOf(mutated, entries, "c1");
@@ -176,12 +147,12 @@ describe("batchRuns — token-budgeted, consecutive, never splits a message", ()
 	it("greedy oldest-first fill; the overflowing message starts the next run", () => {
 		// Each message's view line is ~14 tok (chars/4) → budget 45 fits
 		// three, the fourth overflows: [m1,m2,m3] + [m4].
-		const slots = coverageSlots([
+		const { slots } = coverageOf([
 			teacher("m1", "a".repeat(40)),
 			teacher("m2", "b".repeat(40)),
 			teacher("m3", "c".repeat(40)),
 			teacher("m4", "d".repeat(40)),
-		]);
+		], [], "c1");
 		const runs = batchRuns(slots, [0, 1, 2, 3], 45);
 		assert.deepEqual(
 			runs.map((r) => r.map((s) => s.message.id)),
@@ -190,7 +161,7 @@ describe("batchRuns — token-budgeted, consecutive, never splits a message", ()
 	});
 
 	it("a single message larger than the budget becomes its own over-budget run", () => {
-		const slots = coverageSlots([teacher("m1", "x".repeat(400)), teacher("m2", "y".repeat(20))]);
+		const { slots } = coverageOf([teacher("m1", "x".repeat(400)), teacher("m2", "y".repeat(20))], [], "c1");
 		assert.deepEqual(
 			batchRuns(slots, [0, 1], 10).map((r) => r.map((s) => s.message.id)),
 			[["m1"], ["m2"]],
@@ -198,7 +169,7 @@ describe("batchRuns — token-budgeted, consecutive, never splits a message", ()
 	});
 
 	it("an empty or non-positive budget never drops messages into a void", () => {
-		assert.deepEqual(batchRuns(coverageSlots([teacher("m1", "hi")]), [0], 0), []);
+		assert.deepEqual(batchRuns(coverageOf([teacher("m1", "hi")], [], "c1").slots, [0], 0), []);
 		assert.deepEqual(batchRuns([], [], 4096), []);
 	});
 
@@ -220,33 +191,5 @@ describe("batchRuns — token-budgeted, consecutive, never splits a message", ()
 			[["t1"], ["t2"]],
 			"each run is teacher prose alone — the learner message and the quiz result ride nowhere",
 		);
-	});
-});
-
-describe("batchTag — deterministic, ref-stable, mutation-sensitive", () => {
-	it("the same members in the same order → the same 12-hex tag; a different order is a different batch", () => {
-		const slots = coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")]);
-		assert.equal(batchTag(slots), batchTag(coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")])));
-		assert.notEqual(batchTag(slots), batchTag([...slots].reverse()), "batches are ordered runs");
-		assert.match(batchTag(slots), /^[0-9a-f]{12}$/);
-	});
-
-	it("a re-opened member changes the tag — its observations land as new events", () => {
-		const slots = coverageSlots([teacher("m1", "aaaa"), teacher("m2", "bbbb")]);
-		const mutated = coverageSlots([teacher("m1", "aaaa!"), teacher("m2", "bbbb")]);
-		assert.notEqual(batchTag(slots), batchTag(mutated));
-	});
-});
-
-describe("the all-sessions coverage GET is dead (extraction-UX close-out, 2026-09-24)", () => {
-	it("the route file is gone — the only coverage endpoint is the Extract POST", () => {
-		// UI confirmation (ff1ec7a): nothing client-side consumes the
-		// all-sessions list anymore — the sidebar block and the ring both
-		// read GET /api/chats/[id]'s coverage block. This pin guards against
-		// a merge resurrecting the dead surface.
-		assert.equal(fs.existsSync("src/routes/api/graph/coverage/+server.ts"), false, "the all-sessions GET route is deleted");
-		// stays by design: the manual-extract front door (sidebar block's
-		// Extract affordance) lives on.
-		assert.equal(fs.existsSync("src/routes/api/graph/coverage/extract/+server.ts"), true, "the Extract POST survives");
 	});
 });

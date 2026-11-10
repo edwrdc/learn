@@ -1,5 +1,5 @@
 /** Appearance resolution to CSS variables. */
-import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/settings/model";
 
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	const f = FACTORY_SETTINGS.appearance;
@@ -17,7 +17,7 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	};
 }
 
-export type ResolvedAppearance = ReturnType<typeof resolveAppearance>;
+type ResolvedAppearance = ReturnType<typeof resolveAppearance>;
 
 function raise(hex: string, add: number): string {
 	const n =

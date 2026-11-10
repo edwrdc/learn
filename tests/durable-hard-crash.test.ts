@@ -21,11 +21,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-hard-crash-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime, openChatRuntime } = await import("../src/store/durable.ts");
-const { isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
-const { foregroundEngineOverride } = await import("../src/server/chat-handler.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime, openChatRuntime } = await import("../src/session/durable.ts");
+const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
+const { testEngines } = await import("./support-durable.ts");
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "hard-crash-child.mts");
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -70,7 +70,6 @@ describe("hard-crash foreground recovery", { concurrency: false }, () => {
 			child.once("exit", (code, signal) => resolve({ code, signal }));
 		});
 		assert.equal(exited.signal, "SIGKILL", `the child must die hard, not close (stderr: ${stderr})`);
-		assert.equal(fs.existsSync(path.join(TMP, "ready")), true);
 
 		// Read the id from the metadata file: opening the runtime here would
 		// run the recovery bootstrap before the test installs its engine.
@@ -88,7 +87,7 @@ describe("hard-crash foreground recovery", { concurrency: false }, () => {
 				return fauxAssistantMessage("resumed answer");
 			},
 		]);
-		foregroundEngineOverride.current = { model: resumed.getModel(), streamFn: resumed.streamSimple };
+		testEngines.teacher = { model: resumed.getModel(), streamFn: resumed.streamSimple };
 
 		const runtime = await openChatRuntime(chatId);
 		await waitFor(async () => !(await isTurnRunning(chatId)), 20_000, "the recovered turn settles");

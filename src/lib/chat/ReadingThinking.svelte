@@ -5,13 +5,11 @@ import { untrack } from "svelte";
 	let {
 		value,
 		onChange,
-		onEscape,
 		onOpen,
 		claim,
 	}: {
 		value: string;
 		onChange: (v: string) => void;
-		onEscape?: () => void;
 		onOpen?: () => void;
 		claim: boolean;
 	} = $props();
@@ -47,7 +45,6 @@ import { untrack } from "svelte";
 			if (event.key === "Escape") {
 				event.preventDefault();
 				event.stopPropagation();
-				onEscape?.();
 				return;
 			}
 			if (event.key === "Enter" && onOpen !== undefined && (!event.shiftKey || event.metaKey || event.ctrlKey)) {

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { cn } from "$lib/utils";
-
-	let { class: className = "", label = "Working" }: { class?: string; label?: string } = $props();
+	let { label = "Working" }: { label?: string } = $props();
 
 	const FRAMES: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [
 		[[1, 1], [1, 3], [3, 1]],
@@ -22,7 +20,7 @@
 	data-testid="braille-spinner"
 	role="status"
 	aria-label={label}
-	class={cn("h-3 w-auto shrink-0 text-foreground", className)}
+	class="h-3 w-auto shrink-0 text-foreground"
 >
 	{#each FRAMES as dots, k (k)}
 		<g class="braille-frame" data-frame={k} style={`animation-delay: ${k * 80}ms`}>

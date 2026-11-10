@@ -13,6 +13,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { browser, initScript, sleep } from "./frontend-harness.mjs";
 
 export const COMPACTION_CHAT = "chat_compaction_resync";
@@ -38,7 +39,9 @@ function writeCompactionRecord(dataDir, id, title, tag) {
 		createdAt: new Date(now).toISOString(),
 		updatedAt: new Date(now).toISOString(),
 		settings: { model: { provider: "custom-endpoint", id: "mock-responses" }, thinkingLevel: "off" },
-		messages: [
+		version: 2,
+	};
+	const messages = [
 			{
 				id: `msg_${id}_1`,
 				role: "user",
@@ -76,9 +79,13 @@ function writeCompactionRecord(dataDir, id, title, tag) {
 				details: { picks: [], chains: [] },
 				timestamp: now + 5,
 			},
-		],
-	};
+	];
 	fs.writeFileSync(path.join(chats, `${id}.json`), `${JSON.stringify(record, null, "\t")}\n`);
+	const messagesFile = path.join(dataDir, `${id}.seed.json`);
+	fs.writeFileSync(messagesFile, JSON.stringify(messages));
+	const seeded = spawnSync(process.execPath, ["--import", "tsx", path.join(import.meta.dirname, "seed-transcript.ts"), dataDir, id, messagesFile], { encoding: "utf8", cwd: path.join(import.meta.dirname, "..", "..") });
+	fs.rmSync(messagesFile);
+	assert.equal(seeded.status, 0, `seeding ${id} failed: ${seeded.stderr}`);
 }
 
 export function seedCompactionChat(dataDir) {

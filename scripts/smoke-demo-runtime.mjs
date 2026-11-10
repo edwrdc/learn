@@ -6,6 +6,7 @@
  * node scripts/smoke-demo-runtime.mjs --standalone <dir> --runtime <electron binary> [--browser]
  * --runtime defaults to host Node for the import-only gate.
  */
+import shared from "../electron/shared.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -13,6 +14,7 @@ import { createRequire, registerHooks } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { PAYLOAD } from "./build-server.mjs";
 
 /** @param {Record<string, string | undefined>} env @param {string} home @returns {Record<string, string | undefined>} */
 export function probeEnv(env, home) {
@@ -64,30 +66,37 @@ export function verifyDemoRuntime(standalone, runtime = process.execPath, browse
 	}
 }
 
-async function importPayload(standalone) {
+/** Confine module resolution to the payload: a resolve hook that fails any
+ *  file module outside it (or any non-node: URL) and records each file loaded.
+ *  `inside` checks one path directly; the caller deregisters `hooks`. */
+export function confineToPayload(standalone) {
 	const root = fs.realpathSync(standalone);
 	const inside = (file) => {
 		const relative = path.relative(root, fs.realpathSync(file));
 		assert.ok(relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative),
 			`dependency escaped standalone payload: ${file}`);
 	};
-	const require = createRequire(path.join(root, "server.js"));
-	const entry = require.resolve("puppeteer-core");
-	inside(entry); // require.resolve must not silently fall back to checkout node_modules.
 	const loaded = new Set();
 	const hooks = registerHooks({
 		resolve(specifier, context, nextResolve) {
 			const result = nextResolve(specifier, context);
 			if (result.url.startsWith("file:")) {
 				inside(fileURLToPath(result.url));
-				loaded.add(result.url);
+				loaded.add(fileURLToPath(result.url));
 			} else {
 				assert.ok(result.url.startsWith("node:"), `unexpected dependency URL: ${result.url}`);
 			}
 			return result;
 		},
 	});
+	return { root, inside, loaded, hooks };
+}
+
+async function importPayload(standalone) {
+	const { root, inside, loaded, hooks } = confineToPayload(standalone);
 	try {
+		const entry = createRequire(path.join(root, "server.js")).resolve("puppeteer-core");
+		inside(entry); // require.resolve must not silently fall back to checkout node_modules.
 		const { default: puppeteer } = await import(pathToFileURL(entry).href);
 		assert.equal(typeof puppeteer.connect, "function");
 		console.log(`[smoke-demo-runtime] puppeteer-core import ok; ${loaded.size} modules confined to ${root}`);
@@ -145,7 +154,7 @@ async function browserProbe(puppeteer) {
 	delete env.ELECTRON_RUN_AS_NODE;
 	delete env.LH_DEV_URL;
 	const helper = spawn(process.execPath, [
-		"--browser-service", `--user-data-dir=${path.join(home, "browser-profile")}`,
+		shared.browserServiceFlag, `--user-data-dir=${path.join(home, "browser-profile")}`,
 		"--disable-background-networking", "--disable-component-update", "--no-proxy-server",
 		// Hosted Linux runners disallow Chromium's unprivileged sandbox.
 		...(process.platform === "linux" ? ["--no-sandbox"] : []),
@@ -162,7 +171,7 @@ async function browserProbe(puppeteer) {
 			helper.once("exit", (code) => { clearTimeout(timer); reject(new Error(`browser-service exited early: ${code}`)); });
 			helper.stdout.on("data", (chunk) => {
 				output = (output + chunk).slice(-16_000);
-				const match = output.match(/^BROWSER_SERVICE_CDP (\d+)\r?$/m);
+				const match = output.match(new RegExp(`^${shared.browserServiceReady} (\\d+)\\r?$`, "m"));
 				if (match) { clearTimeout(timer); resolve(Number(match[1])); }
 			});
 		});
@@ -226,7 +235,7 @@ async function main() {
 		assert.ok(args[index + 1] && !args[index + 1].startsWith("--"), `${name} requires a path`);
 		return path.resolve(args[index + 1]);
 	};
-	verifyDemoRuntime(value("--standalone", path.resolve(import.meta.dirname, "../dist-server/standalone")), value("--runtime", process.execPath), args.includes("--browser"));
+	verifyDemoRuntime(value("--standalone", PAYLOAD), value("--runtime", process.execPath), args.includes("--browser"));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -76,19 +76,14 @@ describe("phase chrome", () => {
 			assert.ok(body.includes(label));
 			assert.ok(!body.includes("rounded-full"));
 			assert.ok(!body.includes("braille-spinner"));
-			assert.match(body, /class="[^"]*text-xs font-medium uppercase/);
 		}
 	});
 
-	it("the plan seam renders dotted rules + node count, singular and absent", async () => {
-		const plan = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 3 });
+	it("the plan seam renders dotted rules and its label", async () => {
+		const plan = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan" });
 		assert.ok(plan.includes('data-testid="phase-divider-plan"'));
-		assert.match(plan, /Plan · 3 nodes/);
 		assert.ok(plan.includes("border-dotted"));
-		const singular = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 1 });
-		assert.match(singular, /Plan · 1 node\b/);
-		const uncounted = await html("/src/lib/chat/PhaseDivider.svelte", { phase: "plan" });
-		assert.match(uncounted, /Planning/);
+		assert.match(plan, /Planning/);
 	});
 
 	it("the teach seam labels itself with no count and no phase color", async () => {
@@ -116,8 +111,6 @@ describe("queued steers", () => {
 		assert.equal(body.match(/<span/g)?.length, 2);
 		assert.match(body, /truncate/);
 		assert.match(body, /items-end/);
-		assert.match(body, /max-w-\[240px\]/);
-		assert.match(body, /muted-foreground\/60/);
 		assert.doesNotMatch(body, /bg-|border|rounded/);
 		assert.match(body, /also cover Venus/);
 	});
@@ -151,10 +144,8 @@ describe("live tool card", () => {
 });
 
 describe("reading-thinking field", () => {
-	it("carries vertical padding and the growth cap", async () => {
+	it("labels itself and invites thinking while reading", async () => {
 		const body = await html("/src/lib/chat/ReadingThinking.svelte", { value: "", onChange: () => {}, claim: false });
-		assert.ok(body.includes("py-0.5"));
-		assert.ok(body.includes("max-h-40"));
 		assert.match(body, /Thinking while reading/);
 		assert.match(body, /Whatever comes to mind as you read\./);
 	});

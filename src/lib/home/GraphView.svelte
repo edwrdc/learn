@@ -1,71 +1,53 @@
 <script lang="ts">
-	import { onDestroy, onMount } from "svelte";
-	import { FileText, ListTree, Loader2, Search, Settings, Upload, Waypoints } from "@lucide/svelte";
-	import {
-		ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE,
-		DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, DEFAULT_RENDER_SETTINGS,
-		EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE,
-		LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER,
-		REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE,
-		fromLadderPosition, fromOffSliderPosition, fromSliderPosition, incrementalLayout,
-		labelZoomDisplay, propositionSessionHref, sanitizeRenderSettings, snapToLadder,
-		toLadderPosition, toOffSliderPosition, toSliderPosition,
-		type GraphCostSummary, type GraphNode, type GraphSnapshot,
-	} from "@/src/core";
-	import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+	import { dismissLayer } from "$lib/ui/layer";
+	import { now } from "$lib/state/now.svelte";
+	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
+	import { FileText, ListTree, Loader2, Search, Settings, Waypoints } from "@lucide/svelte";
+	import { incrementalLayout, type GraphNode } from "@/src/graph/model";
+	import { ARROW_LENGTH_LADDER, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, EDGE_WIDTH_LADDER, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, NODE_SIZE_LADDER, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, labelZoomDisplay, sanitizeRenderSettings, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphRenderSettings } from "@/src/settings/model";
+	import { chatHref, propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
+	import { GraphCanvasRenderer } from "./graph-canvas.ts";
+	import { cameraSaver, readCamera } from "./graph-camera";
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
-	import { activity } from "$lib/state/activity.svelte";
 	import { serverEvents } from "$lib/state/server-events";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { savePositions } from "$lib/api/graph";
+	import { extractionRuns, graphCosts, graphSnapshot } from "$lib/state/graph.svelte";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import { formatTokens } from "$lib/format";
 	import { goto } from "$app/navigation";
-	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import DeleteNodeDialog from "./DeleteNodeDialog.svelte";
 	import NotesImport from "./NotesImport.svelte";
 
-	const CAMERA_KEY = "lh.graph.camera.v1";
 
-	let { chainSelectOpen = false, practiceSelection, onPracticeSelectionChange, onChainSelectClose }: {
-		chainSelectOpen?: boolean;
-		practiceSelection?: ReadonlySet<string>;
-		onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
-		onChainSelectClose?: () => void;
-	} = $props();
+	let { onOpenChains }: { onOpenChains: () => void } = $props();
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
 	let card = $state<HTMLDivElement | null>(null);
-	let snapshot = $state<GraphSnapshot | null>(null);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 	let selected = $state<{ node: GraphNode; sourceIds: string[]; anchor: { x: number; y: number } } | null>(null);
 	let query = $state("");
-	let settings = $state<GraphRenderSettings>(DEFAULT_RENDER_SETTINGS);
+	/** This view's edits win over the saved record until the page reloads. */
+	let localRender = $state<GraphRenderSettings | null>(null);
+	const settings = $derived(localRender ?? sanitizeRenderSettings(userSettings.record?.graphRender));
 	let renderer = $state.raw<GraphCanvasRenderer | null>(null);
 	let rendererReady = $state(false);
 	let fitted = false;
 	let positions: Map<string, { x: number; y: number }> | null = null;
-	let refreshTick = $state(0);
-	let chainsOpen = $state(false);
 	let ctxNode = $state<{ id: string; name: string; x: number; y: number } | null>(null);
 	let ctxAnchor = $state<HTMLDivElement | null>(null);
 	let deleting = $state<{ id: string; name: string }[] | null>(null);
-	let pipelineRuns = $state<Array<{ id: string; chatId: string; title: string; phase: string; startedAt: number }>>([]);
-	let costs = $state<GraphCostSummary | null>(null);
+	const pipelineRuns = $derived(extractionRuns.value ?? []);
+	const costs = $derived(graphCosts.value ?? null);
 	let searchInput = $state<HTMLInputElement | null>(null);
 	let costOpen = $state(false);
 	let settingsOpen = $state(false);
 	let costAnchor = $state<HTMLDivElement | null>(null);
 	let settingsAnchor = $state<HTMLDivElement | null>(null);
-	let labelTick = $state(0);
-	let now = $state(Date.now());
 	let rowIds = new Set<string>();
-	let userTouched = false;
-	let serverLoaded = false;
-	let savePending = false;
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
-	let cameraTimer: ReturnType<typeof setTimeout> | undefined;
-	let lastCamera: { k: number; x: number; y: number } | null = null;
-	let statusDebounce: ReturnType<typeof setTimeout> | undefined;
 
 	const isEmpty = $derived(snapshot === null || snapshot.nodes.length === 0);
 	const visibleIds = $derived.by(() => {
@@ -92,132 +74,43 @@
 	}
 
 
-	async function readGraph() {
-		try {
-			const res = await fetch("/api/graph");
-			snapshot = (await res.json()) as GraphSnapshot;
-		} catch {
-		}
-	}
-	async function readCosts() {
-		try {
-			const res = await fetch("/api/graph/costs");
-			costs = (await res.json()) as GraphCostSummary;
-		} catch {
-		}
-	}
-	async function readStatus() {
-		try {
-			const res = await fetch("/api/graph/status");
-			const body = (await res.json()) as { runs: typeof pipelineRuns };
-			pipelineRuns = body.runs;
-			const ids = new Set(body.runs.map((run) => run.id));
-			if ([...rowIds].some((id) => !ids.has(id))) refreshTick += 1;
-			rowIds = ids;
-		} catch {
-		}
-	}
-	function saveSettings() {
-		if (!serverLoaded) {
-			savePending = true;
-			return;
-		}
-		void fetch("/api/graph/render-settings", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(settings),
-		}).catch(() => {});
-	}
 	function changeSettings(update: (current: GraphRenderSettings) => GraphRenderSettings) {
-		userTouched = true;
-		settings = update(settings);
-	}
-
-	function dispatchCostsRefresh() {
-		if ([...rowIds].some((id) => !pipelineRuns.some((run) => run.id === id))) void readCosts();
+		const next = update(settings);
+		localRender = next;
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => {
+			userSettings.save("graphRender", next).catch((error) => console.error("[graph] display settings not saved:", error));
+		}, 400);
 	}
 
 	function openSession(id: string) {
-		void goto(`/chat/${id}`);
+		void goto(chatHref(id));
 	}
 
+	// A run that finished (left the list) changed the graph: reload it now,
+	// never mid-run, so a drag is not interrupted.
 	$effect(() => {
-		void refreshTick;
-		void readGraph();
-	});
-	$effect(() => {
-		if (chainSelectOpen) chainsOpen = true;
+		const ids = new Set(pipelineRuns.map((run) => run.id));
+		if ([...rowIds].some((id) => !ids.has(id))) {
+			void graphSnapshot.refresh();
+			void graphCosts.refresh();
+		}
+		rowIds = ids;
 	});
 
 	$effect(() => {
-		void readStatus();
-		void readCosts();
-		const offs = [
-			serverEvents.subscribe("activity-changed", () => {
-				clearTimeout(statusDebounce);
-				statusDebounce = setTimeout(() => void readStatus(), 250);
-			}),
-			serverEvents.onResync(() => {
-				void readStatus();
-				void readGraph();
-			}),
-		];
-		const onRevision = () => {
-			refreshTick += 1;
-			void readCosts();
-		};
-		const onRenamed = (event: Event) => {
-			const detail = (event as CustomEvent<{ id?: string; title?: string }>).detail;
-			if (!detail?.id || !detail.title || !snapshot) return;
+		const offs = [serverEvents.onResync(() => void graphSnapshot.refresh())];
+		const onRenamed = (detail: { id: string; title: string }) => {
+			if (!snapshot) return;
 			renameSessionsPatch(snapshot, detail.id, detail.title);
-			labelTick += 1;
 			renderer?.setClusterLabels(new Map([[detail.id, detail.title]]));
 		};
 		const onFind = () => searchInput?.focus();
-		window.addEventListener("lh:graph-revision", onRevision);
-		window.addEventListener("lh:chat-renamed", onRenamed);
-		window.addEventListener("lh:kbd-find", onFind);
-		const timer = setInterval(() => (now = Date.now()), 1000);
+		offs.push(onAppEvent("chat-renamed", onRenamed), onKeyAction("find", onFind));
 		return () => {
 			for (const off of offs) off();
-			window.removeEventListener("lh:graph-revision", onRevision);
-			window.removeEventListener("lh:chat-renamed", onRenamed);
-			window.removeEventListener("lh:kbd-find", onFind);
-			clearInterval(timer);
-			clearTimeout(statusDebounce);
 			clearTimeout(saveTimer);
 		};
-	});
-
-	$effect(() => {
-		void pipelineRuns;
-		dispatchCostsRefresh();
-	});
-
-	$effect(() => {
-		fetch("/api/graph/render-settings")
-			.then((res) => (res.ok ? (res.json() as Promise<unknown>) : null))
-			.then((raw) => {
-				if (raw !== null && !userTouched) settings = sanitizeRenderSettings(raw);
-			})
-			.catch(() => {})
-			.finally(() => {
-				serverLoaded = true;
-				if (savePending) {
-					savePending = false;
-					saveSettings();
-				}
-			});
-	});
-	$effect(() => {
-		void settings;
-		if (!userTouched) return;
-		if (!serverLoaded) {
-			savePending = true;
-			return;
-		}
-		clearTimeout(saveTimer);
-		saveTimer = setTimeout(saveSettings, 400);
 	});
 
 	$effect(() => {
@@ -258,25 +151,7 @@
 			rendererReady = false;
 			return;
 		}
-		let initialCamera: { k: number; x: number; y: number } | null = null;
-		try {
-			const stored = localStorage.getItem(CAMERA_KEY);
-			if (stored) {
-				const parsed = JSON.parse(stored) as { k?: unknown; x?: unknown; y?: unknown };
-				if (typeof parsed.k === "number" && parsed.k > 0 && typeof parsed.x === "number" && typeof parsed.y === "number") initialCamera = parsed as never;
-			}
-		} catch {
-		}
-		const persistCamera = (transform: { k: number; x: number; y: number }) => {
-			lastCamera = transform;
-			clearTimeout(cameraTimer);
-			cameraTimer = setTimeout(() => {
-				try {
-					localStorage.setItem(CAMERA_KEY, JSON.stringify(transform));
-				} catch {
-				}
-			}, 250);
-		};
+		const camera = cameraSaver();
 		const instance = new GraphCanvasRenderer(
 			canvas!,
 			{
@@ -297,17 +172,13 @@
 				onCameraMove: (transform) => {
 					selected = null;
 					ctxNode = null;
-					persistCamera(transform);
+					camera.save(transform);
 				},
 				onCommit: (next) => {
-					void fetch("/api/graph/positions", {
-						method: "PUT",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify(next),
-					}).catch(() => {});
+					savePositions(next).catch((error) => console.error("[graph] positions not saved:", error));
 				},
 			},
-			initialCamera,
+			readCamera(),
 		);
 		renderer = instance;
 		rendererReady = true;
@@ -315,13 +186,7 @@
 			renderer = null;
 			rendererReady = false;
 			fitted = false;
-			if (cameraTimer && lastCamera) {
-				clearTimeout(cameraTimer);
-				try {
-					localStorage.setItem(CAMERA_KEY, JSON.stringify(lastCamera));
-				} catch {
-				}
-			}
+			camera.flush();
 			instance.destroy();
 		};
 	});
@@ -365,30 +230,14 @@
 	});
 
 	$effect(() => {
-		if ((!costOpen && !settingsOpen) || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (costAnchor?.contains(target) || settingsAnchor?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			costOpen = false;
-			settingsOpen = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			costOpen = false;
-			settingsOpen = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	});
-
-	onMount(() => {
-		activity.init();
+		if (!costOpen && !settingsOpen) return;
+		return dismissLayer(
+			() => {
+				costOpen = false;
+				settingsOpen = false;
+			},
+			{ inside: () => [costAnchor, settingsAnchor], menus: true },
+		);
 	});
 
 	const costTotals = $derived(costs ? displayCostTotals(costs) : { totalDollars: 0, unpricedRuns: 0 });
@@ -435,7 +284,7 @@
 	<DeleteNodeDialog nodes={deleting} onClose={() => (deleting = null)} onDeleted={(ids, revision) => {
 		deleting = null;
 		if (selected && ids.includes(selected.node.id)) selected = null;
-		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision: revision } }));
+		emitAppEvent("graph-revision", { graphRevision: revision });
 	}} />
 
 	<div class="lh-no-drag lh-wco-floating absolute right-2 top-2 z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
@@ -451,11 +300,11 @@
 					{/if}
 				</div>
 				<div class="graph-chrome-fade-in shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-					<button type="button" onclick={() => (chainsOpen = true)} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
+					<button type="button" onclick={onOpenChains} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
 				</div>
 			{/if}
 			<div class="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<NotesImport onFinished={() => { refreshTick += 1; void readCosts(); }} />
+				<NotesImport onFinished={() => { void graphSnapshot.refresh(); void graphCosts.refresh(); }} />
 			</div>
 			{#if !isEmpty}
 				<div class="graph-chrome-fade-in shrink-0">
@@ -526,7 +375,7 @@
 				<Loader2 class="size-3.5 shrink-0 animate-spin" />
 				<span class="capitalize">{run.phase}</span>
 				<span class="max-w-48 truncate text-foreground">{run.title}</span>
-				<span class="tabular-nums">{Math.max(0, Math.round((now - run.startedAt) / 1000))}s</span>
+				<span class="tabular-nums">{Math.max(0, Math.round((now() - run.startedAt) / 1000))}s</span>
 			</div>
 		{/each}
 	</div>
@@ -553,24 +402,4 @@
 			{/if}
 		</div>
 	{/if}
-
-	<ChainTableOverlay
-		open={chainsOpen && !isEmpty}
-		nodes={snapshot?.propositions ?? []}
-		chains={snapshot?.chains ?? []}
-		sessions={snapshot?.sessions ?? {}}
-		fileSources={snapshot?.fileSources ?? {}}
-		onClose={() => { chainsOpen = false; onChainSelectClose?.(); }}
-		selectMode={chainSelectOpen}
-		controlledSelection={practiceSelection}
-		onSelectionChange={(ids) => {
-			const propositions = snapshot?.propositions ?? [];
-			const picked: Array<{ id: string; name: string; statement: string }> = [];
-			for (const id of ids) {
-				const node = propositions.find((candidate) => candidate.id === id);
-				if (node) picked.push({ id: node.id, name: node.name, statement: node.statement });
-			}
-			onPracticeSelectionChange?.(picked);
-		}}
-	/>
 </div>

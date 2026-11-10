@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp, Search, X } from "@lucide/svelte";
-	import { kbdEventForAction, stepSessionMatch } from "@/src/core";
+	import { onKeyAction } from "$lib/events";
+	import { dismissLayer, hasOpenLayer } from "$lib/ui/layer";
+	import { stepSessionMatch } from "@/src/session/model";
 	import {
 		sameSessionRange,
 		sessionFindRanges,
@@ -10,7 +12,6 @@
 	import {
 		clearSessionFindHighlights,
 		injectFindStyles,
-		sessionFindHasForegroundLayer,
 		SESSION_FIND_ACTIVE_HIGHLIGHT as ACTIVE,
 		SESSION_FIND_HIGHLIGHT as HIGHLIGHT,
 	} from "$lib/chat/session-find.ts";
@@ -76,7 +77,7 @@
 	$effect(() => {
 		injectFindStyles();
 		const onFind = () => {
-			if (sessionFindHasForegroundLayer(document)) return;
+			if (!open && hasOpenLayer()) return;
 			if (!open) previousFocus = document.activeElement as HTMLElement | null;
 			open = true;
 			requestAnimationFrame(() => {
@@ -84,20 +85,12 @@
 				input?.select();
 			});
 		};
-		window.addEventListener(kbdEventForAction("find"), onFind);
-		return () => window.removeEventListener(kbdEventForAction("find"), onFind);
+		return onKeyAction("find", onFind);
 	});
 
 	$effect(() => {
 		if (!open) return;
-		const onEscape = (event: KeyboardEvent) => {
-			if (event.key !== "Escape" || sessionFindHasForegroundLayer(document)) return;
-			event.preventDefault();
-			event.stopPropagation();
-			close();
-		};
-		document.addEventListener("keydown", onEscape);
-		return () => document.removeEventListener("keydown", onEscape);
+		return dismissLayer(close, { clickOutside: false });
 	});
 
 	$effect(() => {

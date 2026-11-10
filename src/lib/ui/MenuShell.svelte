@@ -4,7 +4,6 @@
 
 	let {
 		anchor,
-		anchorTestid,
 		testid,
 		preferredSide,
 		align = "right",
@@ -12,7 +11,6 @@
 		children,
 	}: {
 		anchor?: HTMLElement | null;
-		anchorTestid?: string;
 		testid: string;
 		preferredSide: "up" | "down";
 		align?: "left" | "right";
@@ -39,9 +37,8 @@
 		if (typeof document === "undefined") return;
 		let raf = 0;
 		const place = () => {
-			const el = anchor ?? (anchorTestid ? document.querySelector<HTMLElement>(`[data-testid="${anchorTestid}"]`) : null);
-			if (!el || !menu) return;
-			placed = compute(el.getBoundingClientRect(), menu.scrollHeight);
+			if (!anchor || !menu) return;
+			placed = compute(anchor.getBoundingClientRect(), menu.scrollHeight);
 			if (!menu.dataset.focused) {
 				menu.dataset.focused = "1";
 				void tick().then(() => {

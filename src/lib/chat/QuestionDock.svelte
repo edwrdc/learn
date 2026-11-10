@@ -1,33 +1,14 @@
 <script lang="ts">
 	import { ArrowDown, ChevronRight, Play } from "@lucide/svelte";
-	import {
-		buildAnswer,
-		CONFIDENCE_STOPS,
-		DEFAULT_CONFIDENCE_INDEX,
-		emptyDockSelection,
-		normalizeOptions,
-		normalizeQuizType,
-		parseAskInput,
-		parseExplainInput,
-		parseQuizInput,
-		repairMathForDisplay,
-		resolveCorrect,
-		seededRandom,
-		shuffleOptions,
-		toggleOption,
-		toggleOther,
-		toolQuestionKind,
-		type AnswerRequest,
-		type DockSelection,
-		type Phase3,
-		type QuestionAnswerData,
-		type QuestionData,
-	} from "@/src/core";
+	import { buildAnswer, CONFIDENCE_STOPS, DEFAULT_CONFIDENCE_INDEX, emptyDockSelection, normalizeOptions, normalizeQuizType, parseAskInput, parseExplainInput, parseQuizInput, resolveCorrect, seededRandom, shuffleOptions, toggleOption, toggleOther, type AnswerRequest, type DockSelection, type Phase3, type QuestionAnswerData, type QuestionData } from "@/src/session/model";
+	import { toolInfo, toolQuestionKind, type QuestionToolName } from "@/src/tools/model";
+import { repairMathForDisplay } from "@/src/tools/model";
 	import { CONFIDENCE_COLORS, confidenceRailStyle } from "./confidence";
-	import { enterSubmits } from "./enter-submits";
+	import { enterSubmits } from "$lib/ui/enter-submits";
 	import CodeInput from "./CodeInput.svelte";
 	import { withCode } from "./code-input";
-	import { finishDictation, isDictationActive, joinDictation, setDictationTarget } from "./dictation.svelte";
+	import { questionLabel } from "./question-label";
+	import { afterDictation, joinDictation, setDictationTarget } from "./dictation.svelte";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import { cn } from "$lib/utils";
 
@@ -39,31 +20,28 @@
 		reveal = false,
 		onExpand,
 		onSubmit,
-		onEscape,
 		phase = "probe",
 		dictationClaim = true,
 		compactionRunning = false,
 	}: {
-		toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
+		toolName: QuestionToolName;
 		toolCallId: string;
 		input: unknown;
 		expanded: boolean;
 		reveal?: boolean;
 		onExpand: () => void;
 		onSubmit: (output: QuestionAnswerData) => void;
-		onEscape?: () => void;
 		phase?: Phase3;
 		dictationClaim?: boolean;
 		compactionRunning?: boolean;
 	} = $props();
 
-	const canonical = $derived(toolName === "probe" ? "quiz" : toolName === "recall" ? "explain" : toolName);
-	const toolLabel = $derived(toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : undefined);
+	const kind = $derived(toolQuestionKind(toolName));
+	const toolLabel = $derived(toolInfo(toolName)?.title);
 	const parsed = $derived(
-		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input),
+		kind === "quiz" ? parseQuizInput(input) : kind === "explain" ? parseExplainInput(input) : parseAskInput(input),
 	);
 
-	const kind = $derived(toolQuestionKind(toolName));
 	const qd = $derived.by((): QuestionData | null => {
 		if (!parsed) return null;
 		const quizInput = kind === "quiz" ? (input as ReturnType<typeof parseQuizInput>) : null;
@@ -174,11 +152,7 @@
 	}
 	function submit() {
 		if (!canSubmit || compactionRunning) return;
-		if (!isDictationActive()) {
-			doSubmit();
-			return;
-		}
-		void finishDictation().then(doSubmit);
+		afterDictation(doSubmit);
 	}
 
 	$effect(() => {
@@ -276,7 +250,7 @@
 			class="dock-variant flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-accent/40"
 		>
 			<span class="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-				{canonical === "quiz" && qd?.questionType === "predict" ? "Prediction" : toolLabel ?? (canonical === "quiz" ? "Check" : canonical === "explain" ? "Explain" : "Question")}
+				{kind === "quiz" && qd?.questionType === "predict" ? "Prediction" : toolLabel ?? (kind === "quiz" ? "Check" : kind === "explain" ? "Explain" : "Question")}
 			</span>
 			<span class="min-w-0 flex-1 truncate text-muted-foreground">{parsed ? teaserText(parsed.question) : ""}</span>
 			<span class="flex shrink-0 items-center gap-1 text-xs font-medium">Answer <ArrowDown class="size-3.5" /></span>
@@ -295,7 +269,7 @@
 			<div bind:this={root} data-testid="question-dock" {@attach enterSubmits(submit)}>
 				<div data-session-find-root="" class="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 					<div class="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{toolName === "probe" ? "Probe" : toolName === "recall" ? "Recall" : kind === "quiz" ? (qd.questionType === "predict" ? "Prediction" : "Check") : kind === "explain" ? "Explain" : "Question"}
+						{questionLabel(toolName, kind, qd.questionType)}
 						{qd.mode === "multi-select" ? " · select all that apply" : ""}
 					</div>
 					<div class="mb-3 font-medium"><Markdown text={qd.question} tool /></div>
@@ -462,12 +436,6 @@
 									text = answerRefValue;
 								}}
 								onkeydown={(event) => {
-									if (event.key === "Escape" && onEscape) {
-										event.preventDefault();
-										event.stopPropagation();
-										onEscape();
-										return;
-									}
 									if (event.key === "Enter" && (event.metaKey || event.ctrlKey || !event.shiftKey)) {
 										event.preventDefault();
 										submit();
@@ -487,12 +455,6 @@
 									thinking = thinkingRefValue;
 								}}
 								onkeydown={(event) => {
-									if (event.key === "Escape" && onEscape) {
-										event.preventDefault();
-										event.stopPropagation();
-										onEscape();
-										return;
-									}
 									if (event.key === "Enter" && (!event.shiftKey || event.metaKey || event.ctrlKey)) {
 										event.preventDefault();
 										submit();
@@ -506,7 +468,7 @@
 								)}
 							></textarea>
 						{/if}
-						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => (qd.mode === "text" ? prose : thinkingEl)?.focus()} />
+						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} onLeave={() => (qd.mode === "text" ? prose : thinkingEl)?.focus()} />
 						<div class="flex items-center justify-between gap-2 p-1">
 							<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

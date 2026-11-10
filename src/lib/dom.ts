@@ -1,11 +1,3 @@
-export function onMouseDown(handler?: (event: MouseEvent) => void) {
-	return (node: HTMLElement) => {
-		if (!handler) return;
-		node.addEventListener("mousedown", handler);
-		return () => node.removeEventListener("mousedown", handler);
-	};
-}
-
 export function focusOnMount(enabled = true) {
 	return (node: HTMLElement) => {
 		if (!enabled) return;

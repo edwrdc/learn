@@ -1,7 +1,7 @@
 export type MenuSide = "up" | "down";
-export type MenuAlign = "left" | "right";
+type MenuAlign = "left" | "right";
 
-export interface MenuPlacement {
+interface MenuPlacement {
 	side: MenuSide;
 	style: Record<string, string | number>;
 	maxHeight: number;

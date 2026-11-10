@@ -17,8 +17,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { createPdfReadTools } from "../src/agent/tools/pdf-read.ts";
-import { createWebTools } from "../src/agent/tools/web.ts";
+import { createPdfReadTools } from "../src/tools/pdf-read.ts";
+import { createWebTools } from "../src/tools/web/web.ts";
 
 /** Build a valid N-page PDF in memory — ASCII-only so string offsets ARE
  *  byte offsets; xref entries computed as we assemble. */

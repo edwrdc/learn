@@ -19,19 +19,18 @@ import test from "node:test";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-reader-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const {
 	appendEntries,
-	appendEntry,
 	closeChatRuntime,
 	draftForMessage,
 	editDraftFor,
 	openChatRuntime,
 	projectEntries,
 	readEntries,
-} = await import("../src/store/durable.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-type LhMessage = import("../src/core/native-messages.ts").LhMessage;
+} = await import("../src/session/durable.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+type LhMessage = import("../src/session/model/transcript.ts").LhMessage;
 type Message = import("@earendil-works/pi-ai").Message;
 
 const PYTHON = process.env.PYTHON ?? "python3";
@@ -112,7 +111,7 @@ test("the reader projects native entries, edits, and ids like the app", { skip: 
 		isError: false,
 		timestamp: 5,
 	} as LhMessage;
-	await appendEntry(chat.id, editDraftFor(pose!.id, answer));
+	await appendEntries(chat.id, [editDraftFor(pose!.id, answer)]);
 	const expected = projectEntries(await readEntries(runtime));
 	await closeChatRuntime(chat.id);
 
@@ -136,33 +135,6 @@ test("the reader projects native entries, edits, and ids like the app", { skip: 
 	assert.deepEqual(snapshot(TMP), before, "reader commands changed no data file");
 });
 
-test("a legacy v1 chat imports once and the backup is never the transcript", { skip: READER }, async () => {
-	const chat = chatStore.createChat("legacy reader");
-	const legacyMessages = [
-		{ id: "msg_legacy_user", role: "user", content: "old words", timestamp: 1 },
-		{ id: "msg_legacy_assistant", role: "assistant", content: [{ type: "text", text: "old reply" }], timestamp: 2, api: "fixture", provider: "fixture", model: "fixture", usage: USAGE, stopReason: "stop" },
-	];
-	const legacy = { id: chat.id, title: "Legacy reader title", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", version: 1, messages: legacyMessages };
-	fs.writeFileSync(path.join(TMP, "chats", `${chat.id}.json`), JSON.stringify(legacy, null, "\t"));
-	const imported = await chatStore.getChat(chat.id);
-	assert.deepEqual(imported?.messages.map((message) => message.id), legacyMessages.map((message) => message.id));
-	await closeChatRuntime(chat.id);
-
-	const metadata = JSON.parse(fs.readFileSync(path.join(TMP, "chats", `${chat.id}.json`), "utf-8")) as { version: number; messages?: unknown };
-	assert.equal(metadata.version, 2);
-	assert.equal(metadata.messages, undefined, "the migrated metadata file carries no transcript");
-	const backup = path.join(TMP, "durable", chat.id, "legacy-chat.json");
-	assert.ok(fs.existsSync(backup), "the original record is backed up");
-	fs.writeFileSync(backup, JSON.stringify({ ...legacy, messages: [{ id: "msg_backup_only", role: "user", content: "BACKUP STALE TEXT" }] }));
-
-	const selected = JSON.parse(cli("sessions.py", ["--format", "json", "read", chat.id])) as { record: { title: string; messages: Array<{ id: string }> } };
-	assert.equal(selected.record.title, "Legacy reader title");
-	assert.deepEqual(selected.record.messages.map((message) => message.id), legacyMessages.map((message) => message.id));
-	const markdown = cli("sessions.py", ["read", chat.id]);
-	assert.match(markdown, /old words/);
-	assert.match(markdown, /old reply/);
-	assert.doesNotMatch(markdown, /BACKUP STALE TEXT/, "the legacy backup is not read as the current transcript");
-});
 
 test("a live WAL commit is visible and reading changes no database file", { skip: READER }, async () => {
 	const chat = chatStore.createChat("wal reader");

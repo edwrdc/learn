@@ -24,7 +24,7 @@
 		"typecheck": "svelte-kit sync && tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
 		"desktop:dev": "concurrently -k \"vite dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
-		"desktop:dist": "rm -rf dist && vite build && node scripts/build-server.mjs && node scripts/smoke-provider-runtime.mjs && node scripts/smoke-server.mjs && node scripts/smoke-carrier.mjs && node scripts/smoke-server.mjs --electron && node scripts/smoke-carrier.mjs --electron && electron-builder --linux --x64 --publish never",
+		"desktop:dist": "rm -rf dist && vite build && node scripts/build-server.mjs && node scripts/smoke-server.mjs && node scripts/smoke-carrier.mjs && node scripts/smoke-server.mjs --electron && node scripts/smoke-carrier.mjs --electron && electron-builder --linux --x64 --publish never",
 		"desktop:act": "act workflow_dispatch -W .act/workflows/fedora.yml -P fedora-44-x64=-self-hosted --env \"LH_OUTPUT_DIR=$PWD/dist\""
 	},
 	"dependencies": {

@@ -1,13 +1,11 @@
 /** Provider-key presence (pure): tool keys never unlock models. */
-import type { AuthKeyStatus, ModelCatalogResponse } from "@/src/core";
+import { AUTH_KEYS, type AuthKeyStatus, type AuthProviderInfo, type ModelCatalogResponse } from "@/src/settings/model";
 
-export interface ProviderKeyInfo { id: string; envVar: string; label: string }
-
-const TOOL_KEY_IDS = new Set(["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY"]);
+const TOOL_KEY_IDS = new Set<string>(AUTH_KEYS.map((key) => key.id));
 
 export function hasProviderKey(
 	statuses: readonly AuthKeyStatus[],
-	providers: readonly ProviderKeyInfo[] | undefined,
+	providers: readonly AuthProviderInfo[] | undefined,
 	customEndpointKey = false,
 ): boolean {
 	if (customEndpointKey) return true;

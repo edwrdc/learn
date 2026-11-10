@@ -4,7 +4,7 @@ import type { MermaidConfig } from "mermaid";
 
 export const MERMAID_FONT_SIZE = 16;
 
-export const mermaidTheme: MermaidConfig = {
+const mermaidTheme: MermaidConfig = {
 	fontFamily: "ui-sans-serif, system-ui, sans-serif",
 	fontSize: MERMAID_FONT_SIZE,
 	securityLevel: "strict",

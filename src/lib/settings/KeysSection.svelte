@@ -1,23 +1,23 @@
 <script lang="ts">
-import { untrack } from "svelte";
-	import { type AuthKeyStatus } from "@/src/core";
-	import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "./keys";
-	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { dismissLayer } from "$lib/ui/layer";
+	import { untrack } from "svelte";
+	import type { AuthProviderInfo } from "@/src/settings/model";
+	import { keys, removeKey, saveKey as storeKey } from "$lib/state/keys.svelte";
+	import { classifyKeys, keyStatusLine } from "./keys";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
 	import CustomEndpointSection from "./CustomEndpointSection.svelte";
 	import { focusOnMount } from "$lib/dom";
 
-	interface KeysResponse { keys: AuthKeyStatus[]; providers?: ProviderKeyInfo[] }
 
 
 	let { initialRow }: { initialRow?: string } = $props();
-	let statuses = $state<AuthKeyStatus[] | null>(null);
-	let providers = $state<ProviderKeyInfo[] | undefined>(undefined);
-	let loading = $state(true);
+	/** Null while loading; a failed first load shows no rows. */
+	const statuses = $derived(keys.value?.keys ?? (keys.failed ? [] : null));
+	const providers = $derived(keys.value?.providers);
 	let openRow = $state<string | null>(untrack(() => initialRow ?? null));
-	let adding = $state<ProviderKeyInfo | null>(null);
+	let adding = $state<AuthProviderInfo | null>(null);
 	let addError = $state<string | null>(null);
 	let addValue = $state("");
 	let customOpen = $state(false);
@@ -32,73 +32,41 @@ import { untrack } from "svelte";
 	});
 
 	$effect(() => {
+		void keys.refresh();
+	});
+
+	$effect(() => {
 		if (openRow === null && adding === null) return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			openRow = null;
-			adding = null;
-		};
-		document.addEventListener("keydown", onKeyDown, true);
-		return () => document.removeEventListener("keydown", onKeyDown, true);
+		return dismissLayer(
+			() => {
+				openRow = null;
+				adding = null;
+			},
+			{ clickOutside: false, capture: true },
+		);
 	});
 
 	$effect(() => {
-		if (!addProviderOpen || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (addAnchor?.contains(target)) return;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (target instanceof Element && target.closest('[role="dialog"]')) addProviderOpen = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			addProviderOpen = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	});
-
-	function reload() {
-		return fetch("/api/keys")
-			.then((r) => r.json() as Promise<KeysResponse>)
-			.then((body) => {
-				statuses = body.keys ?? [];
-				if (body.providers) providers = body.providers;
-			})
-			.catch(() => (statuses = []))
-			.finally(() => (loading = false));
-	}
-
-	$effect(() => {
-		void reload();
+		if (!addProviderOpen) return;
+		return dismissLayer(() => (addProviderOpen = false), { inside: () => [addAnchor], menus: true, closeWithin: '[role="dialog"]' });
 	});
 
 	async function saveKey(id: string, value: string): Promise<string | null> {
-		const res = await fetch(`/api/keys/${id}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ value }),
-		});
-		if (!res.ok) {
-			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			return body.error ?? `Save failed (${res.status})`;
+		try {
+			await storeKey(id, value);
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
 		}
-		await reload();
-		notifySettingsSaved("keys");
 		return null;
 	}
 
 	async function deleteKey(id: string) {
-		await fetch(`/api/keys/${id}`, { method: "DELETE" }).catch(() => undefined);
-		await reload();
-		notifySettingsSaved("keys");
+		rowError = null;
+		try {
+			await removeKey(id);
+		} catch (error) {
+			rowError = error instanceof Error ? error.message : String(error);
+		}
 	}
 
 	async function saveRow(id: string) {
@@ -114,7 +82,7 @@ import { untrack } from "svelte";
 		rowBusy = false;
 	}
 
-	async function saveNewProvider(provider: ProviderKeyInfo) {
+	async function saveNewProvider(provider: AuthProviderInfo) {
 		if (!addValue.trim()) return;
 		const error = await saveKey(provider.envVar, addValue);
 		if (error) addError = error;
@@ -128,7 +96,7 @@ import { untrack } from "svelte";
 	const classified = $derived(statuses ? classifyKeys(statuses, providers) : null);
 </script>
 
-{#if loading || statuses === null}
+{#if statuses === null}
 	<p class="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>
 {:else if classified}
 	<Controls kind="group" label="Model providers" testid="group-provider-keys">

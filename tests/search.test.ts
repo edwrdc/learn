@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveSearchEngineFor, tavilyProvider, braveProvider } from "../src/server/search.ts";
+import { resolveSearchEngineFor, tavilyProvider, braveProvider } from "../src/tools/web/search.ts";
 
 describe("resolveSearchEngineFor (the auto-detect decision)", () => {
 	it("no keys: honestly unavailable, no default", () => {

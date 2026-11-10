@@ -1,0 +1,169 @@
+import { Type } from "typebox";
+import type { AppTool } from "../adapter.ts";
+import { serverExecute } from "../execute.ts";
+import type { SearchHit as WebSearchResult, SearchProvider } from "../model/search.ts";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
+import TurndownService from "turndown";
+
+/**
+ * Server-side web tools for the researcher sub-agent:
+ *
+ *   web_search(query, count?) → {title, url, snippet}[]   (injected search port)
+ *   web_fetch(url)            → readable markdown text     (Readability + Turndown,
+ *                                                          Jina Reader fallback for
+ *                                                          JS-rendered pages)
+ *
+ * No silent fallback (owner decision): no provider → search is unavailable.
+ * Every failure path returns a clear error string as the tool output, so the
+ * researcher can adapt or report instead of crashing.
+ */
+
+/** A desktop browser's agent string: many sites refuse obvious bots. */
+export const USER_AGENT =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+/** An absolute http(s) URL. URL.protocol keeps its trailing colon. */
+export function isHttpUrl(url: string): boolean {
+	try {
+		const { protocol } = new URL(url);
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+const FETCH_TIMEOUT_MS = 30_000;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+/** Long pages truncate with a marker. */
+const MAX_CONTENT_CHARS = 40_000;
+const MIN_USEFUL_CONTENT = 200;
+
+const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+
+function truncate(text: string): string {
+	if (text.length <= MAX_CONTENT_CHARS) return text;
+	return `${text.slice(0, MAX_CONTENT_CHARS)}\n\n[Truncated at ${MAX_CONTENT_CHARS} characters]`;
+}
+
+/** Jina Reader fallback for JS-rendered pages (no deps — plain fetch). */
+async function fetchViaJina(url: string): Promise<string | null> {
+	try {
+		const res = await fetch(`https://r.jina.ai/${url}`, {
+			headers: { Accept: "text/markdown", "X-No-Cache": "true" },
+			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+		});
+		if (!res.ok) return null;
+		const content = await res.text();
+		const marker = "Markdown Content:";
+		const start = content.indexOf(marker);
+		if (start < 0) return null;
+		const markdown = content.slice(start + marker.length).trim();
+		if (markdown.length < MIN_USEFUL_CONTENT || markdown.startsWith("Loading...")) return null;
+		return markdown;
+	} catch {
+		return null;
+	}
+}
+
+function htmlToMarkdown(html: string): { title: string; content: string } | null {
+	const { document } = parseHTML(html);
+	const article = new Readability(document as unknown as Document).parse();
+	if (!article?.content) return null;
+	const markdown = turndown.turndown(article.content);
+	if (markdown.trim().length < MIN_USEFUL_CONTENT) return null;
+	return { title: article.title ?? "", content: markdown };
+}
+
+async function fetchAndExtract(url: string): Promise<string> {
+	const resp = await fetch(url, {
+		headers: {
+			"User-Agent": USER_AGENT,
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.9",
+		},
+		signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+	});
+	if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+
+	// Final URL after redirects + status — the researcher's only way to
+	// tell a real page from a 200-served error body.
+	const sourceLine = `Source: ${resp.url || url} (HTTP ${resp.status})`;
+
+	const contentType = resp.headers.get("content-type") ?? "";
+	if (contentType.includes("application/pdf")) {
+		return `web_fetch: this URL is a PDF document — call web_fetch_pdf on it to download and read it.`;
+	}
+	if (/image\/|audio\/|video\/|zip|octet-stream/.test(contentType)) {
+		throw new Error(`Unsupported content type: ${contentType.split(";")[0]}`);
+	}
+	const length = Number(resp.headers.get("content-length") ?? 0);
+	if (length > MAX_RESPONSE_BYTES) throw new Error("Response too large");
+
+	const text = await resp.text();
+	if (!contentType.includes("html")) return `${sourceLine}\n\n${truncate(text)}`;
+
+	const extracted = htmlToMarkdown(text);
+	if (extracted) {
+		const header = extracted.title ? `# ${extracted.title}\n\n${sourceLine}\n\n---\n\n` : `${sourceLine}\n\n---\n\n`;
+		return header + truncate(extracted.content);
+	}
+	// Readability failed — likely JS-rendered.
+	const jina = await fetchViaJina(url);
+	if (jina) return truncate(jina);
+	throw new Error("Could not extract readable content (the page may be JavaScript-rendered)");
+}
+
+// ── tool registry ────────────────────────────────────────────────────────────
+
+const webSearchInput = Type.Object({
+	query: Type.String({ description: "The search query (a normal search string, phrases included)" }),
+	count: Type.Optional(
+		Type.Integer({ minimum: 1, maximum: 10, description: "Number of results (default 5, max 10)" }),
+	),
+});
+
+const webFetchInput = Type.Object({
+	url: Type.String({ description: "The URL to fetch" }),
+});
+
+export function createWebTools(search: () => SearchProvider | null): Record<string, AppTool<any>> {
+	return {
+		web_search: {
+			name: "web_search",
+			description: "Search the web. One search per call — use one call per search angle. " +
+				"Returns an array of results with title, url, and snippet.",
+			parameters: webSearchInput,
+			execute: serverExecute("web_search", webSearchInput, async ({ query, count }): Promise<WebSearchResult[] | string> => {
+				const provider = search();
+				if (!provider) {
+					return (
+						"web_search is not available: no search engine is configured. " +
+						"Set a Tavily or Brave search API key in settings. Report in your brief that web search is unavailable."
+					);
+				}
+				try {
+					return await provider.search(query, count ?? 5);
+				} catch (err) {
+					return `web_search failed: ${err instanceof Error ? err.message : String(err)}`;
+				}
+			}),
+		},
+
+		web_fetch: {
+			name: "web_fetch",
+			description:
+				"Fetch a web page and extract its readable content as markdown (Readability). " +
+				"Handles HTML pages and plain text; JS-rendered pages fall back to a reader service.",
+			parameters: webFetchInput,
+			execute: serverExecute("web_fetch", webFetchInput, async ({ url }): Promise<string> => {
+				if (!isHttpUrl(url)) return `web_fetch failed: invalid URL "${url}"`;
+				try {
+					return await fetchAndExtract(url);
+				} catch (err) {
+					return `web_fetch failed for ${url}: ${err instanceof Error ? err.message : String(err)}`;
+				}
+			}),
+		},
+	};
+}
+

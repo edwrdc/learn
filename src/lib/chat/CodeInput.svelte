@@ -2,11 +2,10 @@
 	import { tick } from "svelte";
 	import { codeKeydown } from "./code-input";
 
-	let { value, onChange, onSubmit, onEscape, onLeave }: {
+	let { value, onChange, onSubmit, onLeave }: {
 		value: string;
 		onChange: (value: string) => void;
 		onSubmit: () => void;
-		onEscape?: () => void;
 		onLeave?: () => void;
 	} = $props();
 	let open = $state(false);
@@ -28,7 +27,7 @@
 				{value}
 				data-testid="code-field"
 				oninput={(event) => onChange(event.currentTarget.value)}
-				onkeydown={(event) => codeKeydown(event, onChange, onSubmit, onEscape, onLeave)}
+				onkeydown={(event) => codeKeydown(event, onChange, onSubmit, onLeave)}
 				spellcheck={false}
 				autocapitalize="off"
 				autocomplete="off"

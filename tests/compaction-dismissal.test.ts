@@ -6,27 +6,29 @@ import { after, it } from "node:test";
 import { setImmediate } from "node:timers/promises";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import type { CompactionDeps } from "../src/server/compaction.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import type { CompactionDeps } from "../src/session/compaction.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "lh-compaction-dismissal-"));
 process.env.LH_DATA_DIR = data;
 process.env.OPENROUTER_API_KEY = "test-key-presence-gate";
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, data);
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime } = await import("../src/store/durable.ts");
-const { ensureCompacted, kickCompaction, awaitCompaction } = await import("../src/server/compaction.ts");
-const { danglingQuestionOf, newUserMessage } = await import("../src/core/native-messages.ts");
-const { activeCompactionOf, keptIndexFor } = await import("../src/core/compaction.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime } = await import("../src/session/durable.ts");
+const { ensureCompacted, kickCompaction, awaitCompaction } = await import("../src/session/compaction.ts");
+const { danglingQuestionOf, newUserMessage } = await import("../src/session/model/transcript.ts");
+const { activeCompactionOf, keptIndexFor } = await import("../src/session/model/compaction.ts");
 const { POST: dismissPOST } = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
-const { handleChatInput } = await import("../src/server/chat-handler.ts");
-const { runningTurn } = await import("../src/server/turn-runs.ts");
-const { isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { setBackgroundRun } = await import("../src/agent/subagents/durable-run.ts");
-const { writeSettings } = await import("../src/store/settings.ts");
-const { bareQuestionTools } = await import("../src/agent/teacher-agent.ts");
-const { stores } = await import("../src/server/stores.ts");
+const { handleChatInput } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+const { services } = await import("../src/boot.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
+const { writeSettings } = await import("../src/settings/store.ts");
+const { bareQuestionTools } = await import("./support-tools.ts");
+const { stores } = await import("../src/stores.ts");
 writeSettings({ version: 1, compaction: { thresholdTokens: 40_000 }, graph: { enabled: false } });
 const chats: string[] = [];
 after(async () => {
@@ -45,7 +47,7 @@ function deferred() {
 	return { promise, resolve };
 }
 
-async function seed(legacy = false, parallel = false) {
+async function seed(parallel = false) {
 	const chat = chatStore.createChat("compaction dismissal");
 	chats.push(chat.id);
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
@@ -54,7 +56,7 @@ async function seed(legacy = false, parallel = false) {
 		id: "pose", role: "assistant", content: ids.map((id) => ({ type: "toolCall", id, name: "quiz", arguments: question })),
 		api: "openai-completions", provider: "openrouter", model: "test", usage, stopReason: "toolUse", timestamp: 1,
 	};
-	const results: LhMessage[] = legacy ? [] : ids.map((id) => ({
+	const results: LhMessage[] = ids.map((id) => ({
 		id: "placeholder-" + id, role: "toolResult", toolCallId: id, toolName: "quiz",
 		content: [{ type: "text", text: "Question posed" }], details: null, isError: false, timestamp: 2,
 	}));
@@ -109,17 +111,16 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 		const id = await seed();
 		const started = deferred(), release = deferred();
 		let run: Promise<unknown>;
-		const oldEnv = process.env.NODE_ENV;
 		try {
 			if (mode === "cold admission") {
-				process.env.NODE_ENV = "production";
-				setBackgroundRun(async (request) => {
+				services().upkeep = true;
+				configureBackgroundRuns({ run: async (request) => {
 					assert.equal(request.kind, "compact");
 					assert.equal(request.chatId, id);
 					started.resolve();
 					await release.promise;
-					return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [] };
-				});
+					return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
+				} });
 				run = providerResults(id, { type: "continue" });
 			} else {
 				kickCompaction(() => deps(async () => { started.resolve(); await release.promise; return { summary: "Earlier history.", usage }; }), id);
@@ -135,21 +136,21 @@ for (const mode of ["idle kick", "cold admission"] as const) {
 			await closeChatRuntime(id);
 			assert.deepEqual(await assertDismissed(id), before);
 			assert.equal((await handleChatInput(id, { type: "answer", toolCallId: "q", answer })).status, 400, "a stale answer cannot replace a dismissal");
-			process.env.NODE_ENV = "test";
+			services().upkeep = false;
 			const actual = await providerResults(id);
 			assert.equal(actual.length, 1);
 			assert.deepEqual(actual[0]!.details, dismissal);
 		} finally {
 			release.resolve();
-			process.env.NODE_ENV = oldEnv;
+			services().upkeep = false;
 		}
 	});
 }
 
 for (const tail of ["large input", "prior summary"] as const) {
-	for (const legacy of [false, true]) {
-		it("keeps parallel questions before " + tail + ", legacy=" + legacy, { timeout: 15_000 }, async () => {
-			const id = await seed(legacy, true);
+	{
+		it("keeps parallel questions before " + tail, { timeout: 15_000 }, async () => {
+			const id = await seed(true);
 			let summaries = 0;
 			const largeSummary = deps(async () => { summaries++; return { summary: "z".repeat(84_000), usage }; });
 			if (tail === "prior summary") await ensureCompacted(largeSummary, id);
@@ -215,10 +216,9 @@ it("an ordinary answer waits for compaction and the provider receives that answe
 	const started = deferred(), release = deferred(), readStarted = deferred();
 	kickCompaction(() => deps(async () => { started.resolve(); await release.promise; return { summary: "Earlier history.", usage }; }), id);
 	await started.promise;
-	const oldEnv = process.env.NODE_ENV;
 	const oldStore = stores.chatStore;
 	try {
-		process.env.NODE_ENV = "production";
+		services().upkeep = true;
 		stores.chatStore = { ...chatStore, getChat: async (chatId) => {
 			const record = await chatStore.getChat(chatId);
 			readStarted.resolve();
@@ -237,7 +237,7 @@ it("an ordinary answer waits for compaction and the provider receives that answe
 	} finally {
 		release.resolve();
 		stores.chatStore = oldStore;
-		process.env.NODE_ENV = oldEnv;
+		services().upkeep = false;
 	}
 });
 
@@ -246,15 +246,14 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 	chats.push(chat.id);
 	await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
 	const started = deferred(), release = deferred();
-	const oldEnv = process.env.NODE_ENV;
 	try {
-		process.env.NODE_ENV = "production";
-		setBackgroundRun(async (request) => {
+		services().upkeep = true;
+		configureBackgroundRuns({ run: async (request) => {
 			assert.equal(request.kind, "compact");
 			assert.equal(request.chatId, chat.id);
 			started.resolve(); await release.promise;
-			return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [] };
-		});
+			return { text: "Earlier history.", state: { kind: "compact" }, capped: false, steps: [{ step: 1, model: "faux:test", usage, finishReason: "stop", tools: "" }] };
+		} });
 		const faux = createFauxCore({ tokenSize: { min: 50_000, max: 50_000 } });
 		faux.setResponses([fauxAssistantMessage([fauxText("x".repeat(200_000)), fauxToolCall("quiz", question, { id: "q" })], { stopReason: "toolUse" })]);
 		assert.equal((await handleChatInput(chat.id, { type: "text", text: "Teach me." }, { engine: { model: faux.getModel(), streamFn: faux.streamSimple }, tools: bareQuestionTools() })).status, 200);
@@ -269,6 +268,6 @@ it("a natural quiz settlement kick preserves a dismissal during its summary", { 
 		await assertDismissed(chat.id);
 	} finally {
 		release.resolve();
-		process.env.NODE_ENV = oldEnv;
+		services().upkeep = false;
 	}
 });

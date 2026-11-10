@@ -1,3 +1,4 @@
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { Type } from "typebox";
@@ -11,14 +12,14 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { streamSimple as streamCodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
-import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/agent/models.ts";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { backgroundRun } from "../src/agent/subagents/durable-run.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { closeChatRuntime } from "../src/store/durable.ts";
-import { healToolRecord } from "../src/agent/tools/heal.ts";
-import type { AppTool } from "../src/agent/tool-adapter.ts";
+import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/platform/engines.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { backgroundRun } from "../src/jobs/durable-run.ts";
+import { chatStore } from "../src/session/store.ts";
+import { closeChatRuntime } from "../src/session/durable.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
 import metadata from "../package.json" with { type: "json" };
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
@@ -254,9 +255,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 		};
 		let executed = 0;
 		let prepared = 0;
-		const tools = healToolRecord({ check: { name: "check", label: "check", description: "check", parameters: Type.Object({ value: Type.Optional(Type.String()) }), execute: async () => { executed++; return { content: [], details: {} }; } } });
-		const heal = tools.check!.prepareArguments!;
-		tools.check!.prepareArguments = (args) => { prepared++; return heal(args); };
+		const tools = { check: { name: "check", label: "check", description: "check", parameters: Type.Object({ value: Type.Optional(Type.String()) }), prepareArguments: (args: unknown) => { prepared++; return args as never; }, execute: async () => { executed++; return { content: [], details: {} }; } } };
 		const chat = await chatStore.createChat("identity: malformed arguments");
 		createdChats.push(chat.id);
 		await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "openai/gpt-4o-mini" } });

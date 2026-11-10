@@ -1,25 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	activeCompactionOf,
-	calculateContextTokens,
-	estimateContextTokens,
-	estimateMessageTokens,
-	buildCompactionPrompt,
-	compactionCutIndex,
-	estimateTokens,
-	keptIndexFor,
-	newCompactionMarker,
-	newUserMessage,
-	planTreeToText,
-	serializeForSummary,
-	toLlmMessages,
-	COMPACTED_HISTORY_HEADER,
-	type LhMessage,
-	type LhMarkerMessage,
-} from "../src/core/index.ts";
+import { activeCompactionOf, calculateContextTokens, estimateContextTokens, estimateMessageTokens, buildCompactionPrompt, compactionCutIndex, estimateTokens, keptIndexFor, newCompactionMarker, planTreeToText, serializeForSummary } from "../src/session/model/compaction.ts";
+import { newUserMessage, toLlmMessages, type LhMessage, type LhMarkerMessage } from "../src/session/model/transcript.ts";
+import { COMPACTED_HISTORY_HEADER } from "../src/session/model/types.ts";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
-import { projectView } from "../src/core/view.ts";
+import { projectView } from "../src/session/model/view.ts";
 
 /**
  * COMPACTION (owner round 14, 2026-10-05) — the pure core: the cut walk,
@@ -180,7 +165,7 @@ describe("compactionCutIndex", () => {
 		assert.ok(kept.some((m) => m.id === "a_pending"), "the pending pose is never dropped");
 	});
 
-	it("zero budget summarizes everything; whole-history-in-budget returns 0 only when nothing precedes", () => {
+	it("a lone message is never cut: the index is 0 when nothing precedes it", () => {
 		assert.equal(compactionCutIndex([newUserMessage("hi")], 100), 0);
 	});
 
@@ -387,65 +372,5 @@ describe("projectView compaction dividers", () => {
 		// the tail — where the user is when it happens)
 		const keptIdx = view.findIndex((m) => m.parts.some((p) => p.type === "text" && p.text === "recent"));
 		assert.ok(view.indexOf(moment!) > keptIdx);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// THE CHROME LAW (the OpenRouter no-tools incident, owner 2026-10-05):
-// a native caller's message list can lead with a SystemMessage (prompt +
-// tool declarations); the record never persists it. The
-// cut slices the RECORD's history — the chrome carries through ahead of
-// the compaction head, exactly as pi's prepareRequest re-applies
-// context.systemPrompt + context.tools around its projection.
-// ---------------------------------------------------------------------------
-describe("toLlmMessages carries the leading system message (request chrome)", () => {
-	const chrome = {
-		id: "sys",
-		role: "system",
-		content: "SYSTEM PROMPT + tool declarations",
-		toolsAdded: [{ name: "quiz" }, { name: "plan_init" }],
-		timestamp: 0,
-	};
-	const record = (): LhMessage[] => [
-		{ id: "old", role: "user", content: "dropped history", timestamp: 1 },
-		{ id: "kept", role: "user", content: "kept tail", timestamp: 2 },
-		newCompactionMarker("SUMMARY", {
-			firstKeptMessageId: "kept",
-			tokensBefore: 99,
-			at: new Date(0).toISOString(),
-		}) as unknown as LhMessage,
-	];
-
-	it("chrome FIRST, then the compaction head, then the kept tail — never dropped by the cut", () => {
-		const out = toLlmMessages([chrome, ...record()] as never);
-		assert.equal(out[0]!.role, "system");
-		assert.equal((out[0] as { toolsAdded?: unknown[] }).toolsAdded?.length, 2);
-		assert.equal(out[1]!.role, "user");
-		assert.ok((out[1]!.content as { text: string }[])[0]!.text.includes("SUMMARY"));
-		const textOf = (m: (typeof out)[number]): string =>
-			typeof m.content === "string"
-				? m.content
-				: ((m.content as { text?: string }[])[0]?.text ?? "");
-		assert.ok(out.slice(2).some((m) => m.role === "user" && textOf(m) === "kept tail"));
-		assert.ok(!out.some((m) => m.role === "user" && textOf(m) === "dropped history"));
-	});
-
-	it("without a cut the chrome renders EXACTLY ONCE (no duplicate)", () => {
-		const plain = [
-			{ id: "u1", role: "user", content: "hello", timestamp: 1 },
-		] as unknown as LhMessage[];
-		const out = toLlmMessages([chrome, ...plain] as never);
-		assert.equal(out.filter((m) => m.role === "system").length, 1);
-		assert.equal(out[0]!.role, "system");
-	});
-
-	it("record-path callers (no chrome in the record) are unchanged: head first", () => {
-		const out = toLlmMessages(record());
-		assert.notEqual(out[0]!.role, "system");
-		const headText =
-			typeof out[0]!.content === "string"
-				? out[0]!.content
-				: ((out[0]!.content as { text?: string }[])[0]?.text ?? "");
-		assert.ok(headText.includes("SUMMARY"));
 	});
 });

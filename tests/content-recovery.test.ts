@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { repairMathForDisplay, restoreMathEscapes, transformMathDelimiters } from "../src/core/math-delims.ts";
+import { repairMathForDisplay, restoreMathEscapes, transformMathDelimiters } from "../src/tools/model/math-delims.ts";
 
 const math = String.raw;
 test("document paragraphs and display framing recover without interpreting n-commands as newlines", () => {

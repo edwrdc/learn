@@ -32,20 +32,21 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-fg-recovery-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-const { chatStore } = await import("../src/store/chats.ts");
+const { chatStore } = await import("../src/session/store.ts");
 const { appendMessages, closeChatRuntime, openChatRuntime, peekChatRuntime, readEntries } = await import(
-	"../src/store/durable.ts"
+	"../src/session/durable.ts"
 );
-const { foregroundEngineOverride, handleChatRequest } = await import("../src/server/chat-handler.ts");
-const { runningTurn } = await import("../src/server/turn-runs.ts");
-const { isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
-const { subscribe } = await import("../src/core/events.ts");
-const { danglingQuestionOf } = await import("../src/core/native-messages.ts");
-const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/core/question-core.ts");
-type QuestionData = import("../src/core/question-core.ts").QuestionData;
-type PiEngine = import("../src/agent/models.ts").PiEngine;
-type LhMessage = import("../src/core/native-messages.ts").LhMessage;
+const { handleChatRequest } = await import("../src/session/turn.ts");
+const { testEngines } = await import("./support-durable.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { danglingQuestionOf } = await import("../src/session/model/transcript.ts");
+const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/session/model/questions.ts");
+type QuestionData = import("../src/session/model/questions.ts").QuestionData;
+type PiEngine = import("../src/platform/engines.ts").PiEngine;
+type LhMessage = import("../src/session/model/transcript.ts").LhMessage;
 
 const PLAN_CALL = { mermaid: "graph TD\n  primitives[Number primitives] --> operators[Arithmetic operators]" };
 const COMPACTION_ID = "msg_compaction_probe";
@@ -126,7 +127,7 @@ async function createChat(title: string) {
 	return chat;
 }
 
-/** Put the chat in the TEACH phase: a committed probe_done call is the
+/** Put the chat in the TEACH phase: a successful probe_done result is the
  *  phase seam the plan/question tools hang off. A compaction marker sits
  *  between it and the turn, so the active view is a SUFFIX of the full
  *  transcript — the recovered view boundary must be an entry id, not a
@@ -151,7 +152,7 @@ async function seedProbeDone(chatId: string): Promise<void> {
 			toolCallId: "call-probe",
 			toolName: "probe_done",
 			content: [{ type: "text", text: "Probe complete." }],
-			details: null,
+			details: { ok: true },
 			isError: false,
 			timestamp: 3,
 		} as never,
@@ -213,7 +214,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 			fauxAssistantMessage([fauxToolCall("plan_init", PLAN_CALL, { id: "call-plan" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		foregroundEngineOverride.current = first.engine;
+		testEngines.teacher = first.engine;
 		const ack = await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), { engine: first.engine });
 		assert.equal(ack.status, 200);
 		await waitFor(async () => {
@@ -234,7 +235,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 
 		// Process death mid-generation: close the Harness (storage included).
 		await closeChatRuntime(chat.id);
-		assert.equal(foregroundEngineOverride.current, first.engine);
+		assert.equal(testEngines.teacher, first.engine);
 
 		// The next process rebuilds the engine from the descriptor and the
 		// bootstrap reattaches the view BEFORE resume. This generation is
@@ -247,7 +248,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 				fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-q1" })], { stopReason: "toolUse" }),
 			),
 		]);
-		foregroundEngineOverride.current = resumed.engine;
+		testEngines.teacher = resumed.engine;
 		const settledEvents: string[] = [];
 		const unsubscribe = subscribe((event) => {
 			if (event.type === "turn-settled" && event.chatId === chat.id) settledEvents.push(event.type);
@@ -370,7 +371,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 			fauxAssistantMessage([fauxToolCall("plan_init", PLAN_CALL, { id: "call-plan2" })], { stopReason: "toolUse" }),
 			hangUntilAborted(),
 		]);
-		foregroundEngineOverride.current = first.engine;
+		testEngines.teacher = first.engine;
 		const ack = await handleChatRequest(post(chat.id, { type: "text", text: "teach me too" }), { engine: first.engine });
 		assert.equal(ack.status, 200);
 		await waitFor(async () => {
@@ -390,7 +391,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 		// The missing binding: the injected faux model is not in the catalog,
 		// so the descriptor's model cannot be rebuilt and scheduling must stay
 		// off. A failed POST is the honest 503, and it writes nothing.
-		foregroundEngineOverride.current = undefined;
+		testEngines.teacher = undefined;
 		await assert.rejects(
 			() => openChatRuntime(chat.id),
 			/could not be restored/,
@@ -412,7 +413,7 @@ describe("foreground run recovery", { concurrency: false }, () => {
 				fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-q2" })], { stopReason: "toolUse" }),
 			),
 		]);
-		foregroundEngineOverride.current = resumed.engine;
+		testEngines.teacher = resumed.engine;
 		await openChatRuntime(chat.id);
 		const handle = runningTurn(chat.id);
 		assert.ok(handle, "the retry resumes the pending run");

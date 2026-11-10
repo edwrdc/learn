@@ -35,32 +35,17 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-golden-"));
 fs.cpSync(GOLDEN, TMP, { recursive: true });
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { jobStore } = await import("../src/store/jobs.ts");
-const { settingsStore } = await import("../src/store/settings.ts");
-const { readRenderSettings } = await import("../src/store/render-settings.ts");
-const { getGraph, deriveView } = await import("../src/core/graph.ts");
-const { sanitizeRenderSettings } = await import("../src/core/render-settings.ts");
-const { toLlmMessages } = await import("../src/core/native-messages.ts");
-const { phaseAt3Lh } = await import("../src/core/phases.ts");
-const { danglingQuestionOf, activeProblemOf } = await import("../src/core/native-messages.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { jobStore } = await import("../src/jobs/store.ts");
+const { readSettings } = await import("../src/settings/store.ts");
+const { getGraph, deriveView } = await import("../src/graph/snapshot.ts");
+const { toLlmMessages } = await import("../src/session/model/transcript.ts");
+const { phaseAt3Lh } = await import("../src/session/model/phases.ts");
+const { danglingQuestionOf, activeProblemOf } = await import("../src/session/model/transcript.ts");
 
 const TEACH = "chat_mv27rrra_feff23b6";
 const PRACTICE = "chat_mv293wv5_10656952";
-
-function snapshotTree(dir: string): Map<string, Buffer> {
-	const out = new Map<string, Buffer>();
-	for (const name of fs.readdirSync(dir)) {
-		const p = path.join(dir, name);
-		const st = fs.statSync(p);
-		if (st.isDirectory()) for (const [k, v] of snapshotTree(p)) out.set(`${name}/${k}`, v);
-		else out.set(name, fs.readFileSync(p));
-	}
-	return out;
-}
-const BEFORE = snapshotTree(TMP);
 
 test.after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });
@@ -184,17 +169,6 @@ assert.ok(derived.chains.length >= 150, "chains survive derivation");
 	assert.ok(view.logicalEdges.length > 0, "logical edge contraction runs");
 });
 
-test("graph: render-settings sanitize and positions parse", async () => {
-	const raw = readRenderSettings();
-	assert.ok(raw, "render-settings.json reads");
-	const clean = sanitizeRenderSettings(raw);
-	assert.ok(clean.nodeSize > 0 && typeof clean.labelZoom === "number", "sanitizes to concrete knobs");
-	const positionsFile = JSON.parse(fs.readFileSync(path.join(TMP, "graph", "positions.json"), "utf8")) as {
-		positions: Record<string, unknown>;
-	};
-	assert.ok(Object.keys(positionsFile.positions).length >= 300, "positions parse");
-});
-
 // ── jobs + settings ─────────────────────────────────────────────────────────
 
 test("jobs: the kind × status matrix parses through the job store", async () => {
@@ -214,45 +188,11 @@ test("jobs: the kind × status matrix parses through the job store", async () =>
 });
 
 test("settings: the stamped record parses", async () => {
-	const s = settingsStore.readSettings();
+	const s = readSettings();
 	assert.ok(s, "settings record reads");
 	assert.equal(s!.version, 1, "settings carry their version stamp");
 	assert.ok(s!.models && typeof s!.models === "object", "model slots present");
 });
 
-// ── the durable migration's read contract ───────────────────────────────────
-// Reads still never lose the fixture: the pre-migration record is copied
-// VERBATIM into the chat's runtime directory before the durable import
-// rewrites the metadata file, and the projection reproduces the original
-// message list exactly (ids included — coverage, provenance, and compaction
-// cuts key on them).
 
-test("legacy import: the original record is backed up byte-for-byte", async () => {
-	for (const id of [TEACH, PRACTICE]) {
-		const backup = path.join(TMP, "durable", id, "legacy-chat.json");
-		assert.ok(fs.existsSync(backup), `${id}: the backup exists`);
-		assert.deepEqual(fs.readFileSync(backup), BEFORE.get(`chats/${id}.json`), `${id}: byte-identical to the fixture`);
-	}
-});
 
-test("legacy import: the metadata file keeps everything but the transcript", async () => {
-	for (const id of [TEACH, PRACTICE]) {
-		const meta = JSON.parse(fs.readFileSync(path.join(TMP, "chats", `${id}.json`), "utf-8")) as Record<string, unknown>;
-		assert.equal(meta.messages, undefined, `${id}: the transcript moved to the durable store`);
-		assert.equal(meta.version, CURRENT_CHAT_VERSION, `${id}: stamped on write`);
-		const original = JSON.parse(BEFORE.get(`chats/${id}.json`)!.toString("utf-8")) as Record<string, unknown>;
-		for (const key of Object.keys(original)) {
-			if (key === "messages") continue;
-			assert.deepEqual(meta[key], original[key], `${id}: ${key} preserved verbatim`);
-		}
-	}
-});
-
-test("legacy import: the projection reproduces the original messages exactly", async () => {
-	for (const id of [TEACH, PRACTICE]) {
-		const original = JSON.parse(BEFORE.get(`chats/${id}.json`)!.toString("utf-8")) as { messages: unknown[] };
-		const record = await chatStore.getChat(id);
-		assert.ok(record, `${id} reads through the durable projection`);
-		assert.deepEqual(record!.messages, original.messages, `${id}: ids, markers, and usage stamps round-trip`);
-	}
-});

@@ -15,7 +15,8 @@ const launcher = fs.readFileSync(path.join(ROOT, "scripts", "server-launch.mjs")
 const { RUNTIME_EXTERNALS } = await import("../scripts/build-server.mjs");
 const BUILD = "dist-server";
 const PAYLOAD = path.join(BUILD, "standalone");
-const PROMPT = path.join("src", "agent", "system-prompt.md");
+const PROMPTS = path.join("src", "session", "prompts");
+const PROMPT = path.join(PROMPTS, "system-prompt.md");
 
 type Fixture = {
 	root: string;
@@ -43,7 +44,7 @@ function withPayload(test: (fixture: Fixture) => void) {
 	write(path.join(BUILD, "server", "chunks", "server.js"), "export {};\n");
 	write(path.join(BUILD, "client", "fonts", "lh.ttf"), "font-bytes");
 	write(PROMPT, "# system prompt\n");
-	write(path.join("src", "agent", "prompts", "teacher", "20-teaching.md"), "# teaching\n");
+	write(path.join("src", "session", "prompts", "teacher", "20-teaching.md"), "# teaching\n");
 
 	const pkg = (name: string, extra: Record<string, unknown> = {}) =>
 		write(
@@ -117,7 +118,7 @@ describe("desktop standalone payload", () => {
 			assert.ok(fs.existsSync(path.join(payload, "node_modules", "@napi-rs", "canvas-linux-x64-gnu")));
 			assert.ok(!fs.existsSync(path.join(payload, "node_modules", "typescript")), "the build tool never ships");
 			assert.ok(fs.existsSync(path.join(payload, PROMPT)));
-			assert.ok(fs.existsSync(path.join(payload, "src", "agent", "prompts", "teacher", "20-teaching.md")));
+			assert.ok(fs.existsSync(path.join(payload, "src", "session", "prompts", "teacher", "20-teaching.md")));
 		});
 	});
 
@@ -208,9 +209,9 @@ describe("desktop standalone payload", () => {
 			[path.join("client", ".env"), ".env"],
 			[path.join("client", ".env.local"), ".env.local"],
 			[path.join("client", "data", "private.json"), "data/"],
-			[path.join("app", "page.html"), "app/"],
-			[path.join("next.config.ts"), "next.config.ts"],
-			[path.join("src", "agent", "secret.ts"), ".ts sources"],
+			[path.join("tests", "leak.test.ts"), "tests/"],
+			[path.join("AGENTS.md"), "AGENTS.md"],
+			[path.join("src", "session", "secret.ts"), ".ts sources"],
 		];
 		for (const [leak, expected] of leaks) {
 			withPayload(({ write, run }) => {
@@ -225,7 +226,7 @@ describe("desktop standalone payload", () => {
 
 	it("still refuses a missing runtime prompt asset", () => {
 		withPayload(({ root, remove, run }) => {
-			remove(path.join("src", "agent", "prompts", "teacher", "20-teaching.md"));
+			remove(PROMPTS);
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);

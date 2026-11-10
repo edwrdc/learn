@@ -1,0 +1,10 @@
+export { commitPositions } from "./commit-positions.ts";
+export { coverageOf } from "./coverage.ts";
+export { proberGraphTools } from "./extraction/graph-tools.ts";
+export type { GraphDeps } from "./snapshot.ts";
+export { NotesImportError, abortExtraction, createExtractionPipeline, extractionStatuses, stopExtraction } from "./extraction/pipeline.ts";
+export type { ExtractionPipeline } from "./extraction/pipeline.ts";
+export { EXTRACTION_ROLES } from "./extraction/submit-role.ts";
+export { deleteGraphNode, extractionRuns, graphCosts, graphRevision, graphView } from "./service.ts";
+export { graphStore } from "./store.ts";
+export { getGraph } from "./snapshot.ts";

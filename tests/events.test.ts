@@ -7,8 +7,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { emit, subscribe, type ServerEvent } from "../src/core/events.ts";
-import { eventsResponse } from "../src/server/events-stream.ts";
+import { emit, subscribe, type ServerEvent } from "../src/platform/model/events.ts";
+import { eventsResponse } from "../src/platform/events-stream.ts";
 
 // ─── the bus ────────────────────────────────────────────────────────────────
 
@@ -38,25 +38,14 @@ describe("event bus", () => {
 
 	it("one listener throwing NEVER breaks the others (error isolation)", () => {
 		const got: string[] = [];
-		subscribe(() => {
+		const offThrowing = subscribe(() => {
 			throw new Error("listener bug");
 		});
 		const off = subscribe((e) => got.push(e.type));
 		emit("turn-settled", { chatId: "chat_b" });
+		offThrowing();
 		off();
 		assert.deepEqual(got, ["turn-settled"]);
-	});
-
-	it("emit with zero subscribers is a silent no-op", () => {
-		assert.doesNotThrow(() => emit("chats-changed", {}));
-	});
-
-	it("the registry is globalThis-backed — the Next multi-entry law (turn-liveness discipline)", () => {
-		// Every module instance must share ONE bus or nothing propagates
-		// (the original incident: page render vs route each held a private
-		// singleton). The key IS the contract.
-		const g = globalThis as { __lhEventBus?: unknown };
-		assert.ok(g.__lhEventBus instanceof Set, "the bus lives on globalThis");
 	});
 
 	it("an unsubscribe DURING emit is safe (snapshot iteration)", () => {

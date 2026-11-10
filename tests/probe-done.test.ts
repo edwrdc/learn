@@ -7,19 +7,17 @@
  * pending-question gate is the dangling-question scan, and the handoff is
  * a native marker (customType probe-handoff, HANDOFF_TEXT content).
  */
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
-import { probeDoneTool } from "../src/agent/tools/probe.ts";
-import type { SteerMessage } from "../src/core/contracts.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { HANDOFF_TEXT } from "../src/core/contracts.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { PATHS } from "../config.ts";
-
-const dataDir = path.join(PATHS.root, "data");
-fs.mkdirSync(dataDir, { recursive: true });
+import { probeDoneTool } from "../src/session/tools/probe.ts";
+import type { SteerMessage } from "../src/jobs/model/types.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { HANDOFF_TEXT } from "../src/session/model/types.ts";
+import { chatStore } from "../src/session/store.ts";
+import { PATHS } from "../src/platform/config.ts";
 
 const createdChats: string[] = [];
 after(() => {
@@ -109,6 +107,7 @@ describe("probe_done: the probe→planning seam", () => {
 				toolCallId: "call_m1",
 				toolName: "probe_done",
 				content: [{ type: "text", text: "ok" }],
+				details: { ok: true },
 				isError: false,
 				timestamp: Date.now(),
 			} as never,

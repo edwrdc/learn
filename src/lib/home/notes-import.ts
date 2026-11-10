@@ -1,17 +1,8 @@
-/** Notes import transport: response validation and error projection. */
-export interface NotesImportResult {
-	requestIndex: number;
-	filePath: string;
-	ok: boolean;
-	outcome: "completed" | "failed" | "partial" | "aborted" | "busy";
-	stats?: { nodes: number; chains?: number };
-	error?: string;
-	code?: string;
-	provider?: string;
-	missing?: string[];
-	slots?: string[];
-}
+import type { NotesImportResult } from "@/src/graph/model";
+import { importNotes } from "$lib/api/graph";
+import { ApiError } from "$lib/api/http";
 
+/** Notes import transport: response validation and error projection. */
 export function parseNotesImportResults(body: unknown, files: readonly File[]): NotesImportResult[] {
 	const invalid = () => new Error("Invalid import response. Please retry the file.");
 	if (!body || typeof body !== "object" || !("results" in body) || !Array.isArray(body.results) || body.results.length !== files.length) throw invalid();
@@ -35,7 +26,8 @@ export function parseNotesImportResults(body: unknown, files: readonly File[]): 
 				typeof result.stats !== "object" ||
 				!Number.isFinite(result.stats.nodes) ||
 				result.stats.nodes < 0 ||
-				(result.stats.chains !== undefined && (!Number.isFinite(result.stats.chains) || result.stats.chains < 0)))
+				!Number.isFinite(result.stats.chains) ||
+				result.stats.chains < 0)
 		)
 			throw invalid();
 		if (result.ok && !result.stats) throw invalid();
@@ -48,18 +40,13 @@ export function parseNotesImportResults(body: unknown, files: readonly File[]): 
 }
 
 export async function postNotesImport(files: readonly File[]): Promise<NotesImportResult[]> {
-	const form = new FormData();
-	for (const file of files) form.append("files", file);
-	const response = await fetch("/api/graph/import", { method: "POST", body: form });
 	let body: unknown;
 	try {
-		body = await response.json();
-	} catch {
-		throw new Error("Invalid import response. Please retry the file.");
-	}
-	if (!response.ok) {
-		const detail = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? `: ${body.error}` : "";
-		throw new Error(`Import request failed (HTTP ${response.status})${detail}. Please retry the file.`);
+		body = await importNotes(files);
+	} catch (error) {
+		if (!(error instanceof ApiError)) throw error;
+		const detail = error.body?.error ? `: ${error.body.error}` : "";
+		throw new Error(`Import request failed (HTTP ${error.status})${detail}. Please retry the file.`);
 	}
 	return parseNotesImportResults(body, files);
 }

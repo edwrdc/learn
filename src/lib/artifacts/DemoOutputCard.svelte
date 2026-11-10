@@ -2,12 +2,12 @@
 import { untrack } from "svelte";
 	import { getContext } from "svelte";
 	import { Download } from "@lucide/svelte";
-	import type { DemoResult } from "@/src/core";
-	import { CHAT_ACTIONS, type ChatActions } from "$lib/chat/actions-context";
+	import type { DemoResult } from "@/src/jobs/model";
+	import { CHAT_ACTIONS, type ChatActions } from "$lib/session-context";
 	import Toggle from "$lib/ui/Toggle.svelte";
 	import { buildDemoSrcDoc, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState, type DemoBridgeState } from "./demo-bridge";
 	import { downloadFile, slugFilename } from "./download";
-	import { persistInverted } from "./artifact-ui";
+	import { INVERT_FILTER, InvertSwitch } from "./inverted.svelte";
 	import InvertDisc from "./InvertDisc.svelte";
 
 	let {
@@ -18,7 +18,7 @@ import { untrack } from "svelte";
 
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
 	const result = $derived(output as DemoResult | undefined);
-	let inverted = $state(untrack(() => initialInverted));
+	const invert = new InvertSwitch(untrack(() => initialInverted), () => actions?.chatId, () => messageId);
 	let bridge = $state<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
 	let frame = $state<HTMLIFrameElement | null>(null);
 
@@ -34,20 +34,16 @@ import { untrack } from "svelte";
 		return () => window.removeEventListener("message", onMessage);
 	});
 
-	function toggleInverted(next: boolean) {
-		inverted = next;
-		persistInverted(actions?.chatId, messageId, next);
-	}
 </script>
 
 {#if !result || typeof result.html !== "string" || typeof result.title !== "string"}
 	<div class="rounded-xl border bg-card p-4 text-sm text-muted-foreground">Demo completed, but the result could not be displayed.</div>
-{:else if result.html.length === 0}
+{:else if result.failure !== undefined}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card-failed">
 		<div class="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 			Interactive demo <span class="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
 		</div>
-		<p class="mt-2 text-sm text-muted-foreground">{result.notes ?? "The demo could not be built."}</p>
+		<p class="mt-2 text-sm text-muted-foreground">{result.failure}</p>
 	</div>
 {:else}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">
@@ -57,7 +53,7 @@ import { untrack } from "svelte";
 				<span class="truncate text-xs font-medium tracking-wide text-foreground">{result.title}</span>
 			</div>
 			<div class="flex shrink-0 items-center gap-1.5">
-				<Toggle checked={inverted} onChange={toggleInverted} label="Invert demo brightness" title="Invert colors">
+				<Toggle checked={invert.on} onChange={invert.set} label="Invert demo brightness" title="Invert colors">
 					{#snippet disc()}<InvertDisc class="size-3" />{/snippet}
 				</Toggle>
 				<button type="button" aria-label="Download demo as HTML" title="Download as HTML" onclick={() => downloadFile(`${slugFilename(result.title)}.html`, result.html, "text/html")} data-testid="demo-download" class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -81,7 +77,7 @@ import { untrack } from "svelte";
 			srcdoc={srcDoc}
 			scrolling="no"
 			class="mt-2 w-full rounded-lg border bg-white"
-			style="height: {bridge.height ?? 360}px; box-sizing: content-box;{inverted ? ' filter: invert(1) hue-rotate(180deg);' : ''}"
+			style="height: {bridge.height ?? 360}px; box-sizing: content-box;{invert.on ? ` ${INVERT_FILTER};` : ''}"
 			data-testid="demo-iframe"
 		></iframe>
 	</div>

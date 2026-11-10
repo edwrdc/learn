@@ -1,12 +1,13 @@
 <script lang="ts">
-	import type { PlanBlockData, PlanNodeStatus } from "@/src/core";
+	import type { PlanBlockData, PlanNodeStatus } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import PlanDiagram from "./PlanDiagram.svelte";
 	import { GRAPH_PAD, TEXT_CAP_SCALE } from "./plan-layout";
 
 	let { data, onOpen }: { data: PlanBlockData; onOpen: () => void } = $props();
-	let seq = 0;
-	const markerId = `plan-block-${++seq}`;
+
+	const uid = $props.id();
+	const markerId = `plan-block-${uid}`;
 	const statusMap = $derived(new Map(data.nodes.map((n) => [n.id, n.status] as const)));
 	const statusOf = (id: string): PlanNodeStatus => statusMap.get(id) ?? "upcoming";
 </script>
@@ -19,5 +20,5 @@
 	{@attach hint("Open the full plan", { side: "bottom" })}
 	class="block w-full text-left"
 >
-	<PlanDiagram nodes={data.nodes} edges={data.edges} {statusOf} {markerId} pad={GRAPH_PAD} textCapScale={TEXT_CAP_SCALE} monochrome />
+	<PlanDiagram nodes={data.nodes} edges={data.edges} {statusOf} {markerId} pad={GRAPH_PAD} textCapScale={TEXT_CAP_SCALE} variant="block" />
 </button>

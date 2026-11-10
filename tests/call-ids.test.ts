@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { claimToolCallId, collectToolCallIds } from "../src/server/pi/call-ids.ts";
+import { claimToolCallId, collectToolCallIds } from "../src/session/pi/call-ids.ts";
 
 /**
  * THE LACAN INCIDENT (owner-approved fix, 2026-10-04): DeepSeek (via

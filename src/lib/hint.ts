@@ -1,16 +1,16 @@
 /** Hover/focus tooltips without wrapper DOM — an attachment on the control
  *  itself: the label plus the action's LIVE binding ("Dictate (⌘D)"), 500ms
  *  hover delay, hides on leave/blur/Escape. */
-import { bindingForAction, formatBinding, type KeyAction } from "@/src/core";
+import { bindingForAction, formatBinding, type KeyAction } from "@/src/settings/model";
 
-export const TOOLTIP_DELAY_MS = 500;
+const TOOLTIP_DELAY_MS = 500;
 
 export function hintText(label: string, action?: KeyAction, binding?: string): string {
 	const live = action ? formatBinding(bindingForAction(action)) : binding ? formatBinding(binding) : "";
 	return live ? `${label} (${live})` : label;
 }
 
-export type HintSide = "top" | "bottom" | "left" | "right";
+type HintSide = "top" | "bottom" | "left" | "right";
 
 export function hint(label: string, options: { action?: KeyAction; binding?: string; side?: HintSide } = {}) {
 	return (node: HTMLElement) => {

@@ -1,43 +1,28 @@
 /**
- * THE SESSION MODEL (Wave D): the chat session's state machine, extracted
- * PURE — no DOM, one injectable fetch — so the attach/replay/settle/
- * error/abort paths are testable in the repo's node:test world. The Svelte
- * adapter (chat/session.svelte.ts) is thin: it re-renders on change
- * and projects the view (core/view.ts).
+ * THE SESSION MODEL: the chat session's state machine, PURE — no DOM, one
+ * injectable fetch — so the attach/replay/settle/error/abort paths are
+ * testable under node:test. The Svelte adapter (chat/session.svelte.ts) is
+ * thin: it re-renders on change and projects the view
+ * (src/session/model/view.ts).
  *
  * ONE VIEW PROTOCOL: every turn is a server-side background process (owner
- * ruling 2026-09-25); this model is a view. Sends POST one explicit input
- * event ({chatId, input}); the response and the reattach stream
- * (GET /api/chats/[id]/stream) are the SAME verbatim turn-event SSE,
- * applied by the same function. Status vocabulary (pre-Wave-D parity):
- * ready | submitted | streaming | error.
+ * ruling); this model is a view. Sends POST one explicit input event
+ * ({chatId, input}); the reattach stream (GET /api/chats/[id]/stream)
+ * carries the verbatim turn-event SSE, applied by one function. Status
+ * vocabulary: ready | submitted | streaming | error.
  */
 
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import {
-	needsContinuation,
-	newAnswerResult,
-	newNextMessage,
-	newProblemDismissedMarker,
-	newThinkingMessage,
-	newUserMessage,
-	projectView,
-	type ChatInput,
-	type LhMarkerMessage,
-	type LhMessage,
-	type LhViewMessage,
-	type LiveExecution,
-	type QuestionAnswerData,
-} from "@/src/core";
+import { needsContinuation, newAnswerResult, newNextMessage, newProblemDismissedMarker, newThinkingMessage, newUserMessage, projectView, type ChatInput, type LhMarkerMessage, type LhMessage, type LhViewMessage, type LiveExecution, type QuestionAnswerData } from "@/src/session/model";
 
-export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
+type SessionStatus = "ready" | "submitted" | "streaming" | "error";
 
 /** How often to poll turnInFlight while a racing turn runs (409 retry). */
-export const TURN_POLL_MS = 500;
+const TURN_POLL_MS = 500;
 /** Give up waiting (a wake turn can run long) and surface the 409. */
-export const TURN_WAIT_MAX_MS = 30_000;
+const TURN_WAIT_MAX_MS = 30_000;
 
-export interface SessionModelDeps {
+interface SessionModelDeps {
 	/** Injectable fetch (tests); defaults to the global. */
 	fetch?: typeof globalThis.fetch;
 	/** Injectable retry timing (tests). */
@@ -137,11 +122,11 @@ export function absorbed(m: LhMessage, record: readonly LhMessage[]): boolean {
 		);
 	}
 	if (role === "custom") {
-		// Markers (the thinking submission, 2026-10-05 — the doubled-card
-		// bug: the optimistic practice-thinking card was never absorbed, so
-		// the adoption window rendered it beside the write-ahead's server
-		// copy for the whole turn). TOTAL over roles by identity key — a
-		// marker is itself when its customType AND structured details match;
+		// Markers: an optimistic marker (the practice-thinking card) must be
+		// absorbed too, or the adoption window renders it beside the
+		// write-ahead's server copy for the whole turn. TOTAL over roles by
+		// identity key — a marker is itself when its customType AND
+		// structured details match;
 		// types that never appear optimistically simply never reach here.
 		const marker = m as LhMarkerMessage;
 		return record.some(
@@ -165,7 +150,7 @@ export interface SessionState {
 	nativeMessages: LhMessage[];
 	status: SessionStatus;
 	error: { message: string } | null;
-	/** Steers sent but not yet drained (composer steering, 2026-10-03):
+	/** Steers sent but not yet drained:
 	 *  the queued indicator's truth. An entry dies when its id lands in
 	 *  the messages (the drain's verbatim events upsert the real card) —
 	 *  visibleQueuedSteers is the pure fold. */
@@ -190,7 +175,7 @@ export function visibleQueuedSteers(
 	return queue.filter((s) => !ids.has(s.id));
 }
 
-export interface SessionModelOptions extends SessionModelDeps {
+interface SessionModelOptions extends SessionModelDeps {
 	chatId: string;
 	initialMessages: LhMessage[];
 	/** Fires on every state change (the hook re-renders). */
@@ -200,7 +185,7 @@ export interface SessionModelOptions extends SessionModelDeps {
 	onReattachSettled?: () => void;
 }
 
-/** The wire events this view applies (server: src/server/pi/durable-turn.ts
+/** The wire events this view applies (server: src/session/pi/durable-turn.ts
  *  TurnWireEvent). Only the fields the fold reads are typed; the switch
  *  ignores everything else. */
 type WireEvent =
@@ -240,8 +225,8 @@ export class SessionModel {
 	private streamingMessageId: string | null = null;
 	private statusValue: SessionStatus = "ready";
 	private errorValue: { message: string } | null = null;
-	// The single live consume (POST response or reattach stream): a newer
-	// consume cancels the older — one reader at a time.
+	// The single live consume (a send or a reattach): a newer one cancels
+	// the older — one reader at a time.
 	private consumeAbort: AbortController | null = null;
 	private turnGeneration = 0;
 	/** Synchronous ready check for the gate (send/read mount logic). */
@@ -301,7 +286,7 @@ export class SessionModel {
 		this.onChange?.();
 	}
 
-	/** The 409 identity-retry fetch (the Wave B contract): the event was
+	/** The 409 identity-retry fetch: the event was
 	 *  never persisted (write-ahead happens only on acceptance), so the
 	 *  retry waits out the running turn and re-POSTs the SAME body. */
 	async postInputEvent(input: ChatInput, signal?: AbortSignal): Promise<Response> {
@@ -328,18 +313,17 @@ export class SessionModel {
 	}
 
 	/**
-	 * ONE event application for both the POST stream and the reattach
-	 * replay (pi's events carry the FULL partial message — a view REPLACES,
-	 * never assembles deltas). Returns whether the event did VIEW WORK:
-	 * the consume flips submitted→streaming on the first ACTED event, not
-	 * the first wire byte — agent_start/turn_start release nothing, so
-	 * the Thinking… placeholder (gated on submitted) covers the whole
-	 * provider-connect gap (owner, optimistic round 3, 2026-10-02).
+	 * ONE event application for the reattach replay (pi's events carry the
+	 * FULL partial message — a view REPLACES, never assembles deltas).
+	 * Returns whether the event did VIEW WORK: the consume flips
+	 * submitted→streaming on the first ACTED event, not the first wire
+	 * byte — agent_start/turn_start release nothing, so the Thinking…
+	 * placeholder (gated on submitted) covers the whole provider-connect gap.
 	 */
 	applyWireEvent(event: Record<string, unknown>): boolean {
 		if (event.type === "error") {
 			// Loop-level failure (agent.continue threw outside the stream) —
-			// raw text (owner ruling, Wave D): the banner shows exactly this.
+			// raw text (owner ruling): the banner shows exactly this.
 			this.setError(String(event.errorText ?? "An error occurred."));
 			return false;
 		}
@@ -353,12 +337,12 @@ export class SessionModel {
 					id?: string;
 				};
 				if ((message as { role?: string }).role !== "assistant") {
-					// Wave C: markers injected mid-run (pi's follow-up delivery)
+					// Markers injected mid-run (pi's follow-up delivery)
 					// arrive as custom-role message_start/message_end events -
 					// UPSERT by id (markers always carry steer_<id> ids; id-less
 					// non-assistant events never occur - injected messages emit
 					// start+end only, no streaming partials). Without this the
-					// live stream dropped the marker until the settle sync.
+					// live stream would drop the marker until the settle sync.
 					const mid = message.id;
 					if (mid === undefined) return false;
 					this.mutate(() => {
@@ -369,10 +353,8 @@ export class SessionModel {
 					return true;
 				}
 				// pi streams AssistantMessages with NO id — the id exists only
-				// once the server's persistTurn stamps the record (the live
-				// streaming bug, 2026-09-26: minting a fresh id per event made
-				// every message_update APPEND a full copy — a divider + thinking
-				// block per chunk, cleaned up only by the settle sync). The
+				// once the server stamps the record (minting a fresh id per
+				// event would make every message_update APPEND a full copy). The
 				// in-flight message is tracked by SLOT instead: message_start
 				// mints and remembers the id; updates and the end REPLACE that
 				// same tail entry. Exactly one assistant message streams at a
@@ -476,7 +458,7 @@ export class SessionModel {
 
 	/**
 	 * Reattach (the wake/handoff/mount path): a server-side turn with no
-	 * live view of ours. ATTACH-FIRST (owner, reattach round 2026-10-02):
+	 * live view of ours. ATTACH-FIRST:
 	 * a fresh-mount reattach passes refetchRecordFirst=false — the page
 	 * render just read the record, so the blocking record round-trip only
 	 * added handshake latency before the instant replay; the running
@@ -492,19 +474,14 @@ export class SessionModel {
 		this.consumeAbort?.abort();
 		const controller = new AbortController();
 		this.consumeAbort = controller;
-		// REPLAY ONTO A CLEAN SLATE (owner, optimistic round 3, 2026-10-02):
-		// the reattach stream replays the turn from its FIRST event — an
-		// aborted earlier attempt (a dev double-mount)
-		// must not leave partials the replay would DOUBLE onto. The old
-		// record refetch provided this reset accidentally; attach-first
-		// made it explicit.
+		// REPLAY ONTO A CLEAN SLATE: the reattach stream replays the turn
+		// from its FIRST event — an aborted earlier attempt (a dev
+		// double-mount) must not leave partials the replay would DOUBLE onto.
 		//
-		// THE FLICKER FIX (owner, 2026-10-10 — connection-diet B follow-up):
-		// on the REFETCH path the clear must NOT precede the fetch — send()
-		// just landed the optimistic answer/note cards in the tail, and any
-		// refetch latency (dev-compile stalls measured at 1.7s) re-showed
-		// the answered-away question for the whole window: card vanished,
-		// dock returned, both snapped back only when the record landed.
+		// On the REFETCH path the clear must NOT precede the fetch — send()
+		// just landed the optimistic answer/note cards in the tail, and
+		// clearing early re-shows the answered-away question for the whole
+		// refetch (card gone, dock back) until the record lands.
 		// The refetch block below swaps base+tail ATOMICALLY when the record
 		// arrives (and clears on failure — the clean-slate guard holds on
 		// every path that actually replays onto a stale tail).
@@ -579,12 +556,12 @@ export class SessionModel {
 		const optimistic: LhMessage[] = [];
 		if (input.type === "text") optimistic.push({ ...newUserMessage(input.text), id: localId() });
 		else if (input.type === "thinking") {
-			// The practice submissions (2026-10-04): the marker lands
+			// The practice submissions: the marker lands
 			// optimistically — the card renders from its details the
 			// moment the button fires.
 			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text), id: localId() });
 		} else if (input.type === "next") {
-			// The move-on signal (owner round 16): the NEXT PROBLEM line
+			// The move-on signal: the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
 			optimistic.push({ ...newNextMessage(), id: localId() });
 		} else if (input.type === "answer") {
@@ -609,8 +586,7 @@ export class SessionModel {
 				// page's refusal flow JSON-parses the envelope out of it.
 				throw new Error((await res.text()) || `The send failed (${res.status}).`);
 			}
-			// CONNECTION DIET B (owner, 2026-10-10 — parallel-session freeze
-			// postmortem): the POST acknowledges and closes; there is no stream
+			// The POST acknowledges and closes; there is no stream
 			// on this response to consume. Attach through the SAME reattach wire
 			// a returning visitor uses (refetch-first: the record refetch absorbs
 			// the server's write-ahead copy of our optimistic messages, then the
@@ -630,7 +606,7 @@ export class SessionModel {
 	}
 
 	/**
-	 *  STEER (composer steering, owner arc 2026-10-03): the learner's
+	 *  STEER: the learner's
 	 *  mid-turn message for the RUNNING turn. NOT a turn — no optimistic
 	 *  transcript card, no status flip: the message joins the queued
 	 *  indicator (the quiet line above the composer) and POSTs to the
@@ -652,7 +628,7 @@ export class SessionModel {
 			this.onChange?.();
 		};
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/steer`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/steer`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "steer", id, text: t } }),
@@ -673,12 +649,11 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData): Promise<void> {
-		void tool;
+	submitAnswer(toolCallId: string, output: QuestionAnswerData): Promise<void> {
 		return this.send({ type: "answer", toolCallId, answer: output });
 	}
 
-	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped
+	/** The dismissal path (owner design): the skipped
 	 * toolResult lands optimistically, then the SILENT route persists it
 	 * — no turn, no stream, nothing wakes. The session pauses at the
 	 * user's choice; the next plain send is the wake. On failure the
@@ -692,7 +667,7 @@ export class SessionModel {
 			this.tail = [...this.tail, { ...newAnswerResult(toolCallId, tool, answer), id: localId() }];
 		});
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "dismiss", toolCallId, answer } }),
@@ -703,7 +678,7 @@ export class SessionModel {
 		}
 	}
 
-	/** The problem discard (practice sessions, owner 2026-10-04): the
+	/** The problem discard (practice sessions): the
 	 *  ask-style dismissal — the UI-only marker lands optimistically, then
 	 *  the SILENT route persists it (no turn, no wake). The composer
 	 *  returns; the conclude synthesis rides the user's next input. */
@@ -714,7 +689,7 @@ export class SessionModel {
 			this.tail = [...this.tail, { ...newProblemDismissedMarker(problemCallId), id: localId() }];
 		});
 		try {
-			const res = await this.fetch(`/api/chats/${this.chatId}/dismiss`, {
+			const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}/dismiss`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ input: { type: "dismiss-problem", problemCallId } }),
@@ -762,7 +737,7 @@ export class SessionModel {
 		});
 	}
 
-	/** The mount/sync continuation fold (native-messages.ts). */
+	/** The mount/sync continuation fold (src/session/model/transcript.ts). */
 	static needsContinuation = needsContinuation;
 
 	clearError(): void {

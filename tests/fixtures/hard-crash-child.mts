@@ -16,8 +16,10 @@ process.env.LH_DATA_DIR = dataDir;
 process.env.NODE_ENV = "test";
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-const { chatStore } = await import("../../src/store/chats.ts");
-const { handleChatRequest } = await import("../../src/server/chat-handler.ts");
+const { chatStore } = await import("../../src/session/store.ts");
+const { handleChatRequest } = await import("../../src/session/turn.ts");
+const { boot } = await import("../../src/boot.ts");
+boot({ upkeep: false });
 
 const chat = await chatStore.createChat("hard crash");
 await chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });

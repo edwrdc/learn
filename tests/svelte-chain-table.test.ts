@@ -4,7 +4,7 @@
  *  collapsed default are pure SSR of the shipped component. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import type { GraphChain, GraphNode } from "../src/core/contracts.ts";
+import type { GraphChain, GraphNode } from "../src/graph/model/types.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -38,10 +38,12 @@ const CHAINS: GraphChain[] = [
 ];
 const props = {
 	open: true,
-	nodes: NODES,
-	chains: CHAINS,
-	sessions: { chat1: "Ethics lesson", chat2: "Second chat" },
-	fileSources: { notes1: "notes/raw/ethics.md" },
+	snapshot: {
+		propositions: NODES,
+		chains: CHAINS,
+		sessions: { chat1: "Ethics lesson", chat2: "Second chat" },
+		fileSources: { notes1: "notes/raw/ethics.md" },
+	},
 	onClose: () => {},
 };
 
@@ -70,8 +72,7 @@ describe("chain table overlay", () => {
 
 	it("unnameable conclusion births form one muted unlabeled group", async () => {
 		const body = await html("/src/lib/home/ChainTableOverlay.svelte", props);
-		assert.ok(body.includes("unlabeled"));
-		assert.ok(body.includes("cluster-group-"));
+		assert.match(body, />unlabeled</);
 	});
 
 	it("cluster rows carry checkbox, counts, newest date and the notes kind", async () => {

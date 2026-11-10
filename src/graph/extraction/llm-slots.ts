@@ -1,0 +1,74 @@
+import { abortError, processState } from "../../platform/model/index.ts";
+
+/**
+ * THE SHARED BACKGROUND-LLM SEMAPHORE (owner decision): ONE process-wide
+ * pool of 3 permits for background LLM jobs (today: extraction chunks).
+ * No subsystem gets a private lane past it.
+ *
+ * FIFO; abort-aware (a queued caller that aborts marks its ticket dead —
+ * the permit handoff skips it and hands to the next waiter).
+ *
+ * FRESH-TAKE / HANDED-OFF-PERMIT discipline: fresh takers increment `active`
+ * themselves; a HANDED-OFF permit does not (the releaser left `active`
+ * untouched for the inheritor) — counting both sides is how a semaphore
+ * slowly deadlocks at 3-with-empty-queue.
+ *
+ * The audit side needs no slot: audits serialize behind their own global
+ * lock, so by the time a job releases its permit the audit queue is the
+ * only remaining throttle.
+ */
+
+/** Total background LLM concurrency, process-wide. */
+export const BG_LLM_PERMITS = 3;
+
+interface LlmSlots {
+	active: number;
+	queue: { resolve: () => void; dead: boolean }[];
+}
+
+function bgLlmSlots(): LlmSlots {
+	return processState<LlmSlots>("llmSlots", () => ({ active: 0, queue: [] }));
+}
+
+/** Run `critical` under one permit of the shared pool. `signal` (the
+ *  caller's row/abort controller) kills a queued ticket: it marks itself
+ *  dead and rejects AbortError — the handoff skips it. */
+export async function withBgLlmSlot<T>(
+	signal: AbortSignal | undefined,
+	critical: () => Promise<T>,
+): Promise<T> {
+	const slots = bgLlmSlots();
+	let freshTake = true;
+	if (slots.active >= BG_LLM_PERMITS) {
+		freshTake = false;
+		await new Promise<void>((resolve, reject) => {
+			const ticket: { resolve: () => void; dead: boolean } = { resolve, dead: false };
+			slots.queue.push(ticket);
+			if (!signal) return;
+			const die = () => {
+				ticket.dead = true;
+				reject(abortError("background LLM job aborted while queued for a permit"));
+			};
+			if (signal.aborted) die();
+			else signal.addEventListener("abort", die, { once: true });
+		});
+	}
+	if (freshTake) slots.active++;
+	try {
+		return await critical();
+	} finally {
+		// Permit handoff: a waiting ticket inherits the permit directly
+		// (active stays); dead tickets are skipped — their job already
+		// left through the abort path.
+		for (;;) {
+			const next = slots.queue.shift();
+			if (!next) {
+				slots.active--;
+				break;
+			}
+			if (next.dead) continue;
+			next.resolve();
+			break;
+		}
+	}
+}

@@ -1,0 +1,128 @@
+import * as fs from "node:fs";
+import { GRAPH_FILES } from "./files.ts";
+import type { ChatRecord } from "../session/model/index.ts";
+import type { ExtractionRunView, GraphSnapshot } from "./model/types.ts";
+import type { GraphCostSummary } from "../session/model/index.ts";
+import { graphCostSummary } from "../session/model/index.ts";
+import { graphSnapshot } from "./snapshot.ts";
+import {
+	deleteNodeTraces,
+	type NodeDeletionStats,
+} from "./model/deletion.ts";
+import { extractionStatuses } from "./extraction/pipeline.ts";
+import { stores } from "../stores.ts";
+
+/** The in-flight extraction jobs, oldest first, with their display titles. */
+export async function extractionRuns(): Promise<ExtractionRunView[]> {
+	const runs = extractionStatuses();
+	const chats = await stores.chatStore.getChats(runs.map((run) => run.chatId));
+	return runs
+		.map((run, index) => ({
+			id: run.id,
+			chatId: run.chatId,
+			part: run.part,
+			title: (run.label ?? chats[index]?.title ?? run.chatId) + (run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
+			phase: run.phase,
+			startedAt: run.startedAt,
+			usage: run.usage,
+		}))
+		.sort((a, b) => a.startedAt - b.startedAt);
+}
+
+/**
+ * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
+ * the extraction pipeline (the sole graph writer) is never triggered from
+ * here — the home view reflects whatever the pipeline has merged so far.
+ */
+export async function graphView(): Promise<GraphSnapshot> {
+	return graphSnapshot(stores);
+}
+
+/** The graph view's cost surface (GET /api/graph/costs): fold every usage
+ *  channel into stage totals + recent runs. A pure read over the chat
+ *  records (chat-front-door runs) and the notes sources (notes-front-door
+ *  runs); dollars are inferred by the pure fold
+ *  (session/model/cost-summary.ts + prices.ts) — nothing here stores or
+ *  caches money. */
+export async function graphCosts(): Promise<GraphCostSummary> {
+	const summaries = await stores.chatStore.listChats();
+	const chats: Array<{ title: string; extractions: NonNullable<ChatRecord["extractions"]> }> = [];
+	const records = await stores.chatStore.getChats(summaries.map((summary) => summary.id));
+	summaries.forEach((summary, index) => {
+		const record = records[index];
+		if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
+	});
+	const sources = stores.graphStore
+		.readSources()
+		.filter((s) => s.extractions?.length)
+		.map((s) => ({ filePath: s.filePath, extractions: s.extractions! }));
+	return graphCostSummary({ chats, sources });
+}
+
+/** The graph's version stamp: the max mtime
+ * across every graph data file — ledgers, positions. Moves on ANY
+ * graph write (merge append, settle, or a deletion's atomic rewrite),
+ * never moves on reads, and needs no bookkeeping of its own: the fs
+ * IS the counter. Consumers poll it (the activity feed
+ *  carries it; the DELETE response returns it) to know clusters/layout
+ *  must refetch — the "graph changed underneath me" signal. */
+export function graphRevision(): number {
+	let revision = 0;
+	for (const file of GRAPH_FILES) {
+		try {
+			revision = Math.max(revision, fs.statSync(file).mtimeMs);
+		} catch {
+			/* absent — nothing has ever written it */
+		}
+	}
+	return revision;
+}
+
+// ─── single-node deletion ────────────────────────────────────────────────────
+
+/** What deleteGraphNode did — the route maps it straight to HTTP. */
+type NodeDeleteOutcome =
+	| { ok: false; status: 404; code: "not_found"; error: string }
+	| { ok: false; status: 409; code: "extraction_running"; error: string }
+	| { ok: true; stats: NodeDeletionStats; graphRevision: number };
+
+/**
+ * Delete one node by id — FULL DEATH (model/deletion.ts for the
+ * ledger semantics). The guard family is deliberately NOT the chat
+ * one, and the reasoning is worth writing down:
+ *
+ *   - No turn/jobs gates. Turns and background jobs never write the
+ *     graph ledgers; a turn's follow-up extraction registers as a run,
+ *     and every code path here is synchronous — nothing can register
+ *     or merge between the gate and the ledger rewrite (the event loop
+ *     never yields inside this function).
+ *   - THE EXTRACTION GATE — 409 while ANY pipeline run is registered,
+ *     anywhere. A mid-flight run holds findings extracted from
+ *     transcripts that predate the deletion; its merges could re-add
+ *     aliases or provenance to the dying node. Unlike chat deletion we
+ *     do NOT abort the run: it belongs to some session, and killing
+ *     that session's spend is outside this deletion's blast radius —
+ *     the UI retries once the dock drains. A run that starts AFTER
+ *     the deletion is legitimate re-learning: it reads post-deletion
+ *     ledgers, mints a fresh node for a re-taught topic, and
+ *     mergeFindings ignores linkTo ids that no longer exist (the
+ *     existingIds guard) — no dangling edges, no resurrection.
+ */
+export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
+	if (extractionStatuses().length > 0) {
+		return {
+			ok: false,
+			status: 409,
+			code: "extraction_running",
+			error: "An extraction is running — try again when it finishes",
+		};
+	}
+	// THE SYNC BLOCK — no awaits below: the gate and the rewrite are one
+	// atomic stretch of the event loop.
+	const stats = deleteNodeTraces(stores.graphStore, nodeId);
+	if (stats === null) {
+		return { ok: false, status: 404, code: "not_found", error: "No such node" };
+	}
+	return { ok: true, stats, graphRevision: graphRevision() };
+}
+

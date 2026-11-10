@@ -1,54 +1,41 @@
 <script lang="ts">
-	import { formatTokens } from "$lib/format";
-	import { activity } from "$lib/state/activity.svelte";
-	import type { SessionCoverage } from "@/src/core";
+	import { formatTokens, plural } from "$lib/format";
+	import { extractChat } from "$lib/api/graph";
+	import { ApiError } from "$lib/api/http";
+	import { chatCoverage } from "$lib/state/coverage.svelte";
 
 
 	let { chatId }: { chatId: string } = $props();
-	let coverage = $state<SessionCoverage | null>(null);
+	const store = $derived(chatCoverage(chatId));
+	const coverage = $derived(store.value);
+	/** Requested here and not yet seen running: the button stays busy until the
+	 *  run shows up (or the uncovered count moves). */
 	let extracting = $state(false);
-	let lastUncovered: number | null = null;
-
-	async function load() {
-		try {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
-			if (!res.ok) return;
-			const body = (await res.json()) as { coverage?: SessionCoverage | null };
-			const next = body.coverage ?? null;
-			if (!next) return;
-			if (next.running || (lastUncovered !== null && next.uncoveredTokens !== lastUncovered)) extracting = false;
-			lastUncovered = next.uncoveredTokens;
-			coverage = next;
-		} catch {
-		}
-	}
+	let requestedAt: number | null = null;
 
 	$effect(() => {
-		lastUncovered = null;
 		extracting = false;
-		void load();
+		requestedAt = null;
+		void store.refresh();
 	});
 
 	$effect(() => {
-		if (coverage?.running !== true && !extracting) return;
-		const timer = setInterval(() => void load(), 2000);
-		return () => clearInterval(timer);
+		if (!extracting || !coverage) return;
+		if (coverage.running || (requestedAt !== null && coverage.uncoveredTokens !== requestedAt)) extracting = false;
 	});
 
 	async function extract() {
 		extracting = true;
-		activity.refresh();
+		requestedAt = coverage?.uncoveredTokens ?? null;
 		try {
-			const res = await fetch("/api/graph/coverage/extract", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ chatId }),
-			});
-			if (!res.ok && res.status !== 409) extracting = false;
-		} catch {
-			extracting = false;
+			await extractChat(chatId);
+		} catch (error) {
+			if (!(error instanceof ApiError && error.status === 409)) {
+				console.error(`[coverage ${chatId}] extraction request failed:`, error);
+				extracting = false;
+			}
 		}
-		void load();
+		void store.refresh();
 	}
 
 	const busy = $derived(coverage?.running === true || extracting);
@@ -67,7 +54,7 @@
 		{:else}
 			<span class="flex flex-col">
 				<span class="tabular-nums text-foreground">{formatTokens(coverage.uncoveredTokens)} tok uncovered</span>
-				<span class="tabular-nums text-muted-foreground">{coverage.uncoveredCount} message{coverage.uncoveredCount === 1 ? "" : "s"} unextracted</span>
+				<span class="tabular-nums text-muted-foreground">{plural(coverage.uncoveredCount, "message")} unextracted</span>
 			</span>
 		{/if}
 		<button

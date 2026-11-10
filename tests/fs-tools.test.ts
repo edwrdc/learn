@@ -5,12 +5,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 
-import type { AppTool } from "../src/agent/tool-adapter.ts";
-import { expandBraces, globToRegex, matchGlob, walkFiles } from "../src/agent/tools/fs-shared.ts";
-import { findTool } from "../src/agent/tools/find.ts";
-import { grepTool } from "../src/agent/tools/grep.ts";
-import { lsTool } from "../src/agent/tools/ls.ts";
-import { readTool } from "../src/agent/tools/read.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
+import { matchGlob, walkFiles } from "../src/tools/fs/shared.ts";
+import { findTool } from "../src/tools/fs/find.ts";
+import { grepTool } from "../src/tools/fs/grep.ts";
+import { lsTool } from "../src/tools/fs/ls.ts";
+import { readTool } from "../src/tools/fs/read.ts";
 
 /**
  * The learner-filesystem tools (sources v1, 2026-09-19): ls/find/grep as
@@ -79,14 +79,14 @@ describe("glob helpers (fs-shared)", () => {
 	});
 
 	it("brace alternatives expand", () => {
-		assert.deepEqual(expandBraces("*.{ts,tsx}"), ["*.ts", "*.tsx"]);
+		assert.equal(matchGlob("code/main.tsx", "*.{ts,tsx}"), true);
 		assert.equal(matchGlob("code/main.ts", "*.{ts,tsx,js}"), true);
 		assert.equal(matchGlob("code/main.ts", "*.{js,jsx}"), false);
 	});
 
 	it("question mark is one char, literals are escaped", () => {
-		assert.equal(globToRegex("a?c").test("abc"), true);
-		assert.equal(globToRegex("a?c").test("ac"), false);
+		assert.equal(matchGlob("abc", "a?c"), true);
+		assert.equal(matchGlob("ac", "a?c"), false);
 		assert.equal(matchGlob("a.b.txt", "a.b*"), true, "the dot is literal, not any-char");
 	});
 });

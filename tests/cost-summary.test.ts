@@ -11,9 +11,9 @@ import {
 	graphCostSummary,
 	type CostSummaryInput,
 	type GraphCostSummary,
-} from "../src/core/cost-summary.ts";
-import type { CallUsage, ExtractionRunUsage } from "../src/core/contracts.ts";
-import { PRICES, callCost } from "../src/core/prices.ts";
+} from "../src/session/model/cost-summary.ts";
+import type { CallUsage, ExtractionRunUsage } from "../src/session/model/types.ts";
+import { PRICES, callCost } from "../src/session/model/prices.ts";
 
 /** A model with full published pricing (from the generated registry). */
 const PRICED = "openrouter:z-ai/glm-5.3-flash";

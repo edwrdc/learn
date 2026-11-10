@@ -1,135 +1,91 @@
 <script lang="ts">
-	import type { ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/core";
+	import { dismissLayer, modalLayer } from "$lib/ui/layer";
+	import { ApiError, failureMessage } from "$lib/api/http";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
+	import { keys, saveKey as storeKey } from "$lib/state/keys.svelte";
+	import { modelCatalog } from "$lib/state/model-catalog.svelte";
+	import type { AuthProviderInfo, ModelCatalogEntry, ModelSlotName, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { prettyModel } from "$lib/format";
-	import { backdropDismiss } from "$lib/backdrop";
 	import { hint } from "$lib/hint";
-	import { notifySettingsSaved, watchSettings } from "$lib/state/settings-signal";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
 	import ProviderMenuList from "./ProviderMenuList.svelte";
-	import type { ProviderKeyInfo } from "./keys";
-	import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "./compose";
-	import { prefillFromSlots, prefillLevelFromPin, setupStage, SLOT_ORDER } from "./setup";
+	import { populateLevel, thinkingLabel } from "./compose";
+	import { prefillFromSlots, prefillLevelFromPin, setupStage, SLOT_META, SLOT_ORDER } from "./setup";
 	import { focusOnMount } from "$lib/dom";
-
-	const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-		strong: { label: "Strong", roster: "Prober, teacher" },
-		cheap: { label: "Cheap", roster: "Researcher, demo builder, extractor, auditor" },
-		vision: { label: "Vision", roster: "Visual maker + PDF reader" },
-	};
-	interface ModelsBody {
-		models: ModelCatalogEntry[];
-		providers: Array<{ id: string; keyPresent: boolean }>;
-		slots?: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null>;
-	}
 
 	let { open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (models: ModelsSettings) => void } = $props();
 
-	let body = $state<ModelsBody | null>(null);
-	let failed = $state(false);
+	const body = $derived(modelCatalog.value ?? null);
+	const failed = $derived(modelCatalog.failed);
+	const keyProviders = $derived(keys.value?.providers);
 	let picked = $state<Partial<Record<ModelSlotName, ModelCatalogEntry>>>({});
 	let levels = $state<Partial<Record<ModelSlotName, ThinkingLevel>>>({});
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let openMenu = $state<{ slot: ModelSlotName; kind: "model" | "thinking" } | null>(null);
-	let keyProviders = $state<ProviderKeyInfo[] | undefined>(undefined);
-	let keyProvider = $state<ProviderKeyInfo | null>(null);
+	let keyProvider = $state<AuthProviderInfo | null>(null);
 	let keyValue = $state("");
 	let keySaving = $state(false);
 	let keyError = $state<string | null>(null);
 	let keyMenu = $state(false);
-	let keysTick = $state(0);
 	let keyAnchor = $state<HTMLDivElement | null>(null);
+	/** The pickers' trigger buttons, by `${kind}-${slot}`. */
+	let triggers = $state<Record<string, HTMLButtonElement | null>>({});
 
 	function stage(): "keys" | "pickers" {
 		if (failed) return "keys";
 		return setupStage(body ? body.providers : null);
 	}
 
-	$effect(() => watchSettings((section) => {
-		if (section === "keys") keysTick += 1;
-	}));
-
 	$effect(() => {
 		if (!open) return;
-		void keysTick;
-		picked = {};
-		levels = {};
 		error = null;
-		fetch("/api/keys")
-			.then((r) => r.json())
-			.then((value: { providers?: ProviderKeyInfo[] }) => (keyProviders = value.providers ?? []))
-			.catch(() => (keyProviders = []));
-		fetch("/api/models")
-			.then((r) => r.json())
-			.then((value: ModelsBody) => {
-				body = value;
-				failed = false;
-				const pre = prefillFromSlots(value.models, value.slots);
-				picked = pre;
-				const preLevels: Partial<Record<ModelSlotName, ThinkingLevel>> = {};
-				for (const slot of SLOT_ORDER) {
-					const entry = pre[slot];
-					if (entry) preLevels[slot] = prefillLevelFromPin(entry, value.slots?.[slot]);
-				}
-				levels = preLevels;
-			})
-			.catch(() => (failed = true));
+		void modelCatalog.refresh();
+		void keys.refresh();
+	});
+
+	// Every catalog load while open (the open's refresh, a saved key)
+	// re-prefills the pickers from the pinned slots.
+	$effect(() => {
+		if (!open) return;
+		const value = modelCatalog.value;
+		const pre = value ? prefillFromSlots(value.models, value.slots) : {};
+		const preLevels: Partial<Record<ModelSlotName, ThinkingLevel>> = {};
+		for (const slot of SLOT_ORDER) {
+			const entry = pre[slot];
+			if (entry) preLevels[slot] = prefillLevelFromPin(entry, value?.slots?.[slot]);
+		}
+		picked = pre;
+		levels = preLevels;
 	});
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			if (keyMenu) {
-				keyMenu = false;
-				return;
-			}
-			if (openMenu !== null) openMenu = null;
-			else onClose();
-		};
-		const onPointerDown = (event: PointerEvent) => {
-			if (!(event.target instanceof Element)) return;
-			const target = event.target;
-			if (keyMenu) {
-				if (target.closest("[data-lh-menu]") || target.closest('[data-testid="setup-key-provider"]')) return;
-				keyMenu = false;
-			}
-			if (openMenu === null) return;
-			const testid = openMenu.kind === "model" ? `setup-trigger-${openMenu.slot}` : `setup-thinking-${openMenu.slot}`;
-			if (target.closest("[data-lh-menu]") || target.closest(`[data-testid="${testid}"]`)) return;
-			openMenu = null;
-		};
-		document.addEventListener("keydown", onKey);
-		document.addEventListener("pointerdown", onPointerDown);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			document.removeEventListener("pointerdown", onPointerDown);
-		};
+		if (!keyMenu) return;
+		return dismissLayer(() => (keyMenu = false), { inside: () => [keyAnchor], menus: true });
+	});
+	$effect(() => {
+		if (openMenu === null) return;
+		const trigger = triggers[`${openMenu.kind}-${openMenu.slot}`];
+		return dismissLayer(() => (openMenu = null), { inside: () => [trigger], menus: true });
 	});
 
 	async function saveKey() {
 		if (!keyProvider || !keyValue.trim() || keySaving) return;
 		keySaving = true;
 		keyError = null;
-		const res = await fetch(`/api/keys/${encodeURIComponent(keyProvider.envVar)}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ value: keyValue }),
-		}).catch(() => null);
-		keySaving = false;
-		if (!res || !res.ok) {
-			const detail = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
-			keyError = res ? (detail?.error ?? `Save failed (${res.status})`) : "Save failed. Check your connection and try again.";
+		try {
+			await storeKey(keyProvider.envVar, keyValue);
+		} catch (err) {
+			keyError = failureMessage(err, "Save failed. Check your connection and try again.");
 			return;
+		} finally {
+			keySaving = false;
 		}
 		keyProvider = null;
 		keyValue = "";
-		notifySettingsSaved("keys");
 	}
 
 	async function save() {
@@ -144,17 +100,13 @@
 				...(level ? { thinkingLevel: level } : {}),
 			};
 		}
-		const res = await fetch("/api/settings/models", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(models),
-		}).catch(() => null);
-		if (!res || !res.ok) {
+		try {
+			await userSettings.save("models", models);
+		} catch (err) {
 			saving = false;
-			error = res ? `Save failed: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.status}` : "Save failed. Check your connection and try again.";
+			error = err instanceof ApiError ? `Save failed: ${err.message}` : "Save failed. Check your connection and try again.";
 			return;
 		}
-		notifySettingsSaved("models");
 		onDone(models);
 	}
 </script>
@@ -163,7 +115,7 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
 		data-testid="setup-backdrop"
-		{@attach backdropDismiss(onClose)}
+		{@attach modalLayer(onClose)}
 	>
 		<div
 			role="dialog"
@@ -234,12 +186,12 @@
 							<span class="text-xs text-muted-foreground/70">{SLOT_META[slot].roster}</span>
 							<div class="flex items-center gap-2">
 								<div class="relative flex-1">
-									<button type="button" aria-label={`${SLOT_META[slot].label} model`} data-testid={`setup-trigger-${slot}`} aria-expanded={openMenu?.slot === slot && openMenu.kind === "model"} onclick={() => (openMenu = openMenu?.slot === slot && openMenu.kind === "model" ? null : { slot, kind: "model" })} class="flex h-7 min-w-40 w-full items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
+									<button bind:this={triggers[`model-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} model`} data-testid={`setup-trigger-${slot}`} aria-expanded={openMenu?.slot === slot && openMenu.kind === "model"} onclick={() => (openMenu = openMenu?.slot === slot && openMenu.kind === "model" ? null : { slot, kind: "model" })} class="flex h-7 min-w-40 w-full items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
 										<span class="min-w-0 flex-1 truncate">{entry ? prettyModel(entry.id) : "Pick a model…"}</span>
 										<span aria-hidden="true" class="text-muted-foreground">▾</span>
 									</button>
 									{#if openMenu?.slot === slot && openMenu.kind === "model"}
-										<MenuShell anchorTestid={`setup-trigger-${slot}`} testid={`setup-menu-${slot}`} preferredSide="down" align="left" menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
+										<MenuShell anchor={triggers[`model-${slot}`]} testid={`setup-menu-${slot}`} preferredSide="down" align="left" menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
 											<ModelMenuList
 												models={catalog}
 												effectiveId={entry?.id}
@@ -255,12 +207,12 @@
 									{/if}
 								</div>
 								<div class="relative">
-									<button type="button" aria-label={`${SLOT_META[slot].label} thinking`} data-testid={`setup-thinking-${slot}`} aria-expanded={openMenu?.slot === slot && openMenu.kind === "thinking"} disabled={!entry} onclick={() => (openMenu = openMenu?.slot === slot && openMenu.kind === "thinking" ? null : { slot, kind: "thinking" })} class="flex h-7 w-24 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-40">
-										<span class="min-w-0 flex-1 truncate text-left">{entry ? (level ? THINKING_LABEL[level] ?? level : "…") : "—"}</span>
+									<button bind:this={triggers[`thinking-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} thinking`} data-testid={`setup-thinking-${slot}`} aria-expanded={openMenu?.slot === slot && openMenu.kind === "thinking"} disabled={!entry} onclick={() => (openMenu = openMenu?.slot === slot && openMenu.kind === "thinking" ? null : { slot, kind: "thinking" })} class="flex h-7 w-24 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50 disabled:cursor-not-allowed disabled:opacity-40">
+										<span class="min-w-0 flex-1 truncate text-left">{entry ? (level ? thinkingLabel(level) : "…") : "—"}</span>
 										<span aria-hidden="true" class="text-muted-foreground">▾</span>
 									</button>
 									{#if openMenu?.slot === slot && openMenu.kind === "thinking"}
-										<MenuShell anchorTestid={`setup-thinking-${slot}`} testid={`setup-thinking-menu-${slot}`} preferredSide="down" align="left" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
+										<MenuShell anchor={triggers[`thinking-${slot}`]} testid={`setup-thinking-menu-${slot}`} preferredSide="down" align="left" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
 											<ThinkingMenuList levels={levelsForEntry.map(String)} effectiveLevel={level} onPick={(value) => { levels = { ...levels, [slot]: value as ThinkingLevel }; openMenu = null; }} />
 										</MenuShell>
 									{/if}

@@ -16,22 +16,25 @@
 	});
 	const lineNumbers = $derived(!/\bnoLineNumbers\b/.test(meta));
 
-	let highlighted = $state<string | null>(null);
-	let attempted = false;
+	/** The highlight of one exact source: a streaming block shows plain
+	 *  lines until its current text has been highlighted. */
+	let highlighted = $state<{ source: string; lang: string; html: string } | null>(null);
 
 	$effect(() => {
-		if (!browser || attempted) return;
-		attempted = true;
+		if (!browser) return;
+		const request = { source, lang };
 		let cancelled = false;
-		void highlightCode(source, lang).then((html) => {
-			if (!cancelled && html) highlighted = html;
+		void highlightCode(request.source, request.lang).then((html) => {
+			if (!cancelled && html) highlighted = { ...request, html };
 		});
 		return () => {
 			cancelled = true;
 		};
 	});
 
-	const body = $derived(highlighted ?? lineSpans(source));
+	const body = $derived(
+		highlighted && highlighted.source === source && highlighted.lang === lang ? highlighted.html : lineSpans(source),
+	);
 </script>
 
 <div class="group/md relative" data-testid="md-code">

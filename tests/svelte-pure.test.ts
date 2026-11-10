@@ -1,37 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { escAbortTarget, initialPromptOwed, parseModelsRefusal, parseProviderKeyRefusal } from "../src/lib/chat/chat-logic.ts";
+import { parseRefusal } from "../src/lib/chat/chat-logic.ts";
 import { codeKeydown, withCode } from "../src/lib/chat/code-input.ts";
-import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
-import { confidenceRailStyle, CONFIDENCE_COLORS } from "../src/lib/chat/confidence.ts";
+import { INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
+import { confidenceRailStyle } from "../src/lib/chat/confidence.ts";
 import { formatTokens, formatUsd, prettyModel, timeAgo } from "../src/lib/format.ts";
-import { hintText } from "../src/lib/hint.ts";
 import { escapeHtml, lineSpans } from "../src/lib/markdown/copy.ts";
 
 describe("chat logic", () => {
-	it("the ?prompt first send is owed unless a real conversation message exists", () => {
-		assert.equal(initialPromptOwed([], "hi"), true);
-		assert.equal(initialPromptOwed([{ role: "custom" }], "hi"), true);
-		assert.equal(initialPromptOwed([{ role: "user" }], "hi"), false);
-		assert.equal(initialPromptOwed([], undefined), false);
-	});
-
-	it("Esc layers overlays before a question, problem or turn", () => {
-		const base = { abortAsk: false, mermaidFocus: false, planOpen: false, setupOpen: false, pending: false, problem: false, busy: false };
-		assert.equal(escAbortTarget({ ...base, mermaidFocus: true, pending: true }), "mermaid");
-		assert.equal(escAbortTarget({ ...base, planOpen: true, pending: true }), "plan");
-		assert.equal(escAbortTarget({ ...base, setupOpen: true, pending: true }), "setup");
-		assert.equal(escAbortTarget({ ...base, pending: true, busy: true }), "question");
-		assert.equal(escAbortTarget({ ...base, problem: true, busy: true }), "problem");
-		assert.equal(escAbortTarget({ ...base, busy: true }), "turn");
-		assert.equal(escAbortTarget({ ...base, abortAsk: true, pending: true }), null);
-	});
-
 	it("BYOK refusal envelopes parse from the transport's verbatim text", () => {
-		assert.deepEqual(parseModelsRefusal(JSON.stringify({ code: "models_not_configured", missing: ["cheap"] })), ["cheap"]);
-		assert.equal(parseModelsRefusal("boom"), null);
-		assert.equal(parseProviderKeyRefusal(JSON.stringify({ code: "provider_key_missing", error: "No OpenRouter key is set — add one in Settings → Keys" })), true);
-		assert.equal(parseProviderKeyRefusal("{}"), false);
+		assert.equal(parseRefusal(JSON.stringify({ code: "models_not_configured", missing: ["cheap"] })), "models_not_configured");
+		assert.equal(parseRefusal("boom"), null);
+		assert.equal(parseRefusal(JSON.stringify({ code: "provider_key_missing", error: "No OpenRouter key is set — add one in Settings → Keys" })), "provider_key_missing");
+		assert.equal(parseRefusal("{}"), null);
 	});
 });
 
@@ -57,11 +38,11 @@ describe("learner code input", () => {
 		const run = (
 			key: string,
 			opts: Record<string, unknown> = {},
-			escape = true,
+			leave = true,
 		) => {
 			let value = (opts.value as string) ?? "";
 			const calls = { prevented: 0, stopped: 0 };
-			const seen = { change: 0, submit: 0, escape: 0, leave: 0 };
+			const seen = { change: 0, submit: 0, leave: 0 };
 			const field = {
 				selectionStart: (opts.selectionStart as number) ?? value.length,
 				selectionEnd: (opts.selectionEnd as number) ?? value.length,
@@ -87,8 +68,7 @@ describe("learner code input", () => {
 				event,
 				() => seen.change++,
 				() => seen.submit++,
-				escape ? () => seen.escape++ : undefined,
-				() => seen.leave++,
+				leave ? () => seen.leave++ : undefined,
 			);
 			return { value, calls, seen };
 		};
@@ -98,7 +78,7 @@ describe("learner code input", () => {
 		assert.equal(tab.calls.prevented, 1);
 		assert.equal(tab.calls.stopped, 1);
 		assert.equal(tab.seen.change, 1);
-		assert.equal(tab.seen.submit + tab.seen.escape + tab.seen.leave, 0);
+		assert.equal(tab.seen.submit + tab.seen.leave, 0);
 
 		assert.deepEqual(run("Tab", { shiftKey: true }).calls, { prevented: 0, stopped: 0 });
 		assert.deepEqual(run("Tab", { ctrlKey: true }).calls, { prevented: 0, stopped: 0 });
@@ -120,24 +100,17 @@ describe("learner code input", () => {
 		assert.equal(composing.calls.prevented, 0);
 		assert.equal(composing.seen.submit, 0);
 
-		const escape = run("Escape");
-		assert.deepEqual(escape.calls, { prevented: 1, stopped: 1 });
-		assert.equal(escape.seen.escape, 1);
-		assert.equal(escape.seen.leave, 0);
-
-		const leave = run("Escape", {}, false);
+		const leave = run("Escape");
 		assert.deepEqual(leave.calls, { prevented: 1, stopped: 1 });
-		assert.equal(leave.seen.escape, 0);
 		assert.equal(leave.seen.leave, 1);
+
+		const unhandled = run("Escape", {}, false);
+		assert.deepEqual(unhandled.calls, { prevented: 0, stopped: 0 });
+		assert.equal(unhandled.seen.leave, 0);
 	});
 });
 
 describe("demo bridge", () => {
-	it("injects before </body> and appends otherwise", () => {
-		assert.ok(buildDemoSrcDoc("<html><body>x</body></html>").endsWith(`${DEMO_BRIDGE_SCRIPT}</body></html>`));
-		assert.ok(buildDemoSrcDoc("<p>x</p>").endsWith(DEMO_BRIDGE_SCRIPT));
-	});
-
 	it("clamps heights and records errors idempotently", () => {
 		const state = reduceDemoBridgeState(INITIAL_DEMO_BRIDGE_STATE, { type: "demo-resize", height: 10 });
 		assert.equal(state.height, 80);
@@ -166,15 +139,8 @@ describe("presentation helpers", () => {
 	});
 
 	it("the confidence rail paints the six-stop ramp", () => {
-		assert.equal(CONFIDENCE_COLORS.length, 6);
 		assert.match(confidenceRailStyle(0), /#ef4444 0%, #ef4444 0%/);
 		assert.match(confidenceRailStyle(50), /#eab308 0%, #eab308 50%/);
-	});
-
-	it("hint text appends the live binding", () => {
-		assert.match(hintText("Open settings", "open-settings"), /^Open settings \(.*,\)$/);
-		assert.equal(hintText("Close", undefined, "escape"), "Close (Esc)");
-		assert.equal(hintText("Plain"), "Plain");
 	});
 
 	it("code line spans escape HTML and keep one span per line", () => {

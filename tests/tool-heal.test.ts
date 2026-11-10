@@ -8,7 +8,7 @@
  * key-value colon glued on) rejected four times.
  *
  * The fixes these pins hold:
- *  1. THE STANDARD HEAL EVERYWHERE — healToolRecord wraps every registry
+ *  1. THE STANDARD HEAL EVERYWHERE — toRegistration wraps every tool
  *     (bareQuestionTools carried NO prepareArguments at all), and the
  *     quote-encoded literal heals before TypeBox validation.
  *  2. THE DEBRIS STRIP AT MEMBERSHIP SEAMS — stripModelValueDebris in
@@ -23,18 +23,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { validateToolArguments } from "@earendil-works/pi-ai";
-import { healEncodedArguments } from "../src/core/argument-heal.ts";
-import { stripModelValueDebris } from "../src/core/value-debris.ts";
+import { healEncodedArguments } from "../src/tools/model/argument-heal.ts";
+import { stripModelValueDebris } from "../src/platform/model/value-debris.ts";
 import {
 	coerceCorrectAnswer,
 	normalizeQuizType,
 	quizInputObject,
 	quizInputProblems,
-} from "../src/core/question-core.ts";
-import { parseQuizInput } from "../src/core/tool-parts.ts";
-import { resolveTargetId } from "../src/core/chains.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { probeQuizTool } from "../src/agent/tools.ts";
+} from "../src/session/model/questions.ts";
+import { parseQuizInput } from "../src/session/model/tool-parts.ts";
+import { resolveTargetId } from "../src/graph/model/chains.ts";
+import { bareQuestionTools } from "./support-tools.ts";
+import { probeQuizTool } from "../src/session/tools/registry.ts";
+import { toRegistrations } from "../src/tools/index.ts";
+
+/** The bare quiz as the durable runtime registers it. */
+function registeredQuiz() {
+	return toRegistrations(bareQuestionTools()).find((registration) => registration.name === "quiz");
+}
 
 /** The incident's exact encoding: the value wrapped in literal quotes. */
 function QUOTED(value: string): string {
@@ -89,9 +95,8 @@ describe("the death-loop shape — quiz type with quotes baked in", () => {
 		assert.equal((validated as { type: unknown }).type, "predict");
 	});
 
-	it("WIRING: bareQuestionTools (the registry with NO prepareArguments) now heals", () => {
-		const tools = bareQuestionTools();
-		const quiz = tools.quiz;
+	it("WIRING: every registered tool heals, even one with no prepareArguments of its own", () => {
+		const quiz = registeredQuiz();
 		assert.ok(quiz, "the bare quiz must exist");
 		assert.ok(quiz.prepareArguments, "the bare quiz must carry the standard heal");
 		const healed = quiz.prepareArguments!(
@@ -104,7 +109,7 @@ describe("the death-loop shape — quiz type with quotes baked in", () => {
 		// The universal heal covers the ORIGINAL incident's shape as well:
 		// options serialized as a JSON string (then healed only on the
 		// plan-tree quiz path; the bare registries had nothing).
-		const quiz = bareQuestionTools().quiz;
+		const quiz = registeredQuiz();
 		assert.ok(quiz?.prepareArguments, "the bare quiz must carry the standard heal");
 		const input = whiteheadQuiz("predict", ["parmenides"]);
 		const stringified = { ...input, options: JSON.stringify(input.options) };

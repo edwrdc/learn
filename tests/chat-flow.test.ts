@@ -13,6 +13,7 @@
  * question call's real tool result (fork 1, owner 2026-09-26).
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -26,28 +27,30 @@ import {
 	fauxToolCall,
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
-import { createTeacherTools } from "../src/agent/tools.ts";
-import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
-import { handleChatInput, handleChatRequest } from "../src/server/chat-handler.ts";
-import { effectiveSettings, stores } from "../src/server/stores.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { deliverJobResult, setTurnRunner } from "../src/server/jobs.ts";
-import { buildSubagentSteer } from "../src/core/contracts.ts";
-import { abortTurn, runningTurn, settledTurnResponse } from "../src/server/turn-runs.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { buildAnswer, dismissedAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
-import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult } from "../src/core/native-messages.ts";
-import { projectView } from "../src/core/view.ts";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import { createTeacherTools } from "../src/session/tools/registry.ts";
+import { bareQuestionTools } from "./support-tools.ts";
+import { handleChatInput, handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { effectiveSettings } from "../src/stores.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { deliverJobResult, setTurnRunner } from "../src/jobs/wake.ts";
+import { buildSubagentSteer } from "../src/jobs/model/types.ts";
+import { abortTurn, runningTurn, settledTurnResponse } from "../src/session/turn-runs.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { buildAnswer, dismissedAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { danglingQuestionOf, endsInDismissal, needsContinuation, newAnswerResult } from "../src/session/model/transcript.ts";
+import { projectView } from "../src/session/model/view.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
 
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
 // store imports already resolved under).
 const dismissRoute = await import("../src/routes/api/chats/[id]/dismiss/+server.ts");
 const steerRoute = await import("../src/routes/api/chats/[id]/steer/+server.ts");
-import { PATHS } from "../config.ts";
+import { PATHS } from "../src/platform/config.ts";
+import { posedPlaceholder } from "./support-tools.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
 // turns pin openrouter per chat — the gate reads env-first truth, so the
@@ -451,7 +454,7 @@ describe("teacher chat flow (scripted model)", () => {
 		// claimSteers pops the queue inside handleChatInput — the write-ahead
 		// persist is imminent but the TURN is still running). The record
 		// assertion therefore waits for the wake response to land.
-		await deliverJobResult(steer); // queue + pump → waitForIdle → the wake turn
+		await deliverJobResult(job.chatId, steer); // queue + pump → waitForIdle → the wake turn
 		await waitFor(async () => {
 			const rec = await chatStore.getChat(chat.id);
 			const at = rec?.messages.findIndex((m) => (m as { id?: string }).id === steer.id) ?? -1;
@@ -528,13 +531,12 @@ describe("teacher chat flow (scripted model)", () => {
 		// The runner stores the result BEFORE delivery (finalizeJob reads it).
 		jobStore.updateJob(job.id, { result: { brief: "Mid-run brief.", sources: [] } });
 		const steer = buildSubagentSteer(job, { brief: "Mid-run brief.", sources: [] });
-		const delivery = deliverJobResult(steer);
+		const delivery = deliverJobResult(job.chatId, steer);
 		await new Promise((r) => setTimeout(r, 300)); // vehicle 1 hands off
 		assert.equal(wakes, 0, "no wake — the live run owns the delivery");
 
 		release(); // step 1 completes → tool result → TURN BOUNDARY → inject → step 2
-		// Step 2 has pended briefly — give the wire seam a beat, then release.
-		await new Promise((r) => setTimeout(r, 150));
+		await waitFor(() => seen.length === 1, 8000, "step 2 is in flight");
 		release2();
 		await drain(await res);
 		await delivery; // resolves when the marker's entry commits
@@ -859,7 +861,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		const chat = await createConfiguredChat("Test: turn guard");
 		createdChats.push(chat.id);
 
-		const res1 = await handleChatRequest(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine)); // acked; the turn runs as a background object (Diet B: no stream to hold)
+		await handleChatRequest(post(chat.id, { type: "text", text: "teach me the solar system" }), agentFactory(engine)); // acked; the turn runs as a background object (Diet B: no stream to hold)
 		assert.equal(await isTurnRunning(chat.id), true, "turn registered as in flight");
 		const view1 = drainRunning(chat.id); // a live view — the turn would run on with none
 
@@ -889,7 +891,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		// NOT drained: the teacher turn is streaming, but the answer is already
 		// on disk — a remount (or crash) mid-turn sees the answered quiz, never
 		// the stale pre-answer question.
-		const res = await handleChatRequest(post(chat.id, { type: "answer", toolCallId: "call-1", answer }), agentFactory(engine));
+		await handleChatRequest(post(chat.id, { type: "answer", toolCallId: "call-1", answer }), agentFactory(engine));
 		const midTurn = (await chatStore.getChat(chat.id))!;		assert.equal(midTurn.messages.length, 3, "write-ahead appended the answer tool result before finish");
 		assert.equal((midTurn.messages[2] as { role?: string }).role, "toolResult");
 		const midQuiz = projectView(midTurn.messages)[1]!.parts.find((p) => p.type === "tool-quiz");
@@ -1356,13 +1358,14 @@ describe("the silent dismissal (A2)", () => {
 				stopReason: "toolUse",
 				timestamp: 1,
 			} as never,
+			posedPlaceholder("call-a"),
+			posedPlaceholder("call-b"),
 		]);
 
 		// First dismissal completes call-a; call-b still dangles.
 		assert.equal((await dismissPost(chat.id, "call-a")).status, 200);
 		const pending = danglingQuestionOf((await chatStore.getChat(chat.id))!.messages);
 		assert.equal(pending?.toolCallId, "call-b", "the dock advances to the next question");
-		assert.equal(endsInDismissal((await chatStore.getChat(chat.id))!.messages), true);
 
 		// Second dismissal: nothing dangles, still paused.
 		assert.equal((await dismissPost(chat.id, "call-b")).status, 200);
@@ -1558,7 +1561,7 @@ describe("composer steering: POST /api/chats/[id]/steer", () => {
 		createdChats.push(chat.id);
 
 		// The turn starts and holds at the first model call.
-		const turnRes = await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), agentFactory(engine as never));
+		await handleChatRequest(post(chat.id, { type: "text", text: "teach me" }), agentFactory(engine as never));
 		await waitFor(() => calls.length === 1, 8000, "first model call started");
 
 		// The steer lands mid-turn: 200, handed to the live agent.

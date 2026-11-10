@@ -10,11 +10,11 @@
  */
 import assert from "node:assert";
 import test from "node:test";
-import type { PlanTree } from "../src/core/contracts.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { planBlocksFor } from "../src/core/plan-blocks.ts";
-import { projectView as projectNative } from "../src/core/view.ts";
-import type { PlanBlockData } from "../src/core/contracts.ts";
+import type { PlanTree } from "../src/session/model/plan-types.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { planBlocksFor } from "../src/session/model/plan-blocks.ts";
+import { projectView as projectNative } from "../src/session/model/view.ts";
+import type { PlanBlockData } from "../src/session/model/types.ts";
 
 // 5-node fixture: a → b → c, b → d, d → e.
 const TREE: PlanTree = {
@@ -154,13 +154,6 @@ test("the block renders IN FLOW immediately after the plan_init part — not app
 	// Real-world shape (user session chat_mtwgb9lj): the authoring turn
 	// carries plan_init + prose + a quiz call — emission runs at persistTurn
 	// AFTER all of that exists.
-	const turn = [
-		assistantWithCall("m1", "plan_init", { tree: TREE }),
-		resultOf("m1", "plan_init", { ok: true, tree: TREE }),
-		assistantWithCall("m1b", "quiz", { question: "q?" }, "Here's the plan."),
-		resultOf("m1", "plan_init", { ok: true, tree: TREE }), // (kept out via emitted set — see next test)
-	];
-	turn.pop(); // drop the stray duplicate — build the real shape below
 	const real = [
 		assistantWithCall("m1", "plan_init", { tree: TREE }),
 		resultOf("m1", "plan_init", { ok: true, tree: TREE }),

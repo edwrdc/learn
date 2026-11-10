@@ -25,14 +25,14 @@ import { routeEvent } from "./support-route-event.ts";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-graph-context-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { newGraphContextMessage } = await import("../src/core/native-messages.ts");
-const { toLlmMessages } = await import("../src/core/native-messages.ts");
-import type { LhMessage } from "../src/core/native-messages.ts";
-const { projectView } = await import("../src/core/view.ts");
+const { newGraphContextMessage } = await import("../src/session/model/transcript.ts");
+const { toLlmMessages } = await import("../src/session/model/transcript.ts");
+import type { LhMessage } from "../src/session/model/transcript.ts";
+const { projectView } = await import("../src/session/model/view.ts");
 const { POST } = await import("../src/routes/api/chats/+server.ts");
 const { initialPromptOwed } = await import("../src/lib/chat/chat-logic.ts");
-const { chatStore } = await import("../src/store/chats.ts");
-const { graphStore } = await import("../src/store/graph.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { graphStore } = await import("../src/graph/store.ts");
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

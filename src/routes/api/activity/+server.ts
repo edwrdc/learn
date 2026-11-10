@@ -1,11 +1,8 @@
 /**
  * GET /api/activity — the dock's one poll: every running background
- * process, every view (chat, home, everywhere). Composition only — the
- * feed lives in server/observability.ts; cost folds client-side via
- * core/prices.ts. See that module's header for why /api/jobs stays
- * chat-scoped and untouched.
+ * process, every view. Cost folds client-side.
  */
-import { activityFeed } from "@/src/server";
+import { activityFeed } from "@/src/activity";
 
 export async function GET() {
 	return Response.json(await activityFeed());

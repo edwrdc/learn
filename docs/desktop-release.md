@@ -50,10 +50,12 @@ Do not use `act -n` as a preflight. It still executes host steps and can run `ac
 `package` needs `quality` and then runs the full desktop pipeline:
 
 1. The native PDF/SVG/browser-service renderer tests in Electron's bundled Node, with no display.
-2. `npm run desktop:dist`, the single packaging owner. It runs `vite build`, `scripts/build-server.mjs`, the provider-runtime smoke, the packaged server smoke, and the carrier smoke, then runs the server and carrier smokes again on Electron's bundled Node with `--electron` (production starts the server there, not under the host Node), then `electron-builder --linux --x64 --publish never`.
-3. The packaged provider smoke against `dist/linux-unpacked/resources/server/standalone`, first with the host Node and then with the packaged `dist/linux-unpacked/learnharness` runtime.
-4. The packaged demo smoke under `xvfb-run`, using the app's own Electron instead of system Chrome.
+2. `npm run desktop:dist`, the single packaging owner. It runs `vite build`, `scripts/build-server.mjs`, the packaged server smoke (`scripts/smoke-server.mjs`) and the carrier smoke (`scripts/smoke-carrier.mjs`), then runs the server and carrier smokes again on Electron's bundled Node with `--electron` (production starts the server there, not under the host Node), then `electron-builder --linux --x64 --publish never`.
+3. The packaged provider smoke (`scripts/smoke-provider-runtime.mjs`) against `dist/linux-unpacked/resources/server/standalone`, first with the host Node and then with the packaged `dist/linux-unpacked/learnharness` runtime.
+4. The packaged demo smoke (`scripts/smoke-demo-runtime.mjs --browser`) under `xvfb-run`, using the app's own Electron instead of system Chrome.
 5. The RPM copy to `$LH_OUTPUT_DIR`.
+
+The server and carrier smokes share `scripts/smoke-harness.mjs`, which copies the payload outside the checkout and boots it the way `electron/main.cjs` does, so a package missing from the payload cannot resolve from the checkout's `node_modules`.
 
 The browser interaction suite (`npm run test:browser`) stays separate and manual. It needs the `agent-browser` CLI, as described in the [development guide](development.md#browser-verification).
 
@@ -65,7 +67,7 @@ The script refuses a payload carrying `data/`, `auth.json`, `.env*`, the checkou
 
 **Do not cross-build the payload.** It copies the build machine's native binaries verbatim, so the payload must be built on the same platform that runs it. The Fedora RPM is therefore built from a Linux payload on the same Fedora machine.
 
-The launcher defaults to loopback and the server has no request authentication. Keep it that way: turn handles, the turn queue, and the event bus are process-local, so a serverless adapter or multiple workers would break them. The launcher stamps `x-forwarded-proto: http` so SvelteKit's CSRF check sees the plain-HTTP origin; CSRF stays enabled.
+The launcher (`scripts/server-launch.mjs`, copied to the payload's `server.js`) defaults to loopback and the server has no request authentication. Keep it that way: turn handles, the turn queue, and the event bus are process-local, so a serverless adapter or multiple workers would break them. The launcher stamps `x-forwarded-proto: http` so SvelteKit's CSRF check sees the plain-HTTP origin; CSRF stays enabled.
 
 ## Inspect, install, and upgrade
 

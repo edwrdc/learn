@@ -1,7 +1,7 @@
 /** Svelte ports of the settings-surface SSR pins. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { KEYBOARD_ACTIONS } from "../src/core/index.ts";
+import { KEYBOARD_ACTIONS } from "../src/settings/model/keyboard.ts";
 import { closeSvelteSsr, loadSvelteModule, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -144,11 +144,8 @@ describe("keys and appearance sections", () => {
 		assert.ok((await html("/src/lib/settings/KeysSection.svelte")).includes("Loading keys…"));
 	});
 
-	it("mode is disabled with Coming soon; hex inputs/font trigger/size resolve", async () => {
+	it("hex inputs/font trigger/size resolve", async () => {
 		const body = await html("/src/lib/settings/AppearanceSection.svelte", { appearance: undefined, onSectionChange: () => {} });
-		assert.ok(tagOf(body, "select-mode").includes("disabled"));
-		assert.ok(body.includes("Coming soon"));
-		assert.ok(tagOf(body, "row-mode").includes("opacity-40"));
 		assert.ok(body.includes('placeholder="#141414"'));
 		assert.ok(body.includes('data-testid="font-trigger"'));
 		assert.equal((body.match(/Empty = same as text/g) ?? []).length, 2);
@@ -164,9 +161,6 @@ describe("keyboard section", () => {
 		for (const def of KEYBOARD_ACTIONS) assert.ok(body.includes(`data-testid="kbd-row-${def.id}"`), def.id);
 		assert.ok(body.includes("kbd-scope-global"));
 		assert.ok(body.includes("kbd-scope-chat"));
-		const openSettings = KEYBOARD_ACTIONS.find((action) => action.id === "open-settings");
-		assert.equal(openSettings?.scope, "global");
-		assert.equal(openSettings?.binding, "mod+,");
 		assert.ok(body.includes("Fixed — part of this screen"));
 		assert.ok(!body.includes('data-testid="kbd-rebind-question-next-row"'));
 		assert.ok(!body.includes("Model menu"));

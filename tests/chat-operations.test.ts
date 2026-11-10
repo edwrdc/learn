@@ -1,9 +1,10 @@
+import { processState } from "../src/platform/model/index.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
-import type { PiEngine } from "../src/agent/models.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
 import type { FauxResponseStep } from "@earendil-works/pi-ai";
 
 const originalEnv = { LH_DATA_DIR: process.env.LH_DATA_DIR, NODE_ENV: process.env.NODE_ENV, OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY };
@@ -12,32 +13,34 @@ process.env.LH_DATA_DIR = TMP;
 process.env.NODE_ENV = "production";
 process.env.OPENROUTER_API_KEY = "test-key-presence-gate";
 
-const { PATHS } = await import("../config.ts");
+const { PATHS } = await import("../src/platform/config.ts");
 assert.equal(PATHS.data, TMP);
 const { createFauxCore, fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
 const { Harness, ConversationBusy } = await import("@earendil-works/pi-durable");
-const { withChatOperation } = await import("../src/server/chat-operations.ts");
-const { chatStore } = await import("../src/store/chats.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { handleChatInput, foregroundEngineOverride } = await import("../src/server/chat-handler.ts");
-const { deleteChatSession } = await import("../src/server/chats.ts");
-const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/store/durable.ts");
-const { beginTurn, endTurn, isTurnRunning } = await import("../src/server/turn-liveness.ts");
-const { runningTurn, unregisterTurn } = await import("../src/server/turn-runs.ts");
-const { ensureCompacted } = await import("../src/server/compaction.ts");
-const { newUserMessage } = await import("../src/core/native-messages.ts");
-const { subscribe } = await import("../src/core/events.ts");
-const { readTurn } = await import("../src/server/turn-service.ts");
+const { withChatOperation } = await import("../src/session/chat-operations.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { stores } = await import("../src/stores.ts");
+const { handleChatInput } = await import("../src/session/turn.ts");
+const testEngines: { teacher?: PiEngine } = {};
+await (await import("../src/boot.ts")).boot({ engineFor: (role) => (role === "teacher" ? testEngines.teacher : undefined) }).recovered;
+const { deleteChatSession } = await import("../src/session/operations.ts");
+const { posedPlaceholder } = await import("./support-tools.ts");
+const { openChatRuntime, closeChatRuntime, peekChatRuntime, appendMessages, readEntries, ChatRuntimeInitError } = await import("../src/session/durable.ts");
+const { beginTurn, endTurn, isTurnRunning } = await import("../src/session/turn-liveness.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { ensureCompacted } = await import("../src/session/compaction.ts");
+const { newUserMessage } = await import("../src/session/model/transcript.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
+const { readTurn } = await import("../src/session/turn-service.ts");
 const created: string[] = [];
-const oldOverride = foregroundEngineOverride.current;
+const oldOverride = testEngines.teacher;
 
 after(async () => {
 	stores.chatStore = chatStore;
-	foregroundEngineOverride.current = oldOverride;
+	testEngines.teacher = oldOverride;
 	for (const id of created) {
 		await closeChatRuntime(id);
 		endTurn(id);
-		unregisterTurn(id);
 	}
 	fs.rmSync(TMP, { recursive: true, force: true });
 	for (const [key, value] of Object.entries(originalEnv)) {
@@ -97,7 +100,7 @@ async function finish(chatId: string, model: ReturnType<typeof gatedEngine>) {
 
 describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, () => {
 	it("shares FIFO ordering across module copies, keeps other chats independent, and removes only its own tail", async () => {
-		const copy = await import("../src/server/chat-operations.ts?copy=" + Date.now());
+		const copy = await import("../src/session/chat-operations.ts?copy=" + Date.now());
 		assert.notEqual(copy.withChatOperation, withChatOperation);
 		const firstEntered = deferred();
 		const firstRelease = deferred();
@@ -129,8 +132,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			secondRelease.resolve();
 			assert.deepEqual(await Promise.all([second, third]), ["second", "third"]);
 			assert.deepEqual(order, [1, 2, 3]);
-			const global = globalThis as typeof globalThis & { __lhChatOperationQueues?: Map<string, Promise<unknown>> };
-			assert.equal(global.__lhChatOperationQueues?.has("queue-a"), false);
+			assert.equal(processState<Map<string, unknown>>("lock.chatOperation", () => new Map()).has("queue-a"), false);
 		} finally {
 			firstRelease.resolve();
 			secondRelease.resolve();
@@ -162,7 +164,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			assert.equal(reads, 0);
 			release.resolve();
 			assert.equal((await input).status, 404);
-			assert.deepEqual(await deletion, { ok: false, status: 404, code: "not_found", error: "No such session" });
+			assert.deepEqual(await deletion, { ok: false, status: 404, code: "not_found", error: "Unknown chat" });
 			assert.equal(reads, 2);
 		} finally {
 			release.resolve();
@@ -296,7 +298,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 				stores.chatStore = chatStore;
 				assert.equal((await deleteChatSession(retry.id, "delete-nodes")).ok, true);
 				assert.deepEqual(await deleteChatSession(retry.id, "delete-nodes"), {
-					ok: false, status: 404, code: "not_found", error: "No such session",
+					ok: false, status: 404, code: "not_found", error: "Unknown chat",
 				});
 			} finally { stores.chatStore = chatStore; }
 		});
@@ -364,7 +366,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 					fauxToolCall("ask_user_question", question, { id: "q-first" }),
 					fauxToolCall("ask_user_question", question, { id: "q-last" }),
 				], { stopReason: "toolUse" }), id: "two-questions",
-			}]);
+			}, posedPlaceholder("q-first", "ask_user_question"), posedPlaceholder("q-last", "ask_user_question")]);
 			const runtime = await openChatRuntime(chat.id);
 			const realCommit = runtime.harness.commit;
 			const writeEntered = deferred();
@@ -459,8 +461,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			await first.entered;
 			await closeChatRuntime(chat.id);
 			endTurn(chat.id);
-			unregisterTurn(chat.id);
-			foregroundEngineOverride.current = resumed.engine;
+			testEngines.teacher = resumed.engine;
 			Harness.open = async (...args) => {
 				const harness = await realOpen.apply(Harness, args);
 				harness.submission = async () => { lookupFailed = true; throw failure; };
@@ -484,7 +485,7 @@ describe("per-chat operation queue", { concurrency: false, timeout: 15_000 }, ()
 			assert.equal(resumed.calls, 1);
 		} finally {
 			Harness.open = realOpen;
-			foregroundEngineOverride.current = oldOverride;
+			testEngines.teacher = oldOverride;
 			first.release();
 			resumed.release();
 		}

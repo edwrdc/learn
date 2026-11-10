@@ -11,20 +11,21 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { GraphChain, GraphNode, NotesSource, ChatSummary } from "../src/core/contracts.ts";
-import type { ChatStore, GraphStore } from "../src/core/ports.ts";
+import type { GraphChain, GraphNode, NotesSource } from "../src/graph/model/types.ts";
+import type { ChatRecord, ChatSummary } from "../src/session/model/types.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
 import {
 	graphSessionIndex,
 	graphSessionPropositions,
 	graphSnapshot,
 	type GraphDeps,
-} from "../src/core/graph.ts";
+} from "../src/graph/snapshot.ts";
 import {
 	attachImpToCommunities,
 	birthSessionOf,
 	birthSessionPartition,
-	impClusterKey,
-} from "../src/core/session-clusters.ts";
+} from "../src/graph/model/session-clusters.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ function fakeStores(
 			(over.chats ?? []).map((c) => ({ ...c, messageCount: 0 }) as unknown as ChatSummary),
 		getChat: (id: string) =>
 			((over.chats ?? []).find((c) => c.id === id) as unknown as ChatSummary) ?? undefined,
+		getChats: async (ids: string[]) =>
+			ids.map((id) => ((over.chats ?? []).find((c) => c.id === id) as unknown as ChatRecord) ?? null),
 	} as unknown as ChatStore;
 	return { chatStore, graphStore };
 }
@@ -254,29 +257,34 @@ describe("graphSessionPropositions (the per-session view)", () => {
 
 // ─── imp-node cluster assignment (physics arc, owner 2026-09-30) ─────────────
 
-describe("impClusterKey (majority among PREMISES' births)", () => {
-	const chainOf = (premises: string[], provenance: Array<{ chatId: string; messageId: string }> = []) =>
-		({ id: "arg_t", premises, conclusion: "c", provenance, createdAt: "2026-09-30T00:00:00.000Z" }) as GraphChain;
+describe("imp-node home community (majority among PREMISES' births)", () => {
+	/** The community a live two-or-more-premise chain's imp node joins. */
+	const homeOf = (premiseBirths: Record<string, string | null>, chainProvenance: Array<{ chatId: string; messageId: string }> = []) => {
+		const props = [
+			...Object.entries(premiseBirths).map(([id, birth]) => node(id, id, birth === null ? [] : [pt(birth)])),
+			node("c", "C", [pt("chatC")]),
+		];
+		const communities = ["chatA", "chatB", "chatC", "chatT"].map((id) => ({ id, members: [] as string[] }));
+		attachImpToCommunities(communities, props, [
+			attachable({ id: "arg_t", premises: Object.keys(premiseBirths), conclusion: "c", provenance: chainProvenance, createdAt: "2026-09-30T00:00:00.000Z" }),
+		]);
+		return communities.find((community) => community.members.includes("arg_t"))?.id ?? null;
+	};
 
 	it("unanimous premises → that session", async () => {
-		const key = impClusterKey(chainOf(["p1", "p2", "p3"]), () => "chatA");
-		assert.equal(key, "chatA");
+		assert.equal(homeOf({ p1: "chatA", p2: "chatA", p3: "chatA" }), "chatA");
 	});
 
 	it("cross-session majority wins (2 of 3 premises born in chatA)", async () => {
-		const births: Record<string, string | null> = { p1: "chatA", p2: "chatA", p3: "chatB" };
-		const key = impClusterKey(chainOf(["p1", "p2", "p3"]), (id) => births[id] ?? null);
-		assert.equal(key, "chatA");
+		assert.equal(homeOf({ p1: "chatA", p2: "chatA", p3: "chatB" }), "chatA");
 	});
 
 	it("tie → the chain's OWN birth (the asserting session), not the conclusion's", async () => {
-		const births: Record<string, string | null> = { p1: "chatA", p2: "chatB", c: "chatC" };
-		const key = impClusterKey(chainOf(["p1", "p2"], [pt("chatT")]), (id) => births[id] ?? null);
-		assert.equal(key, "chatT", "the chain's first provenance point breaks the tie");
+		assert.equal(homeOf({ p1: "chatA", p2: "chatB" }, [pt("chatT")]), "chatT", "the chain's first provenance point breaks the tie");
 	});
 
-	it("no birth info at all → null is honest", async () => {
-		assert.equal(impClusterKey(chainOf(["p1", "p2"]), () => null), null);
+	it("no birth info at all → the imp joins no community", async () => {
+		assert.equal(homeOf({ p1: null, p2: null }), null);
 	});
 });
 

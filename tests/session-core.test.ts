@@ -22,12 +22,13 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { absorbed, pendingCallTool, SessionModel } from "../src/lib/chat/session-core.ts";
-import type { ChatInput } from "../src/core/input-events.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
-import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
-import { activeProblemOf, danglingQuestionOf, projectView } from "../src/core/index.ts";
-import { dismissedAnswer } from "../src/core/question-core.ts";
-import { buildAnswer, type QuestionData } from "../src/core/question-core.ts";
+import type { ChatInput } from "../src/session/model/input-events.ts";
+import type { LhMessage } from "../src/session/model/transcript.ts";
+import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/session/model/transcript.ts";
+import { activeProblemOf, danglingQuestionOf } from "../src/session/model/transcript.ts";
+import { projectView } from "../src/session/model/view.ts";
+import { dismissedAnswer } from "../src/session/model/questions.ts";
+import { buildAnswer, type QuestionData } from "../src/session/model/questions.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -69,7 +70,7 @@ function sseResponse(...events: unknown[]): Response {
 function dietFetch(opts: {
 	stream: () => Response;
 	userText?: string;
-	post?: () => Response;
+	post?: () => Response | Promise<Response>;
 	onPost?: (body: string) => void;
 }): typeof globalThis.fetch {
 	return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -824,7 +825,7 @@ describe("send (one input event, verbatim consumption)", () => {
 			throw new Error(`unexpected fetch: ${String(input)}`);
 		}) as typeof globalThis.fetch;
 		const m = model({ initialMessages: [newUserMessage("hi"), quizCall] });
-		const pending = m.submitAnswer("quiz", "call-1", { correct: true } as never);
+		const pending = m.submitAnswer("call-1", { correct: true } as never);
 		// The dock's AnsweredCard state — before any server round-trip:
 		const state = m.getState();
 		const quizPart = state.messages
@@ -928,7 +929,6 @@ it("Wave C: markers injected mid-run (custom role, follow-up delivery) append to
 	m.applyWireEvent({ type: "message_end", message: marker } as never);
 
 	const state = m.getState();
-	const ids = state.messages.map((v) => v.parts.length);
 	assert.ok(state.messages.length >= 2, "the marker produced a view message");
 	const tail = state.messages.at(-1)!;
 	assert.equal(tail.role, "user", "a steer marker projects as a user-role view message");
@@ -1007,11 +1007,7 @@ describe("resumeStream (the reattach path)", () => {
 	it("OPTIMISTIC SUBMIT (owner, optimistic round 2026-10-02): send flips status synchronously — the placeholder is live before the server answers anything", async () => {
 		let release!: (r: Response) => void;
 		const gate = new Promise<Response>((res) => (release = res));
-		globalThis.fetch = (async (input: RequestInfo | URL) => {
-			const url = String(input);
-			if (url === "/api/chats/chat_x") return gate; // the POST hangs
-			throw new Error(`unexpected fetch: ${url}`);
-		}) as typeof globalThis.fetch;
+		globalThis.fetch = dietFetch({ userText: "q", post: () => gate, stream: () => sseResponse("[DONE]") });
 		const m = model();
 		// send() runs synchronously to its first await — status is already
 		// "submitted" (and the optimistic user bubble is appended) before
@@ -1019,8 +1015,10 @@ describe("resumeStream (the reattach path)", () => {
 		const p = m.send({ type: "text", text: "q" });
 		assert.equal(m.getState().status, "submitted", "the placeholder is live pre-first-chunk");
 		assert.equal(m.getState().messages.at(-1)!.role, "user", "the optimistic bubble is up");
-		release(Response.json({ messages: [] }));
+		release(Response.json({ ok: true }));
 		await p;
+		assert.equal(m.getState().status, "ready");
+		assert.equal(m.getState().error, null);
 		// the reattach path is the same synchronous flip (resumeStream sets
 		// submitted at entry, before its fetches).
 	});

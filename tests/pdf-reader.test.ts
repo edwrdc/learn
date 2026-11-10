@@ -12,9 +12,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
-import type { PiEngine } from "../src/agent/models.ts";
-import { runPdfReaderAgent } from "../src/agent/subagents/pdf-reader.ts";
-import type { HeadlessApi } from "../src/agent/subagents/headless.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import { PDF_ROLE } from "../src/jobs/roles/pdf.ts";
+import { runRole } from "../src/jobs/roles/role.ts";
+import type { HeadlessApi } from "../src/jobs/headless.ts";
 
 const FIXTURE = path.join(import.meta.dirname, "fixtures", "sample-3page.pdf");
 
@@ -45,7 +46,6 @@ function fakeHeadless(rendered: { pages: number[] } = { pages: [] }): HeadlessAp
 	return {
 		calls,
 		paths,
-		available: () => true,
 		unavailableReason: () => null,
 		runDemo: async () => {
 			throw new Error("unused");
@@ -105,8 +105,7 @@ describe("pdf-reader source paths", () => {
 				lastContext = JSON.stringify(args[1]);
 				return stream(...args);
 			};
-			const result = await runPdfReaderAgent(
-				{ path: inputPath, question: "Read the document" },
+			const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: inputPath, question: "Read the document" }),
 				{ engine, headless, run: roleRun() },
 			);
 			assert.equal(result.path, absolutePath);
@@ -126,9 +125,9 @@ describe("pdf-reader source paths", () => {
 			throw new Error("the model must not be called");
 		};
 		const missing = path.join("Course notes", "missing.pdf");
-		const result = await runPdfReaderAgent({ path: missing, question: "anything" }, { engine, run: roleRun() });
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: missing, question: "anything" }), { engine, run: roleRun() });
 		assert.equal(result.path, path.join(home, missing));
-		assert.match(result.brief, /^PDF failed:.*ENOENT/);
+		assert.match(result.failure ?? "", /ENOENT/);
 		assert.equal(modelCalls, 0);
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);
@@ -145,8 +144,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			),
 			fauxAssistantMessage([fauxText("The integral rule appears on page 1 (p. 1). Pages consulted: 1, 2")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "what is the integral of x?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is the integral of x?" }),
 			{ engine, run: roleRun() },
 		);
 		assert.equal(result.path, FIXTURE);
@@ -156,7 +154,6 @@ describe("pdf-reader loop (faux engine)", () => {
 	});
 
 	it("the unread-finish gate: a brief with zero consultation is bounced, not delivered", async () => {
-		let nudged = false;
 		const engine = fauxEngine([
 			// first finish attempt with NOTHING read — the loop must inject the
 			// nudge and keep going rather than deliver invention
@@ -168,9 +165,8 @@ describe("pdf-reader loop (faux engine)", () => {
 			),
 			fauxAssistantMessage([fauxText("Found it on page 1 (p. 1): the integral of x dx.")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "integral of x?" },
-			{ engine, run: roleRun(), onActivity: (line) => void (line && (nudged ||= line.startsWith("pdf_search"))) },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "integral of x?" }),
+			{ engine, run: roleRun() },
 		);
 		assert.match(result.brief, /Found it on page 1/);
 		assert.deepEqual(result.pagesRead, [], "search hits consult but do not read (the split)");
@@ -188,8 +184,7 @@ describe("pdf-reader loop (faux engine)", () => {
 			}),
 			fauxAssistantMessage([fauxText("The physics formula is visible on page 2 (p. 2).")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "what is the force formula?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "what is the force formula?" }),
 			{ engine, headless, run: roleRun() },
 		);
 		assert.deepEqual(result.pagesRead, [2, 3], "rendered pages are read pages");
@@ -208,13 +203,11 @@ describe("pdf-reader loop (faux engine)", () => {
 			}),
 			fauxAssistantMessage([fauxText("Extracted instead: the calculus line (p. 1).")]),
 		]);
-		const result = await runPdfReaderAgent(
-			{ path: FIXTURE, question: "page 1 content?" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: FIXTURE, question: "page 1 content?" }),
 			{
 				engine,
 				run: roleRun(),
 				headless: {
-					available: () => false,
 					unavailableReason: () => "No Chrome found",
 					runDemo: async () => {
 						throw new Error("unused");
@@ -235,12 +228,11 @@ describe("pdf-reader loop (faux engine)", () => {
 
 	it("an unreadable source fails deterministically before any model call", async () => {
 		const engine = fauxEngine([fauxAssistantMessage([fauxText("never reached")])]);
-		const result = await runPdfReaderAgent(
-			{ path: path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt"), question: "anything" },
+		const result = await runRole(PDF_ROLE, PDF_ROLE.input({ path: path.join(import.meta.dirname, "fixtures", "not-a-pdf.txt"), question: "anything" }),
 			{ engine, run: roleRun() },
 		);
 		// had the model been consulted, the brief would be its text instead
-		assert.match(result.brief, /^PDF failed:/);
+		assert.ok(result.failure);
 		assert.ok(!result.brief.includes("never reached"));
 		assert.deepEqual(result.pagesRead, []);
 		assert.deepEqual(result.pagesConsulted, []);

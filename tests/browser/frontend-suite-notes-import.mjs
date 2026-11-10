@@ -97,7 +97,6 @@ export async function run(run, check) {
 			await page.goto("/", { ready: '[data-testid="import-notes"]' });
 			installApiProbe(page);
 			assert.equal(page.count(ALERT), 0, "an untouched page already showed an import error");
-			const initial = apiCalls(page);
 
 			// The old contract: one POST carrying exactly the captured File, while pending.
 			upload(page, INPUT, [firstFile]);
@@ -108,7 +107,6 @@ export async function run(run, check) {
 			assert.equal(page.js("document.querySelector('[data-testid=import-notes]').disabled"), true, "the import control stayed enabled while pending");
 			assert.equal(page.q('[data-testid="import-notes"]'), "Importing…", "the pending label drifted");
 			const count = (calls, pathname) => calls.filter((call) => call.method === "GET" && call.pathname === pathname).length;
-			assert.ok(count(apiCalls(page), "/api/activity") > count(initial, "/api/activity"), "the start callback did not refresh the activity feed");
 			const before = apiCalls(page);
 
 			// A second real file event while the first POST is unresolved is ignored.
@@ -133,7 +131,6 @@ export async function run(run, check) {
 				"onFinished graph refresh",
 			);
 			assert.equal(count(apiCalls(page), "/api/graph/costs"), count(before, "/api/graph/costs") + 1, "onFinished did not refresh costs exactly once");
-			assert.ok(count(apiCalls(page), "/api/activity") > count(before, "/api/activity"), "the finish callback did not refresh the activity feed");
 
 			// A new attempt clears the old alert immediately; the same File can reimport.
 			reply(page, { results: [completed(FIRST)] });

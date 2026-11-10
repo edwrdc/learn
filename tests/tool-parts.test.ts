@@ -10,17 +10,16 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { quizInputProblems } from "../src/core/question-core.ts";
 import { Value } from "typebox/value";
-import { repairMathForDisplay, restoreMathEscapes } from "../src/core/math-delims.ts";
+import { repairMathForDisplay, restoreMathEscapes } from "../src/tools/model/math-delims.ts";
 import {
 	parseAskInput,
 	parseProbeDoneInput,
 	parseQuizInput,
 	parseExplainInput,
-} from "../src/core/tool-parts.ts";
-import { quizInputSchema, probeQuizInputSchema } from "../src/core/question-core.ts";
-import { probeDoneInputSchema } from "../src/core/contracts/probe.ts";
+} from "../src/session/model/tool-parts.ts";
+import { quizInputObject, probeQuizInputSchema } from "../src/session/model/questions.ts";
+import { probeDoneInputSchema } from "../src/session/model/probe-types.ts";
 
 const TEACHER_QUIZ = {
 	question: "What does Tarski's convention-T define?",
@@ -65,7 +64,7 @@ describe("parseQuizInput", () => {
 	});
 
 	it("boundary parity: anything the TEACH schema accepts, the display parse accepts", () => {
-		assert.ok(Value.Check(quizInputSchema, TEACHER_QUIZ), "fixture must be boundary-valid for this pin to mean anything");
+		assert.ok(Value.Check(quizInputObject, TEACHER_QUIZ), "fixture must be boundary-valid for this pin to mean anything");
 		assert.ok(parseQuizInput(TEACHER_QUIZ));
 	});
 
@@ -76,7 +75,7 @@ describe("parseQuizInput", () => {
 
 	it("boundary parity: the 2026-09-26 string-options shape heals on read (universal-heal mirror, 2026-10-09)", () => {
 		// The boundary now heals a JSON-encoded options string at EVERY
-		// registry (healToolRecord, owner 2026-10-09 — the bare-quiz sets
+		// registry (toRegistration's heal, owner 2026-10-09 — the bare-quiz sets
 		// carried no prepareArguments at all), and the record keeps the RAW
 		// args — so the display parse heals the same shape, per this file's
 		// own parity law: anything the boundary accepts, the display parse

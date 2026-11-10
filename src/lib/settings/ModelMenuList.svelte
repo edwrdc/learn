@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { fuzzyScore, type ModelCatalogEntry } from "@/src/core";
+	import { fuzzyScore } from "@/src/platform/model";
+	import { type ModelCatalogEntry } from "@/src/settings/model";
 	import { formatTokens } from "$lib/format";
+	import { ListNav } from "$lib/ui/list-nav.svelte";
 
 	let {
 		models,
@@ -17,16 +19,10 @@
 	} = $props();
 
 	let query = $state("");
-	let menuIdx = $state<number | null>(null);
 	let searchEl = $state<HTMLInputElement | null>(null);
-	let listEl = $state<HTMLUListElement | null>(null);
 
 	$effect(() => {
 		searchEl?.focus();
-	});
-	$effect(() => {
-		if (menuIdx === null) return;
-		listEl?.querySelector<HTMLElement>(`[data-idx="${menuIdx}"]`)?.scrollIntoView({ block: "nearest" });
 	});
 
 	const results = $derived(
@@ -36,6 +32,8 @@
 			.sort((a, b) => b.s - a.s || a.m.id.localeCompare(b.m.id))
 			.map((r) => r.m),
 	);
+
+	const nav = new ListNav(() => results, (entry) => onPick(entry));
 
 	function priceLabel(cost: ModelCatalogEntry["cost"]): string {
 		if (!cost) return "price unknown";
@@ -50,26 +48,9 @@
 	value={query}
 	oninput={(event) => {
 		query = (event.currentTarget as HTMLInputElement).value;
-		menuIdx = null;
+		nav.reset();
 	}}
-	onkeydown={(event) => {
-		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-			event.preventDefault();
-			event.stopPropagation();
-			if (results.length === 0) return;
-			menuIdx =
-				event.key === "ArrowDown"
-					? Math.min((menuIdx ?? -1) + 1, results.length - 1)
-					: Math.max((menuIdx ?? results.length) - 1, 0);
-		} else if (event.key === "Enter") {
-			const chosen = results[menuIdx ?? 0];
-			if (chosen) {
-				event.preventDefault();
-				event.stopPropagation();
-				onPick(chosen);
-			}
-		}
-	}}
+	onkeydown={nav.keydown}
 	placeholder="Search models…"
 	class="lh-input mb-1.5 w-full rounded-lg border bg-background px-2 py-1.5 text-foreground outline-none focus:ring-1 focus:ring-ring"
 />
@@ -78,7 +59,7 @@
 {:else if results.length === 0}
 	<div class="px-2 py-3 text-center text-muted-foreground">No models match.</div>
 {/if}
-<ul bind:this={listEl} data-testid="model-list" class="flex max-h-72 flex-col overflow-y-auto px-1">
+<ul {@attach nav.scroll} data-testid="model-list" class="flex max-h-72 flex-col overflow-y-auto px-1">
 	{#each results as model, i (`${model.provider}/${model.id}`)}
 		<li>
 			<button
@@ -86,7 +67,7 @@
 				data-testid={`model-option-${model.id.replace(/[^a-z0-9-]/gi, "_")}`}
 				data-idx={i}
 				onclick={() => onPick(model)}
-				class="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted {i === menuIdx ? 'bg-accent/40 ring-1 ring-inset ring-border' : ''}{model.id === effectiveId && model.provider === (effectiveProvider ?? model.provider) && i !== menuIdx ? ' bg-muted/60' : ''}"
+				class="flex w-full flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted {i === nav.index ? 'bg-accent/40 ring-1 ring-inset ring-border' : ''}{model.id === effectiveId && model.provider === (effectiveProvider ?? model.provider) && i !== nav.index ? ' bg-muted/60' : ''}"
 			>
 				<span class="flex items-center justify-between gap-2">
 					<span class="truncate text-card-foreground">{model.name}</span>

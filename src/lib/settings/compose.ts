@@ -1,10 +1,16 @@
-import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings } from "@/src/core";
-import type { KeyAction } from "@/src/core";
+import { DEFAULT_THINKING_ORDER, type AgentSettings, type ModelSlotName, type ModelsSettings, type PromptSegmentInfo } from "@/src/settings/model";
+import type { KeyAction } from "@/src/settings/model";
+import type { SearchEngineId } from "@/src/tools/model";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
-export const THINKING_LABEL: Record<string, string> = {
+const THINKING_LABEL: Record<string, string> = {
 	off: "off", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max",
 };
+
+/** A thinking level's display label (an unknown level shows as itself). */
+export function thinkingLabel(level: string): string {
+	return THINKING_LABEL[level] ?? level;
+}
 
 export function defaultOrderLevel(supported: readonly ThinkingLevel[]): ThinkingLevel {
 	for (const level of DEFAULT_THINKING_ORDER) {
@@ -40,19 +46,11 @@ export function composeSlotModel(
 
 export const PROMPT_IN_USE_HINT = "Your version is in use";
 
-export interface SegmentInfo {
-	path: string;
-	sourceText: string;
-	overrideText: string | null;
-	enabled: boolean;
-	shared: boolean;
-}
-
-export interface PromptSection {
+interface PromptSection {
 	id: "teacher" | "prober" | "shared";
 	label: string;
 	hint?: string;
-	segments: SegmentInfo[];
+	segments: PromptSegmentInfo[];
 }
 
 export function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
@@ -65,7 +63,7 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
 
 export function composeSearchEngine(
 	agent: AgentSettings | undefined,
-	engine: "tavily" | "brave" | null,
+	engine: SearchEngineId | null,
 ): AgentSettings {
 	if (engine === null) {
 		if (!agent?.search) return { ...agent } as AgentSettings;
@@ -82,7 +80,7 @@ export function composePromptSwitch(agent: AgentSettings | undefined, path: stri
 	return { ...agent, prompts };
 }
 
-export function sectionedSegments(view: { prober: SegmentInfo[]; teacher: SegmentInfo[] }): PromptSection[] {
+export function sectionedSegments(view: { prober: PromptSegmentInfo[]; teacher: PromptSegmentInfo[] }): PromptSection[] {
 	const own = (who: "prober" | "teacher") => view[who].filter((segment) => !segment.shared);
 	return [
 		{ id: "teacher", label: "Teacher", segments: own("teacher") },

@@ -12,113 +12,67 @@ async function lint(relative: string, source: string) {
 	return { errors: result.errorCount, messages: result.messages.map((message) => message.message) };
 }
 
-describe("import boundary law", () => {
-	it("forbids a Svelte component from importing the server layer", async () => {
-		const result = await lint(
-			"src/lib/probe.svelte",
-			'<script lang="ts">\n\timport { getChat } from "@/src/server";\n\tvoid getChat;\n</script>\n\n<p>probe</p>\n',
-		);
+const svelte = (body: string) => `<script lang="ts">\n\t${body}\n</script>\n\n<p>probe</p>\n`;
+
+describe("feature import rules", () => {
+	it("forbids a Svelte component from importing a feature's server surface", async () => {
+		const result = await lint("src/lib/probe.svelte", svelte('import { getChat } from "@/src/session";\n\tvoid getChat;'));
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /Browser shell imports ONLY/);
+		assert.match(result.messages[0]!, /The UI imports only/);
 	});
 
-	it("forbids a Svelte module from importing the server layer", async () => {
-		const result = await lint(
-			"src/lib/probe.ts",
-			'import { getChat } from "@/src/server";\nvoid getChat;\n',
-		);
+	it("forbids a UI module from importing a feature internal", async () => {
+		const result = await lint("src/lib/probe.ts", 'import { chatStore } from "@/src/session/store.ts";\nvoid chatStore;\n');
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /Browser shell imports ONLY/);
+		assert.match(result.messages[0]!, /The UI imports only/);
 	});
 
-	it("forbids a route module from importing a store adapter instead of the barrel", async () => {
-		const result = await lint(
-			"src/routes/probe/+page.server.ts",
-			'import { chatStore } from "@/src/store/chats.ts";\nvoid chatStore;\n',
-		);
+	it("forbids a client route component from importing a feature's server surface", async () => {
+		const result = await lint("src/routes/probe/+page.svelte", svelte('import { getChat } from "@/src/session";\n\tvoid getChat;'));
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /src\/routes \(transport \+ server loads\) imports ONLY/);
+		assert.match(result.messages[0]!, /Client route components import only/);
 	});
 
-	it("keeps the pure core free of IO layers", async () => {
-		const result = await lint(
-			"src/core/probe.ts",
-			'import { getChat } from "@/src/server/index.ts";\nvoid getChat;\n',
-		);
+	it("forbids a route from importing a feature internal instead of its index", async () => {
+		const result = await lint("src/routes/probe/+page.server.ts", 'import { chatStore } from "@/src/session/store.ts";\nvoid chatStore;\n');
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /Pure core never imports IO layers/);
+		assert.match(result.messages[0]!, /Routes import lib/);
 	});
 
-	it("keeps the agent layer free of the server/store layers", async () => {
-		const result = await lint(
-			"src/agent/probe.ts",
-			'import { chatStore } from "@/src/store/chats.ts";\nvoid chatStore;\n',
-		);
+	it("keeps model/ folders pure", async () => {
+		const result = await lint("src/session/model/probe.ts", 'import { graphStore } from "../../graph/index.ts";\nvoid graphStore;\n');
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /agent layer receives its dependencies/);
+		assert.match(result.messages[0]!, /model\/ folders are pure/);
 	});
 
-	it("forbids core internals from a Svelte module even though the barrel is allowed", async () => {
-		const result = await lint(
-			"src/lib/probe.ts",
-			'import { buildGraph } from "@/src/core/graph.ts";\nvoid buildGraph;\n',
-		);
+	it("forbids a feature from reaching into another feature's internals", async () => {
+		const result = await lint("src/jobs/probe.ts", 'import { chatStore } from "../session/store.ts";\nvoid chatStore;\n');
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /Browser shell imports ONLY/);
+		assert.match(result.messages[0]!, /src\/jobs imports src\/session only through/);
 	});
 
-	it("allows a lib module to import a sibling lib module", async () => {
-		const result = await lint(
-			"src/lib/probe.ts",
-			'import { formatUsd } from "$lib/format";\nvoid formatUsd;\n',
-		);
-		assert.equal(result.errors, 0, result.messages.join("\n"));
-	});
-
-	it("forbids a client route component from importing the server barrel", async () => {
-		const result = await lint(
-			"src/routes/probe/+page.svelte",
-			'<script lang="ts">\n\timport { getChat } from "@/src/server";\n\tvoid getChat;\n</script>\n\n<p>probe</p>\n',
-		);
+	it("forbids feature code from importing the UI", async () => {
+		const result = await lint("src/graph/probe.ts", 'import { formatUsd } from "../lib/format.ts";\nvoid formatUsd;\n');
 		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /Client route components never import the server layer/);
+		assert.match(result.messages[0]!, /Feature code never imports the UI/);
 	});
 
-	it("allows a client route component to import $lib components", async () => {
-		const result = await lint(
-			"src/routes/probe/+page.svelte",
-			'<script lang="ts">\n\timport Sidebar from "$lib/shell/Sidebar.svelte";\n\tvoid Sidebar;\n</script>\n\n<p>probe</p>\n',
-		);
-		assert.equal(result.errors, 0, result.messages.join("\n"));
-	});
-
-	it("forbids a server load from importing a server internal instead of the barrel", async () => {
-		const result = await lint(
-			"src/routes/probe/+page.server.ts",
-			'import { chatStore } from "@/src/server/chats.ts";\nvoid chatStore;\n',
-		);
-		assert.equal(result.errors, 1);
-		assert.match(result.messages[0]!, /src\/routes \(transport \+ server loads\) imports ONLY/);
+	it("allows the imports the rules name", async () => {
+		const cases: Array<[string, string]> = [
+			["src/lib/probe.ts", 'import { formatUsd } from "$lib/format";\nvoid formatUsd;\n'],
+			["src/lib/ok.svelte", svelte('import { resolveSettings } from "@/src/settings/model";\n\tvoid resolveSettings;')],
+			["src/routes/probe/+page.svelte", svelte('import Sidebar from "$lib/shell/Sidebar.svelte";\n\tvoid Sidebar;')],
+			["src/routes/ok/+server.ts", 'import { resolveSettings } from "@/src/settings/model";\nimport { getChat } from "@/src/session";\nvoid resolveSettings;\nvoid getChat;\n'],
+			["src/jobs/probe.ts", 'import { chatStore } from "../session/index.ts";\nvoid chatStore;\n'],
+			["src/session/model/probe.ts", 'import type { GraphNode } from "../../graph/model/index.ts";\nexport type X = GraphNode;\n'],
+		];
+		for (const [where, source] of cases) {
+			const result = await lint(where, source);
+			assert.equal(result.errors, 0, `${where}: ${result.messages.join("\n")}`);
+		}
 	});
 
 	it("ignores the private .agents assets", async () => {
 		assert.equal(await eslint.isPathIgnored(".agents/skills/private/SKILL.md"), true);
-	});
-
-	it("ignores a previous Next build left in the workspace", async () => {
-		assert.equal(await eslint.isPathIgnored(".next/server/chunks/stale.js"), true);
-	});
-
-	it("still allows the barrels the law names", async () => {
-		const component = await lint(
-			"src/lib/ok.svelte",
-			'<script lang="ts">\n\timport { resolveSettings } from "@/src/core";\n\tvoid resolveSettings;\n</script>\n\n<p>ok</p>\n',
-		);
-		assert.equal(component.errors, 0, component.messages.join("\n"));
-		const route = await lint(
-			"src/routes/ok/+server.ts",
-			'import { resolveSettings } from "@/src/core";\nimport { getChat } from "@/src/server";\nvoid resolveSettings;\nvoid getChat;\nexport function GET() { return new Response("ok"); }\n',
-		);
-		assert.equal(route.errors, 0, route.messages.join("\n"));
 	});
 });

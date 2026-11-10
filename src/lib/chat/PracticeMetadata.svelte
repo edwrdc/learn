@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 	import { hasPracticeMeta, practiceMetaRows, practiceTargets } from "./practice-meta";
 
 	let {
@@ -13,58 +15,27 @@
 	let trigger = $state<HTMLButtonElement | null>(null);
 	let box = $state<HTMLDivElement | null>(null);
 	let anchor = $state<{ top: number; left: number } | null>(null);
-	let names = $state<Record<string, string> | null>(null);
 
 	const visible = $derived(hasPracticeMeta({ conclude, problem }));
+	const names = $derived.by(() => {
+		const graph = open && practiceTargets(problem).length > 0 ? graphSnapshot.value : undefined;
+		return graph ? Object.fromEntries(graph.nodes.map((node) => [node.id, node.name])) : null;
+	});
 	const rows = $derived(practiceMetaRows({ conclude, problem, names }));
-
-	function loadNames() {
-		if (names || practiceTargets(problem).length === 0) return;
-		void fetch("/api/graph")
-			.then((res) => (res.ok ? res.json() : { nodes: [] }))
-			.then((graph: { nodes?: Array<{ id?: unknown; name?: unknown }> }) => {
-				names = Object.fromEntries(
-					(graph.nodes ?? [])
-						.filter((node) => typeof node.id === "string")
-						.map((node) => [node.id as string, typeof node.name === "string" ? (node.name as string) : (node.id as string)]),
-				);
-			})
-			.catch(() => (names = {}));
-	}
 
 	function toggle() {
 		if (open) {
 			open = false;
 			return;
 		}
-		loadNames();
 		const rect = trigger?.getBoundingClientRect();
 		if (rect) anchor = { top: rect.bottom + 8, left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)) };
 		open = true;
 	}
 
 	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Node;
-			if (trigger?.contains(target) || box?.contains(target)) return;
-			open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			open = false;
-		};
-		const onScroll = () => (open = false);
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKeyDown);
-		window.addEventListener("scroll", onScroll, { capture: true, passive: true });
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKeyDown);
-			window.removeEventListener("scroll", onScroll, { capture: true });
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [trigger, box], capture: true, closeOnScroll: true });
 	});
 </script>
 

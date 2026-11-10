@@ -12,15 +12,15 @@
  * --depth regenerates the ledger WITH inference-depth anchoring (the
  * playground mode baked into the rest state); omit it for the free layout.
  */
-import { graphStore } from "../src/store/graph.ts";
+import { graphStore } from "../src/graph/store.ts";
 // --depth=vertical|radial: bake the playground depth mode into the ledger.
 const depthArg = process.argv.find((a) => a.startsWith("--depth="));
 const depthMode: "off" | "vertical" | "radial" =
 	depthArg === "--depth=vertical" ? "vertical" : depthArg === "--depth=radial" ? "radial" : "off";
-import { incrementalLayout } from "../src/core/layout.ts";
-import { birthSessionPartition } from "../src/core/session-clusters.ts";
-import { deriveView, getGraph } from "../src/core/graph.ts";
-import type { Position } from "../src/core/contracts.ts";
+import { incrementalLayout } from "../src/graph/model/layout.ts";
+import { birthSessionPartition } from "../src/graph/model/session-clusters.ts";
+import { deriveView, getGraph } from "../src/graph/snapshot.ts";
+import type { Position } from "../src/graph/model/types.ts";
 
 function main() {
 	const t0 = Date.now();

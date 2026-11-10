@@ -27,17 +27,17 @@ let POST: Post;
 let createChat: (title: string, kind?: "practice") => { id: string; title: string };
 let saveMessages: (id: string, messages: unknown[]) => Promise<void>;
 let getChat: (id: string) => Promise<{ messages: unknown[] } | null>;
-let buildSubagentSteerFn: typeof import("../src/core/contracts.ts").buildSubagentSteer;
+let buildSubagentSteerFn: typeof import("../src/jobs/model/types.ts").buildSubagentSteer;
 
 before(async () => {
 	const route = await import("../src/routes/api/chats/[id]/artifact-ui/+server.ts");
 	POST = route.POST;
-	const server = await import("../src/server/chats.ts");
+	const server = await import("../src/session/operations.ts");
 	createChat = server.createChat;
 	getChat = server.getChat as typeof getChat;
-	const { chatStore } = await import("../src/store/chats.ts");
+	const { chatStore } = await import("../src/session/store.ts");
 	saveMessages = async (id, messages) => await chatStore.saveMessages(id, messages as never);
-	const contracts = await import("../src/core/contracts.ts");
+	const contracts = await import("../src/jobs/model/types.ts");
 	buildSubagentSteerFn = contracts.buildSubagentSteer;
 });
 

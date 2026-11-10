@@ -1,14 +1,10 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { CURRENT_SETTINGS_VERSION, type UserSettings } from "@/src/core";
-	import { backdropDismiss } from "$lib/backdrop";
+	import { modalLayer } from "$lib/ui/layer";
+	import { CURRENT_SETTINGS_VERSION } from "@/src/settings/model";
 	import { hint } from "$lib/hint";
 	import { settingsDialog, type SettingsSectionId } from "$lib/state/dialogs.svelte";
-	import { appearance } from "$lib/state/appearance.svelte";
-	import { notifySettingsSaved } from "$lib/state/settings-signal";
+	import { settings as userSettings } from "$lib/state/settings.svelte";
 	import Controls from "./Controls.svelte";
-	import CommitInput from "./CommitInput.svelte";
-	import ThinSelect from "./ThinSelect.svelte";
 	import KeysSection from "./KeysSection.svelte";
 	import AgentSection from "./AgentSection.svelte";
 	import AppearanceSection from "./AppearanceSection.svelte";
@@ -23,65 +19,40 @@
 		{ id: "keyboard", label: "Keyboard" },
 	];
 
-	let record = $state<UserSettings | null | undefined>(undefined);
+	/** Undefined while loading, null when the load failed. */
+	const record = $derived(
+		userSettings.record !== undefined
+			? (userSettings.record ?? { version: CURRENT_SETTINGS_VERSION })
+			: userSettings.failed
+				? null
+				: undefined,
+	);
 	let error = $state<string | null>(null);
 	let active = $state<SettingsSectionId>("keys");
-	let content = $state<HTMLDivElement | null>(null);
-
-	function load(): void {
-		fetch("/api/settings")
-			.then((r) => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
-			.then((body: { settings: UserSettings | null }) => (record = body.settings ?? { version: CURRENT_SETTINGS_VERSION }))
-			.catch(() => (record = null));
-	}
 
 	$effect(() => {
 		if (!settingsDialog.show) return;
 		active = settingsDialog.section;
 	});
 	$effect(() => {
-		if (settingsDialog.show) load();
-	});
-	$effect(() => {
-		if (!settingsDialog.show || typeof document === "undefined") return;
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			settingsDialog.close();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		if (settingsDialog.show) void userSettings.refresh();
 	});
 
 	async function write(section: "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {
 		error = null;
-		const res = await fetch(`/api/settings/${section}`, {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-		});
-		if (!res.ok) {
-			const detail = (await res.json().catch(() => ({}))) as { error?: string };
-			error = `${section}: ${detail.error ?? res.status}`;
-			return;
+		try {
+			await userSettings.save(section, body);
+		} catch (err) {
+			error = `${section}: ${err instanceof Error ? err.message : String(err)}`;
 		}
-		const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings;
-		record = stored ?? ({ ...(record ?? {}), [section]: body } as UserSettings);
-		notifySettingsSaved(section);
-		if (section === "appearance") appearance.set(body as never);
 	}
-
-	onMount(() => {
-		if (settingsDialog.show) load();
-	});
 </script>
 
 {#if settingsDialog.show}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
 		data-testid="settings-backdrop"
-		{@attach backdropDismiss(() => settingsDialog.close())}
+		{@attach modalLayer(() => settingsDialog.close())}
 	>
 		<div
 			role="dialog"
@@ -118,7 +89,7 @@
 					{/each}
 				</nav>
 
-				<div bind:this={content} class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
+				<div class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
 					{#if error}
 						<p role="alert" class="m-4 rounded-sm border border-red-500/40 px-3 py-2 text-xs text-red-500" data-testid="settings-error">{error}</p>
 					{/if}

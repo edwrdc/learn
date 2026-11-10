@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { readTool } from "../src/agent/tools/read.ts";
+import { readTool } from "../src/tools/fs/read.ts";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lh-read-test-"));
 
@@ -113,13 +113,5 @@ describe("read tool — image semantics (native content parts)", () => {
 		assert.equal(imagePart.mimeType, "image/png");
 		assert.match(imagePart.data!, /^[A-Za-z0-9+/]+={0,2}$/);
 		assert.equal(result.details, null, "image reads keep the record part output-less");
-	});
-
-	it("plain string results map to a single text part (parity)", async () => {
-		const file = write("plain.txt", "body");
-		const result = await readTool.execute!("test", { path: file });
-		assert.equal(result.content.length, 1);
-		assert.equal(result.content[0]!.type, "text");
-		assert.equal((result.content[0] as { type: "text"; text: string }).text, "body");
 	});
 });

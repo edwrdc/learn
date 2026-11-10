@@ -11,18 +11,8 @@
 
 import assert from "node:assert/strict";
 import { describe, it, it as test } from "node:test";
-import {
-	applyClusterLabels,
-	arrowGeometry,
-	isImpNodeId,
-	boxBlurRound,
-	fitTransform,
-	labelAlpha,
-	pickNearest,
-	wrapRegionLabel,
-	zoomRatioOf,
-	LABELS_FADE_RATIO,
-} from "../src/lib/home/graph-canvas.ts";
+import { arrowGeometry, boxBlurRound, fitTransform, labelAlpha, pickNearest, zoomRatioOf } from "../src/lib/home/graph-canvas.ts";
+import { applyClusterLabels, wrapRegionLabel } from "../src/lib/home/graph-labels.ts";
 import {
 	sanitizePhysicsTuning,
 	sanitizeRegionTuning,
@@ -30,7 +20,8 @@ import {
 	DEFAULT_REGION_TUNING,
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
-} from "../src/core/render-settings.ts";
+} from "../src/settings/model/graph-render.ts";
+import { isArgumentId } from "../src/graph/model/rules.ts";
 
 describe("zoomRatioOf (the sigma-compatible camera ratio)", () => {
 	test("1 at fit zoom, smaller when zoomed in, larger when zoomed out", () => {
@@ -54,25 +45,23 @@ describe("labelAlpha (the single zoom gate)", () => {
 		// The old absolute 0.5-ratio span read as a 100% relative change at
 		// the old 0.5 gate but a bare 12% sliver at the tuned 8× gate (ratio
 		// 4). Proportional = one consistent handoff feel at any gate.
-		assert.equal(LABELS_FADE_RATIO, 0.5);
 		// At the tuned default (gate 4): fades across ratio 4 → 6 (8× → 12×
 		// on screen), one full ladder stop.
 		assert.equal(labelAlpha(4, 4), 1); // at the gate
 		assert.equal(labelAlpha(5, 4), 0.5); // mid-fade
 		assert.equal(labelAlpha(6, 4), 0); // one proportional span out: gone
-		// The relative shape is identical at the old gate: 0.5 → 0.75.
-		assert.equal(labelAlpha(5, 4), 0.5); // mid-fade at the tuned gate, same relative shape
 	});
 
-	test("node labels and cluster labels cross-fade over the exact same span", () => {
-		// The renderer draws cluster labels at 1 - labelAlpha; the two must
-		// always sum to 1 within the fade and never coexist at full opacity.
+	test("alpha stays within [0, 1] and never rises as the camera zooms out", () => {
+		// The renderer draws cluster labels at 1 - labelAlpha, so a clamped,
+		// monotone alpha is what keeps the two cross-fading cleanly.
 		for (const gate of [0.5, 4]) {
+			let previous = 1;
 			for (let ratio = 0; ratio <= 8; ratio += gate / 8) {
-				const node = labelAlpha(ratio, gate);
-				const cluster = 1 - node;
-				assert.ok(node + cluster > 0.999 && node + cluster < 1.001, `sum at gate ${gate} ratio ${ratio}`);
-				assert.ok(node <= 1 && cluster <= 1, `clamped at gate ${gate} ratio ${ratio}`);
+				const alpha = labelAlpha(ratio, gate);
+				assert.ok(alpha >= 0 && alpha <= 1, `clamped at gate ${gate} ratio ${ratio}`);
+				assert.ok(alpha <= previous, `monotone at gate ${gate} ratio ${ratio}`);
+				previous = alpha;
 			}
 		}
 	});
@@ -164,10 +153,10 @@ describe("arrowGeometry", () => {
 	});
 });
 
-describe("isImpNodeId (the pure-geometry law, rendering arc 2026-09-30)", () => {
+describe("isArgumentId (the pure-geometry law, rendering arc 2026-09-30)", () => {
 	test("arg_-prefixed ids are geometry; proposition ids are citizens", () => {
-		assert.equal(isImpNodeId("arg_123af5a046ba"), true);
-		assert.equal(isImpNodeId("n_abc123"), false);
+		assert.equal(isArgumentId("arg_123af5a046ba"), true);
+		assert.equal(isArgumentId("n_abc123"), false);
 	});
 });
 
@@ -222,7 +211,7 @@ describe("sanitizeRegionTuning (dev number inputs)", () => {
 		assert.equal(t.edgeAlpha, 1);
 	});
 
-	test("empty string / null / undefined values fall back per-field", () => {
+	test("a NaN field falls back to its own default", () => {
 		const t = sanitizeRegionTuning({ edgeAlpha: Number.NaN });
 		assert.equal(t.edgeAlpha, DEFAULT_REGION_TUNING.edgeAlpha);
 	});
@@ -288,8 +277,8 @@ describe("sanitizePhysicsTuning (physics controls)", () => {
 
 
 describe("wrapRegionLabel (wave 7: session names / file paths)", () => {
-	// A fake measure: chars are 5px wide, spaces 4px — enough to drive
-	// wrap decisions deterministically.
+	// A fake measure: every char is 5px wide — enough to drive wrap
+	// decisions deterministically.
 	const measure = (s: string) => s.length * 5;
 	const W = 20; // 4 chars per line
 
@@ -298,7 +287,7 @@ describe("wrapRegionLabel (wave 7: session names / file paths)", () => {
 	});
 
 	it("wraps words, no cap hit", () => {
-		// W=20 at 5px/char = 3 chars a line: every word lands alone, four
+		// W=20 at 5px/char = 4 chars a line: every word lands alone, four
 		// lines, cap 4 never reached, no ellipsis.
 		assert.deepEqual(wrapRegionLabel("aaa bbb ccc ddd", W, 4, measure), [
 			"aaa",

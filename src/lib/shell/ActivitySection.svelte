@@ -1,20 +1,22 @@
 <script lang="ts">
+	import { now } from "$lib/state/now.svelte";
+	import { abortProcess } from "$lib/api/chats";
+	import { ApiError } from "$lib/api/http";
 	import { Activity, Bot, FileText, PenTool, Play, Search, Square, Waypoints } from "@lucide/svelte";
+	import { jobAgentLabel, type JobKind } from "@/src/tools/model";
+	import { chatHref } from "@/src/session/model";
+	import type { Component } from "svelte";
 	import { formatUsd } from "$lib/format";
 	import { activity } from "$lib/state/activity.svelte";
 	import { formatElapsed, toBlobs, type ActivityBlob } from "$lib/state/activity";
 	import { goto } from "$app/navigation";
 
+	const JOB_ICON: Record<JobKind, Component> = { research: Search, demo: Play, visual: PenTool, pdf: FileText };
+
 	let openBlob = $state<string | null>(null);
 	let abortStates = $state<Record<string, "pending" | "failed">>({});
-	let now = $state(Date.now());
 
-	$effect(() => {
-		const timer = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(timer);
-	});
-
-	const blobs = $derived(toBlobs(activity.feed));
+	const blobs = $derived(toBlobs(activity.value));
 	const totalCost = $derived.by(() => {
 		const priced = blobs.map((b) => b.cost).filter((c): c is number => c !== null);
 		return priced.length === 0 ? null : priced.reduce((a, c) => a + c, 0);
@@ -22,39 +24,22 @@
 
 	function labelOf(blob: ActivityBlob): string {
 		if (blob.process === "extraction") return `Extraction — ${blob.phase ?? "running"}`;
-		return blob.jobKind === "research"
-			? "Researcher"
-			: blob.jobKind === "demo"
-				? "Demo builder"
-				: blob.jobKind === "visual"
-					? "Figure maker"
-					: blob.jobKind === "pdf"
-						? "PDF reader"
-						: "Sub-agent";
+		return blob.jobKind ? jobAgentLabel(blob.jobKind) : "Sub-agent";
 	}
 
 	async function abort(blob: ActivityBlob) {
 		abortStates = { ...abortStates, [blob.id]: "pending" };
 		try {
-			const res = await fetch("/api/activity/abort", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					kind: blob.process,
-					id: blob.process === "extraction" ? blob.chatId : blob.id,
-				}),
-			});
-			if (!res.ok) {
-				if (res.status === 404 || res.status === 409) {
-					activity.refresh();
-					const { [blob.id]: _drop, ...rest } = abortStates;
-					abortStates = rest;
-					return;
-				}
-				throw new Error(String(res.status));
+			await abortProcess(blob.process, blob.process === "extraction" ? blob.chatId : blob.id);
+		} catch (error) {
+			if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+				// Already over: the feed was stale.
+				void activity.refresh();
+				const { [blob.id]: _drop, ...rest } = abortStates;
+				abortStates = rest;
+				return;
 			}
-			activity.refresh();
-		} catch {
+			console.error("[activity] abort failed:", error);
 			abortStates = { ...abortStates, [blob.id]: "failed" };
 		}
 	}
@@ -73,7 +58,7 @@
 	{#if blobs.length > 0}
 		<div class="flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
 			{#each blobs as blob (blob.id)}
-				{@const Icon = blob.process === "extraction" ? Waypoints : blob.jobKind === "research" ? Search : blob.jobKind === "demo" ? Play : blob.jobKind === "visual" ? PenTool : blob.jobKind === "pdf" ? FileText : Bot}
+				{@const Icon = blob.process === "extraction" ? Waypoints : blob.jobKind ? JOB_ICON[blob.jobKind] : Bot}
 				{@const label = labelOf(blob)}
 				<div
 					data-testid={`activity-blob-${blob.process}`}
@@ -96,7 +81,7 @@
 						</span>
 						<span class="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
 							<span data-testid="activity-blob-cost">{blob.cost === null ? "—" : formatUsd(blob.cost)}</span>
-							<span data-testid="activity-blob-elapsed">{formatElapsed(now - blob.startedAt)}</span>
+							<span data-testid="activity-blob-elapsed">{formatElapsed(now() - blob.startedAt)}</span>
 						</span>
 					</button>
 					<button
@@ -115,7 +100,7 @@
 							<div class="mb-1.5 flex items-center gap-2">
 								<Icon class="size-3.5 text-muted-foreground" />
 								<span class="font-medium">{label}</span>
-								<span class="ml-auto tabular-nums text-muted-foreground">{formatElapsed(now - blob.startedAt)}</span>
+								<span class="ml-auto tabular-nums text-muted-foreground">{formatElapsed(now() - blob.startedAt)}</span>
 							</div>
 							<div class="flex flex-col gap-1 text-muted-foreground">
 								<div class="truncate text-card-foreground" title={blob.title}>{blob.title}</div>
@@ -136,7 +121,7 @@
 								{#if blob.steps !== undefined}
 									<div class="flex justify-between gap-2"><span>Steps</span><span class="tabular-nums text-card-foreground">{blob.steps}</span></div>
 								{/if}
-								<a href={`/chat/${blob.chatId}`} class="text-primary hover:underline" onclick={(e) => { e.preventDefault(); void goto(`/chat/${blob.chatId}`); }}>Open session →</a>
+								<a href={chatHref(blob.chatId)} class="text-primary hover:underline" onclick={(e) => { e.preventDefault(); void goto(chatHref(blob.chatId)); }}>Open session →</a>
 							</div>
 							<div class="mt-2 text-muted-foreground/80">
 								{abortStates[blob.id] === "failed" ? "Abort failed — try again" : abortStates[blob.id] === "pending" ? "Stopping…" : ""}

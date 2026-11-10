@@ -4,15 +4,14 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
-import type { UserSettings } from "../src/core/settings.ts";
+import type { UserSettings } from "../src/settings/model/settings.ts";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-lifecycle-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 
-const { saveCustomEndpoint, removeCustomEndpoint } = await import("../src/server/custom-endpoint.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { settingsStore } = stores;
+const { saveCustomEndpoint, removeCustomEndpoint } = await import("../src/settings/custom-endpoint.ts");
+const { readSettings, writeSettings } = await import("../src/settings/store.ts");
 
 const BASE_URL = "http://127.0.0.1:9/v1";
 const KEY = "test-lifecycle-key-123456";
@@ -61,8 +60,8 @@ const SEED: UserSettings = {
 let seeded: UserSettings;
 
 before(() => {
-	settingsStore.writeSettings(SEED);
-	seeded = settingsStore.readSettings()!;
+	writeSettings(SEED);
+	seeded = readSettings()!;
 });
 
 after(() => {
@@ -70,7 +69,7 @@ after(() => {
 });
 
 function assertUnrelatedPreserved(step: string): void {
-	const record = settingsStore.readSettings();
+	const record = readSettings();
 	assert.ok(record, `${step}: settings record exists`);
 	for (const key of UNRELATED) {
 		assert.deepEqual(record[key], seeded[key], `${step}: ${key} survives`);
@@ -83,7 +82,7 @@ describe("custom endpoint lifecycle preserves the settings record", () => {
 		const first = saveCustomEndpoint({ displayName: "First", baseUrl: BASE_URL, models: [endpoint], apiKey: KEY });
 		assert.ok(first.ok, first.ok ? "" : first.error);
 		assertUnrelatedPreserved("first save");
-		assert.equal(settingsStore.readSettings()?.customEndpoint?.displayName, "First");
+		assert.equal(readSettings()?.customEndpoint?.displayName, "First");
 
 		const edited = saveCustomEndpoint({
 			displayName: "Edited",
@@ -92,14 +91,14 @@ describe("custom endpoint lifecycle preserves the settings record", () => {
 		});
 		assert.ok(edited.ok, edited.ok ? "" : edited.error);
 		assertUnrelatedPreserved("edit");
-		const editedRecord = settingsStore.readSettings();
+		const editedRecord = readSettings();
 		assert.equal(editedRecord?.customEndpoint?.displayName, "Edited");
 		assert.equal(editedRecord?.customEndpoint?.models[0]?.contextWindow, 128_000);
 
 		const removed = removeCustomEndpoint();
 		assert.equal(removed.endpoint, null);
 		assertUnrelatedPreserved("remove");
-		assert.equal(settingsStore.readSettings()?.customEndpoint, undefined);
+		assert.equal(readSettings()?.customEndpoint, undefined);
 
 		const readded = saveCustomEndpoint({
 			displayName: "Re-added",
@@ -109,6 +108,6 @@ describe("custom endpoint lifecycle preserves the settings record", () => {
 		});
 		assert.ok(readded.ok, readded.ok ? "" : readded.error);
 		assertUnrelatedPreserved("re-add");
-		assert.equal(settingsStore.readSettings()?.customEndpoint?.displayName, "Re-added");
+		assert.equal(readSettings()?.customEndpoint?.displayName, "Re-added");
 	});
 });

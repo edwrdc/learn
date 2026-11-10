@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { appearanceVars, derivedPalette, resolveAppearance, staleVarNames } from "../src/lib/settings/appearance.ts";
 import {
-	PROMPT_IN_USE_HINT,
 	composePromptSwitch,
 	composeSearchEngine,
 	composeSlotModel,
@@ -18,9 +17,11 @@ import {
 	sectionedSegments,
 	nextOverrides,
 } from "../src/lib/settings/compose.ts";
-import { classifyKeys, keyStatusLine, type ProviderKeyInfo } from "../src/lib/settings/keys.ts";
-import type { AgentSettings, AuthKeyStatus, ModelsSettings } from "../src/core";
-import { slotsConfigured } from "../src/core";
+import { classifyKeys, keyStatusLine } from "../src/lib/settings/keys.ts";
+import type { AuthProviderInfo } from "../src/settings/model/auth-keys.ts";
+import type { AgentSettings, ModelsSettings } from "../src/settings/model/settings.ts";
+import type { AuthKeyStatus } from "../src/settings/model/auth-keys.ts";
+import { slotsConfigured } from "../src/settings/model/settings.ts";
 import { setupStage } from "../src/lib/settings/setup.ts";
 
 describe("resolveAppearance — delta over factory", () => {
@@ -222,7 +223,7 @@ describe("classifyKeys — the Keys section's two-group projection", () => {
 		source: present ? "file" : "none",
 		shadowedByEnv: false,
 	});
-	const providers: ProviderKeyInfo[] = [
+	const providers: AuthProviderInfo[] = [
 		{ id: "groq", envVar: "GROQ_API_KEY", label: "Groq" },
 		{ id: "deepseek", envVar: "DEEPSEEK_API_KEY", label: "DeepSeek" },
 		{ id: "openrouter", envVar: "OPENROUTER_API_KEY", label: "OpenRouter" },
@@ -367,10 +368,6 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 		// the Shared header carries the one hint that earns its place
 		assert.equal(shared.hint, "Used by both agents");
 		assert.equal(teacher.hint, undefined);
-	});
-
-	it("the indicator copy is pinned — it states WHICH VERSION IS IN USE (refined 2026-09-26)", () => {
-		assert.equal(PROMPT_IN_USE_HINT, "Your version is in use");
 	});
 });
 

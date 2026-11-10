@@ -1,5 +1,5 @@
 /**
- * Regenerate src/core/prices.ts tables from pi-ai's shipped per-provider
+ * Regenerate src/session/model/prices.ts tables from pi-ai's shipped per-provider
  * catalogs (providers/data/*.json).
  *
  * Usage: npx tsx scripts/sync-pricing.ts
@@ -30,7 +30,7 @@ const DATA_DIR = path.join(
 	"providers",
 	"data",
 );
-const OUT = path.join(import.meta.dirname, "..", "src", "core", "prices.ts");
+const OUT = path.join(import.meta.dirname, "..", "src", "session", "model", "prices.ts");
 
 /** One raw catalog entry (fields we consume; the files carry more). */
 interface CatalogModel {

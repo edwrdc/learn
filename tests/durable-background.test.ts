@@ -28,25 +28,27 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-durable-background-"));
 process.env.LH_DATA_DIR = TMP;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { jobStore } = await import("../src/store/jobs.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { jobStore } = await import("../src/jobs/store.ts");
 const {
 	ChatRuntimeInitError,
 	closeChatRuntime,
 	openChatRuntime,
-} = await import("../src/store/durable.ts");
-const { BackgroundRunsDoc, configureBackgroundRuns } = await import("../src/server/durable-background.ts");
-type RunDescriptor = import("../src/server/durable-background.ts").RunDescriptor;
-const { createJobRunner, researchModelOverride } = await import("../src/agent/subagents/runner.ts");
-const { setTurnRunner, abortJob } = await import("../src/server/jobs.ts");
-const { isJobLive } = await import("../src/agent/subagents/aborts.ts");
+} = await import("../src/session/durable.ts");
+const { BackgroundRunsDoc } = await import("../src/jobs/runtime.ts");
+const { configureBackgroundRuns } = await import("../src/jobs/durable-run.ts");
+type RunDescriptor = import("../src/jobs/durable-run.ts").RunDescriptor;
+const { createJobRunner } = await import("../src/jobs/runner.ts");
+const { setTurnRunner, abortJob } = await import("../src/jobs/wake.ts");
+const { isJobLive } = await import("../src/jobs/aborts.ts");
 const { LiveDoc } = await import("@earendil-works/pi-durable");
 // The composition root wires the background host services at module init.
-await import("../src/server/chat-handler.ts");
-type PiEngine = import("../src/agent/models.ts").PiEngine;
-type SearchProvider = import("../src/core/search.ts").SearchProvider;
-type SteerMessage = import("../src/core/contracts.ts").SteerMessage;
-type ResearchResult = import("../src/core/contracts.ts").ResearchResult;
+await import("../src/session/turn.ts");
+const { testEngines } = await import("./support-durable.ts");
+type PiEngine = import("../src/platform/engines.ts").PiEngine;
+type SearchProvider = import("../src/tools/model/search.ts").SearchProvider;
+type SteerMessage = import("../src/jobs/model/types.ts").SteerMessage;
+type ResearchResult = import("../src/jobs/model/types.ts").ResearchResult;
 
 const BRIEF = `## Summary\nRestart-checked.\n\n## Sources\n- [docs](https://example.com/docs)`;
 const PROMPT_INPUT = { question: "Does restart reattach?", context: "durable background test" };
@@ -125,10 +127,10 @@ describe("durable background restart", () => {
 		const search = stubSearch();
 		const delivered: SteerMessage[] = [];
 		setTurnRunner(async () => 200);
-		const runner = createJobRunner({
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
-			deliver: async (steer) => {
+			deliver: async (_chatId, steer) => {
 				delivered.push(steer);
 			},
 			searchProvider: () => search,
@@ -136,7 +138,7 @@ describe("durable background restart", () => {
 
 		// Turn 1: a web_search call proves the tools run; turn 2 hangs in the
 		// model call when the "process" dies.
-		researchModelOverride.current = fauxEngine([
+		testEngines.researcher = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_search", { query: "restart reattach" }, { id: "ws-restart" })], {
 				stopReason: "toolUse",
 			}),
@@ -205,7 +207,7 @@ describe("durable background restart", () => {
 			"the resumed generation ran the role tool installed from the descriptor",
 		);
 
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 	});
 
 	it("aborting a recovered run before its loop reattaches kills the child and its provider request", async () => {
@@ -237,13 +239,13 @@ describe("durable background restart", () => {
 		const job = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-abort" });
 		const search = stubSearch();
 		setTurnRunner(async () => 200);
-		const runner = createJobRunner({
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
 			deliver: async () => undefined,
 			searchProvider: () => search,
 		});
-		researchModelOverride.current = fauxEngine([hangUntilAborted()]);
+		testEngines.researcher = fauxEngine([hangUntilAborted()]);
 		const first = runner.runJob(job.id, PROMPT_INPUT);
 		await waitFor(async () => {
 			const rt = await openChatRuntime(chat.id);
@@ -254,7 +256,7 @@ describe("durable background restart", () => {
 		}, 10000, "the run is admitted");
 		await closeChatRuntime(chat.id);
 		await first.catch(() => undefined);
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 
 		let providerSignal: AbortSignal | undefined;
 		const resumed = fauxEngine([
@@ -295,13 +297,13 @@ describe("durable background restart", () => {
 			wakes++;
 			return 200;
 		});
-		const runner = createJobRunner({
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
 			deliver: async () => undefined,
 			searchProvider: () => search,
 		});
-		researchModelOverride.current = fauxEngine([
+		testEngines.researcher = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_search", { query: "abort fail closed" }, { id: "ws-abort-failclosed" })], {
 				stopReason: "toolUse",
 			}),
@@ -311,7 +313,7 @@ describe("durable background restart", () => {
 		await waitFor(() => (jobStore.getJob(job.id)!.usage?.steps ?? 0) >= 1, 10000, "first model call billed");
 		await closeChatRuntime(chat.id);
 		await first.catch(() => undefined);
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 
 		// The model stays unavailable: the pending child cannot be rebuilt.
 		configureBackgroundRuns({ resolveEngine: () => undefined, searchProvider: () => search });
@@ -357,7 +359,7 @@ describe("durable background restart", () => {
 		const finalLive = await final.harness.snapshot(LiveDoc, conversationId as never, BACKGROUND_CONTEXT);
 		assert.equal((finalLive as { run?: unknown } | undefined)?.run, undefined, "the native child stays dead");
 		assert.equal(jobStore.getJob(job.id)!.status, "error", "the job stays aborted");
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 	});
 
 	it("fails the reopen closed when a pending run's model cannot be restored, then resumes on repair", async () => {
@@ -366,16 +368,16 @@ describe("durable background restart", () => {
 		const search = stubSearch();
 		const delivered: SteerMessage[] = [];
 		setTurnRunner(async () => 200);
-		const runner = createJobRunner({
+		const runner = createJobRunner({ engineFor: (role) => testEngines[role],
 			chatStore,
 			jobStore,
-			deliver: async (steer) => {
+			deliver: async (_chatId, steer) => {
 				delivered.push(steer);
 			},
 			searchProvider: () => search,
 		});
 
-		researchModelOverride.current = fauxEngine([
+		testEngines.researcher = fauxEngine([
 			fauxAssistantMessage([fauxToolCall("web_search", { query: "fail closed" }, { id: "ws-failclosed" })], {
 				stopReason: "toolUse",
 			}),
@@ -423,6 +425,6 @@ describe("durable background restart", () => {
 			cursor = page.next as Record<string, unknown>;
 		}
 		assert.equal(users, 1, "the repaired run reused its committed input");
-		researchModelOverride.current = undefined;
+		testEngines.researcher = undefined;
 	});
 });

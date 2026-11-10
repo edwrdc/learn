@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { answerForPresentation, parseAskInput, parseQuizInput, type QuestionAnswerData } from "@/src/core";
+	import { answerForPresentation, parseAskInput, parseQuizInput, type QuestionAnswerData } from "@/src/session/model";
+	import { questionLabel } from "./question-label";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import ConfidenceRail from "./ConfidenceRail.svelte";
 	import GlyphMark from "./GlyphMark.svelte";
@@ -7,8 +8,8 @@
 
 	let { answer: savedAnswer, input }: { answer: QuestionAnswerData; input?: unknown } = $props();
 
-	// Page/record data can arrive wrapped in Svelte state proxies; core's
-	// zod parsing clones its input with structuredClone. Normalize the JSON
+	// Page/record data can arrive wrapped in Svelte state proxies; the session
+	// model's zod parsing clones its input with structuredClone. Normalize the JSON
 	// wire shape at this boundary (the schema rejects functions anyway).
 	const plainAnswer = $derived(JSON.parse(JSON.stringify(savedAnswer)));
 	const plainInput = $derived(input === undefined ? undefined : JSON.parse(JSON.stringify(input)));
@@ -33,7 +34,7 @@
 	{/if}
 	<div class="rounded-xl border bg-card p-4 text-card-foreground [&>*:last-child]:mb-0" data-testid="answered-card">
 		<div class="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-			{answer.tool === "probe" ? "Probe" : answer.tool === "recall" ? "Recall" : isQuiz ? (answer.questionType === "predict" ? "Prediction" : "Check") : isExplain ? "Explain" : "Question"}
+			{questionLabel(answer.tool, answer.kind, answer.questionType)}
 			{#if isQuiz}
 				{#if answer.dontKnow}
 					<span class="rounded bg-muted px-1.5 py-0.5">didn't know</span>

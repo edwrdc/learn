@@ -1,20 +1,11 @@
-import type { ModelSlotName } from "@/src/core";
+import { MODELS_NOT_CONFIGURED_CODE, PROVIDER_KEY_MISSING_CODE, type RefusalCode } from "@/src/settings/model";
 
-export type EscAbortTarget = "mermaid" | "plan" | "setup" | "question" | "problem" | "turn" | null;
+type EscAbortTarget = "question" | "problem" | "turn" | null;
 
-export function escAbortTarget(state: {
-	abortAsk: boolean;
-	mermaidFocus: boolean;
-	planOpen: boolean;
-	setupOpen: boolean;
-	pending: boolean;
-	problem: boolean;
-	busy: boolean;
-}): EscAbortTarget {
+/** What an unclaimed Escape aborts. Overlays (mermaid, plan, setup) never
+ *  get here: their dismissLayer claims the Escape first. */
+export function escAbortTarget(state: { abortAsk: boolean; pending: boolean; problem: boolean; busy: boolean }): EscAbortTarget {
 	if (state.abortAsk) return null;
-	if (state.mermaidFocus) return "mermaid";
-	if (state.planOpen) return "plan";
-	if (state.setupOpen) return "setup";
 	if (state.pending) return "question";
 	if (state.problem) return "problem";
 	if (state.busy) return "turn";
@@ -33,50 +24,23 @@ export function initialPromptOwed(messages: readonly { role: string }[], prompt:
 	return !messages.some((m) => m.role === "user" || m.role === "assistant");
 }
 
-export function parseModelsRefusal(message: string | undefined): ModelSlotName[] | null {
+/** A refused turn: the transport throws the 503 body verbatim as the error
+ *  text, so the envelope's code is read back out of it. */
+export function parseRefusal(message: string | undefined): RefusalCode | "model_unavailable" | null {
 	if (!message) return null;
+	let body: unknown;
 	try {
-		const body = JSON.parse(message) as { code?: unknown; missing?: unknown };
-		if (body.code === "models_not_configured" && Array.isArray(body.missing) && body.missing.every((s) => typeof s === "string")) {
-			return body.missing as ModelSlotName[];
-		}
-		return null;
+		body = JSON.parse(message);
 	} catch {
 		return null;
 	}
-}
-
-export function parseProviderKeyRefusal(message: string | undefined): boolean {
-	if (!message) return false;
-	try {
-		const body = JSON.parse(message) as { code?: unknown; error?: unknown };
-		return body.code === "provider_key_missing" && typeof body.error === "string" && body.error.endsWith("add one in Settings → Keys");
-	} catch {
-		return false;
+	const code = (body as { code?: unknown } | null)?.code;
+	switch (code) {
+		case MODELS_NOT_CONFIGURED_CODE:
+		case PROVIDER_KEY_MISSING_CODE:
+		case "model_unavailable":
+			return code;
+		default:
+			return null;
 	}
-}
-
-export function parseModelUnavailableRefusal(message: string | undefined): { code: "model_unavailable"; error: string } | null {
-	if (!message) return null;
-	try {
-		const body = JSON.parse(message) as { code?: unknown; error?: unknown };
-		if (body.code === "model_unavailable" && typeof body.error === "string") {
-			return { code: "model_unavailable", error: body.error };
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
-export function revealArrival(wasQuestion: boolean): { expanded: boolean; revealed: boolean } {
-	return wasQuestion ? { expanded: true, revealed: true } : { expanded: false, revealed: false };
-}
-
-export function probeArrivalExpanded(isAtBottom: boolean): boolean {
-	return isAtBottom;
-}
-
-export function shouldStampGeometryMute(nextH: number, prevH: number, pending: boolean): boolean {
-	return pending && nextH > prevH + 1;
 }

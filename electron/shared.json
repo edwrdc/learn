@@ -1,0 +1,6 @@
+{
+	"sidebarAutocloseWidth": 928,
+	"backgroundColor": "#141414",
+	"browserServiceFlag": "--browser-service",
+	"browserServiceReady": "BROWSER_SERVICE_CDP"
+}

@@ -14,14 +14,14 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-auth-store-"));
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 
 // Import AFTER the env redirect — module-load-bound seam.
-const { authStore } = await import("../src/store/auth.ts");
-const { AUTH_FILE } = await import("../config.ts");
+const { authStore } = await import("../src/settings/auth-store.ts");
+const { AUTH_FILE } = await import("../src/platform/config.ts");
 
 after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });

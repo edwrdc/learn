@@ -1,9 +1,14 @@
 <script lang="ts">
+	import { dismissLayer } from "$lib/ui/layer";
+	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
+	import { listChats } from "$lib/api/chats";
+	import { renameSession } from "$lib/state/sessions";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
-	import { Dumbbell, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from "@lucide/svelte";
-	import { fuzzyScore, kbdEventForAction, type ChatDeleteMode, type ChatListItem } from "@/src/core";
+	import { Dumbbell, PanelLeftClose, Plus, Search, Settings } from "@lucide/svelte";
+	import { fuzzyScore } from "@/src/platform/model";
+	import { chatHref, type ChatListItem } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import LhMark from "$lib/ui/LhMark.svelte";
@@ -54,10 +59,9 @@
 		if (inFlight) return;
 		inFlight = true;
 		try {
-			const res = await fetch("/api/chats", { cache: "no-store" });
-			const data = (await res.json()) as { chats: ChatListItem[] };
-			chats = data.chats;
-		} catch {
+			chats = await listChats();
+		} catch (error) {
+			console.error("[sidebar] session list load failed:", error);
 			chats = chats ?? [];
 		} finally {
 			inFlight = false;
@@ -73,32 +77,28 @@
 		chats = chats ? chats.map((c) => (c.id === id ? { ...c, ...patch } : c)) : chats;
 	}
 
-	async function commitRename(id: string, next: string) {
+	/** Enter and blur both commit; the first one ends the edit, so the
+	 *  blur that follows an Enter (or an Escape) saves nothing. */
+	async function commitRename(chat: ChatListItem, next: string) {
+		if (renamingId !== chat.id) return;
 		renamingId = null;
-		const title = next.trim();
-		if (title === "") return;
 		try {
-			const res = await fetch(`/api/chats/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title } }));
-		} catch {
+			await renameSession(chat.id, next, chat.title);
+		} catch (error) {
+			console.error("[sidebar] rename failed:", error);
 		}
 	}
 
 	function openSession(id: string) {
 		kbdIndex = null;
-		void goto(`/chat/${id}`);
+		void goto(chatHref(id));
 	}
 
-	function onDeleted(id: string, _mode: ChatDeleteMode, graphRevision: number) {
+	function onDeleted(id: string, graphRevision: number) {
 		deleting = null;
 		chats = chats ? chats.filter((c) => c.id !== id) : chats;
-		if (pathname === `/chat/${id}`) void goto("/");
-		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { graphRevision } }));
+		if (pathname === chatHref(id)) void goto("/");
+		emitAppEvent("graph-revision", { graphRevision });
 	}
 
 	function openContext(event: MouseEvent, chat: ChatListItem) {
@@ -133,12 +133,8 @@
 			serverEvents.subscribe("compaction-changed", scheduleRefresh),
 			serverEvents.onResync(() => void refresh()),
 		];
-		const onRenamed = (event: Event) => {
-			const { id, title } = (event as CustomEvent<{ id: string; title: string }>).detail;
-			patch(id, { title });
-		};
-		const onTurnState = (event: Event) => {
-			const { id, running } = (event as CustomEvent<{ id: string; running: boolean }>).detail;
+		const onRenamed = ({ id, title }: { id: string; title: string }) => patch(id, { title });
+		const onTurnState = ({ id, running }: { id: string; running: boolean }) => {
 			if (running) {
 				if (chats?.some((c) => c.id === id)) patch(id, { busy: true });
 				else void refresh();
@@ -151,38 +147,17 @@
 			if (!open) sidebar.toggle();
 			requestAnimationFrame(() => searchRef?.focus());
 		};
-		window.addEventListener("lh:chat-renamed", onRenamed);
-		window.addEventListener("lh:turn-state", onTurnState);
-		window.addEventListener(kbdEventForAction("sessions-search"), onSearch);
+		offs.push(onAppEvent("chat-renamed", onRenamed), onAppEvent("turn-state", onTurnState), onKeyAction("sessions-search", onSearch));
 		void refresh();
 		return () => {
 			for (const off of offs) off();
-			window.removeEventListener("lh:chat-renamed", onRenamed);
-			window.removeEventListener("lh:turn-state", onTurnState);
-			window.removeEventListener(kbdEventForAction("sessions-search"), onSearch);
 			clearTimeout(debounce);
 		};
 	});
 
 	$effect(() => {
-		if (ctxChat === null || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			const target = event.target as Element | null;
-			if (target?.closest("[data-lh-menu]")) return;
-			if (ctxAnchor?.contains(target as Node)) return;
-			ctxChat = null;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			ctxChat = null;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (ctxChat === null) return;
+		return dismissLayer(() => (ctxChat = null), { inside: () => [ctxAnchor], menus: true });
 	});
 
 	function setFilter(filter: KindFilter) {
@@ -325,9 +300,9 @@
 									value={renameDraft}
 									spellcheck={false}
 									oninput={(event) => (renameDraft = (event.currentTarget as HTMLInputElement).value)}
-									onblur={() => void commitRename(chat.id, renameDraft)}
+									onblur={() => void commitRename(chat, renameDraft)}
 									onkeydown={(event) => {
-										if (event.key === "Enter") (event.currentTarget as HTMLInputElement).blur();
+										if (event.key === "Enter") void commitRename(chat, renameDraft);
 										if (event.key === "Escape") {
 											event.stopPropagation();
 											renamingId = null;
@@ -343,8 +318,8 @@
 						{:else}
 						<SessionRow
 							{chat}
-							active={pathname === `/chat/${chat.id}`}
-							keyboardFocused={i === kbdIndex && pathname !== `/chat/${chat.id}`}
+							active={pathname === chatHref(chat.id)}
+							keyboardFocused={i === kbdIndex && pathname !== chatHref(chat.id)}
 							onOpen={() => openSession(chat.id)}
 							onContextMenu={(event) => openContext(event, chat)}
 						/>

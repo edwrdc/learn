@@ -1,73 +1,27 @@
 <script lang="ts">
-	import { fetchGraphRead, ringFill } from "./coverage";
-	import type { SessionCoverage } from "@/src/core";
+	import { dismissLayer } from "$lib/ui/layer";
+	import { ringFill } from "./coverage";
 	import { formatTokens, timeAgo } from "$lib/format";
 	import { hint } from "$lib/hint";
-	import { activity } from "$lib/state/activity.svelte";
-	import { watchSettings } from "$lib/state/settings-signal";
+	import { chatCoverage } from "$lib/state/coverage.svelte";
+	import { settings } from "$lib/state/settings.svelte";
 
 
-	let { chatId, refreshKey = 0 }: { chatId: string; refreshKey?: number } = $props();
-	let graph = $state<{ enabled: boolean; chunkTokens: number } | null>(null);
-	let coverage = $state<SessionCoverage | null>(null);
+	let { chatId }: { chatId: string } = $props();
+	const graph = $derived(settings.resolved?.graph);
+	// Two deriveds: state created inside a reaction is not that reaction's
+	// dependency, so reading the store's value where it is built never updates.
+	const store = $derived(chatCoverage(chatId));
+	const coverage = $derived(store.value);
 	let open = $state(false);
-	let nonce = $state(0);
 	let root = $state<HTMLDivElement | null>(null);
 
-	async function fetchGraph(): Promise<void> {
-		const read = await fetchGraphRead();
-		if (read) graph = read;
-	}
-
-	async function fetchCoverage(): Promise<void> {
-		try {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}`);
-			if (!res.ok) return;
-			const body = (await res.json()) as { coverage?: SessionCoverage | null };
-			coverage = body.coverage ?? null;
-		} catch {
-		}
-	}
-
-	const runHere = $derived(activity.feed.extractions.some((run) => run.chatId === chatId));
-
 	$effect(() => {
-		void nonce;
-		void fetchGraph();
-	});
-	$effect(() => {
-		void refreshKey;
-		void nonce;
-		void runHere;
-		void fetchCoverage();
-	});
-	$effect(() => watchSettings((section) => {
-		if (section === "graph") nonce += 1;
-	}));
-	$effect(() => {
-		if (coverage?.running !== true) return;
-		const timer = setInterval(() => void fetchCoverage(), 2000);
-		return () => clearInterval(timer);
-	});
-	$effect(() => {
-		if (!open || typeof document === "undefined") return;
-		const onPointerDown = (event: PointerEvent) => {
-			if (root && !root.contains(event.target as Node)) open = false;
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.stopPropagation();
-			open = false;
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		if (!open) return;
+		return dismissLayer(() => (open = false), { inside: () => [root] });
 	});
 
-	const fill = $derived(graph && coverage ? ringFill(coverage.uncoveredTokens, graph.chunkTokens) : 0);
+	const fill = $derived(graph && coverage ? ringFill(coverage.uncoveredTokens, graph.extractionChunkTokens) : 0);
 	const C = 2 * Math.PI * 6;
 </script>
 
@@ -94,7 +48,7 @@
 					<div class="flex justify-between gap-2"><span>Uncovered</span><span class="tabular-nums text-card-foreground">{formatTokens(coverage.uncoveredTokens)} tokens</span></div>
 					<div class="flex justify-between gap-2"><span>Covered</span><span class="tabular-nums text-card-foreground">{formatTokens(coverage.coveredTokens)} tokens</span></div>
 					<div class="flex justify-between gap-2"><span>Messages</span><span class="tabular-nums text-card-foreground">{coverage.coveredCount} / {coverage.totalMessages}</span></div>
-					<div class="flex justify-between gap-2"><span>Chunk threshold</span><span class="tabular-nums text-card-foreground">{formatTokens(graph.chunkTokens)} tokens</span></div>
+					<div class="flex justify-between gap-2"><span>Chunk threshold</span><span class="tabular-nums text-card-foreground">{formatTokens(graph.extractionChunkTokens)} tokens</span></div>
 					<div class="flex justify-between gap-2"><span>Last extraction</span><span class="tabular-nums text-card-foreground">{coverage.lastFoldedAt ? timeAgo(coverage.lastFoldedAt) : "—"}</span></div>
 					{#if coverage.running}
 						<div class="flex justify-between gap-2" data-testid="coverage-ring-running"><span>Status</span><span class="text-card-foreground">extracting…</span></div>

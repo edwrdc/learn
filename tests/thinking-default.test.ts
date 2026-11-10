@@ -8,7 +8,6 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_THINKING_ORDER } from "../src/core/settings.ts";
 import { defaultOrderLevel, populateLevel } from "../src/lib/settings/compose.ts";
 import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
@@ -35,7 +34,7 @@ describe("defaultOrderLevel — the ordering's first supported", () => {
 
 	it("the full ladder resolves its head", () => {
 		const full = tl(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-		assert.equal(defaultOrderLevel(full), DEFAULT_THINKING_ORDER[0]);
+		assert.equal(defaultOrderLevel(full), "medium");
 	});
 });
 

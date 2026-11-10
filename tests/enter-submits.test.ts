@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 import { describe, it } from "node:test";
-import { buttonKeepsNativeEnter } from "../src/lib/chat/enter-submits.ts";
-import { blurAfterPointerClick } from "../src/lib/chat/enter-submits.ts";
+import { buttonKeepsNativeEnter } from "../src/lib/ui/enter-submits.ts";
+import { blurAfterPointerClick } from "../src/lib/ui/enter-submits.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
 
@@ -42,20 +42,10 @@ describe("buttonKeepsNativeEnter (the pointer/keyboard Enter split)", () => {
 		assert.equal(buttonKeepsNativeEnter(b), true);
 	});
 
-	it("buttons inside overlays keep native Enter: hand-rolled menu, Radix popper, dialog, menu role", () => {
+	it("buttons inside overlays keep native Enter: hand-rolled menu, dialog, menu role", () => {
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ "data-lh-menu": "" })), true);
-		assert.equal(
-			buttonKeepsNativeEnter(buttonIn({ "data-radix-popper-content-wrapper": "" })),
-			true,
-		);
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "dialog" })), true);
 		assert.equal(buttonKeepsNativeEnter(buttonIn({ role: "menu" })), true);
-	});
-
-	it("a selector engine without :focus-visible degrades to pointer-focus, never throws", () => {
-		const b = buttonIn({});
-		assert.doesNotThrow(() => buttonKeepsNativeEnter(b));
-		assert.equal(buttonKeepsNativeEnter(b), false);
 	});
 });
 

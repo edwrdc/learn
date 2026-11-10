@@ -1,46 +1,23 @@
 /** The single window-level keydown owner: Tab is dead, Shift+Tab
- *  cycles thinking, Escape falls back to dictation-cancel then abort, and
+ *  cycles thinking, an unclaimed Escape aborts the turn, and
  *  registry actions dispatch or navigate. */
 import { goto } from "$app/navigation";
-import {
-	actionForBinding,
-	eventBinding,
-	isTypingSurface,
-	kbdEventForAction,
-} from "@/src/core";
+import { actionForBinding, eventBinding, isTypingSurface } from "@/src/settings/model";
+import { emitKeyAction } from "$lib/events";
 import { cheatSheet, settingsDialog } from "./dialogs.svelte";
-import { cancelDictation, dictationActive } from "$lib/chat/dictation.svelte";
 
 export function initKeyboard(): () => void {
 	if (typeof window === "undefined") return () => {};
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Tab") {
 			event.preventDefault();
-			if (event.shiftKey) window.dispatchEvent(new CustomEvent("lh:kbd-cycle-thinking"));
-			else if (!event.metaKey && !event.ctrlKey && !event.altKey)
-				window.dispatchEvent(new CustomEvent("lh:kbd-cycle-fields"));
+			if (event.shiftKey) emitKeyAction("cycle-thinking");
 			return;
 		}
 		if (event.key === "Escape") {
-			if (cheatSheet.open) {
-				cheatSheet.open = false;
-				event.preventDefault();
-				return;
-			}
-			// Settings is a surfaced layer: its own Esc closes it, and the
-			// fallback must not also run the dictation/abort chain.
-			if (settingsDialog.show) {
-				event.preventDefault();
-				event.stopPropagation();
-				settingsDialog.close();
-				return;
-			}
-			if (dictationActive()) {
-				event.preventDefault();
-				cancelDictation();
-				return;
-			}
-			window.dispatchEvent(new CustomEvent("lh:kbd-abort-turn"));
+			// Open layers (dialogs, menus, a running dictation) took their
+			// Escape already; what reaches here aborts the turn.
+			emitKeyAction("abort-turn");
 			return;
 		}
 		const action = actionForBinding(eventBinding(event));
@@ -61,10 +38,10 @@ export function initKeyboard(): () => void {
 				break;
 			case "find":
 				event.preventDefault();
-				window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+				emitKeyAction(action);
 				break;
 			default:
-				window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+				emitKeyAction(action);
 		}
 	};
 	window.addEventListener("keydown", onKeyDown);

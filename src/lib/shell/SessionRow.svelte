@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Dumbbell } from "@lucide/svelte";
-	import type { ChatListItem } from "@/src/core";
+	import type { ChatListItem } from "@/src/session/model";
 	import { cn } from "$lib/utils";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 	import { sessionMeta } from "./session-row";

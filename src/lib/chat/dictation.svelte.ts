@@ -1,4 +1,8 @@
-export const DG_URL =
+import { dismissLayer } from "$lib/ui/layer";
+import { onKeyAction } from "$lib/events";
+import { mintDictationToken } from "$lib/api/settings";
+import { ApiError } from "$lib/api/http";
+const DG_URL =
 	"wss://api.deepgram.com/v1/listen" +
 	"?model=nova-3" +
 	"&encoding=linear16" +
@@ -12,9 +16,9 @@ export const METER_TICK_MS = 60;
 export const METER_CELLS = 48;
 export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
 export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
-export const WARM_TOKEN_TTL_MS = 3 * 60_000;
+const WARM_TOKEN_TTL_MS = 3 * 60_000;
 
-export type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
+type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
 
 export function joinDictation(current: string, final: string): string {
 	return current ? current.replace(/\s+$/, "") + " " + final : final;
@@ -28,13 +32,12 @@ export function rmsToMeter(rms: number): number {
 }
 
 async function mintFreshToken(): Promise<string> {
-	const res = await fetch("/api/stt/token");
-	const data = (await res.json()) as { token?: string; message?: string };
-	if (!res.ok || !data.token) {
-		if (res.status === 503) throw new Error(DICTATION_KEYLESS);
-		throw new Error(data.message ?? `token route ${res.status}`);
+	try {
+		return await mintDictationToken();
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 503) throw new Error(DICTATION_KEYLESS);
+		throw error;
 	}
-	return data.token;
 }
 
 export function createWarmMinter(mint: () => Promise<string>, now: () => number = Date.now, ttlMs = WARM_TOKEN_TTL_MS) {
@@ -81,16 +84,15 @@ export function setDictationTarget(append: ((text: string) => void) | null): voi
 	claimedTarget = append;
 }
 
-export function dictationActive(): boolean {
-	return live?.active === true;
-}
-
-export function cancelDictation(): void {
-	live?.cancel();
-}
-
 export function finishDictation(): Promise<void> {
 	return live?.finish() ?? Promise.resolve();
+}
+
+/** Run `next` now, or once a running dictation has landed its last words
+ *  (a submit must carry what was just spoken). */
+export function afterDictation(next: () => void): void {
+	if (live?.active) void live.finish().then(next);
+	else next();
 }
 
 export class DictationController {
@@ -98,6 +100,7 @@ export class DictationController {
 	error = $state<string | null>(null);
 	level = 0;
 	active = $derived(this.phase !== "idle");
+	private offLayer: (() => void) | null = null;
 
 	private append: (text: string) => void;
 	private ws: WebSocket | null = null;
@@ -119,23 +122,15 @@ export class DictationController {
 	mount(): () => void {
 		if (typeof window === "undefined") return () => {};
 		live = this;
-		const toggle = () => this.toggle();
-		const cancel = () => this.cancel();
-		window.addEventListener("lh:kbd-toggle-dictation", toggle);
-		window.addEventListener("lh:kbd-cancel-dictation", cancel);
+		const offToggle = onKeyAction("toggle-dictation", () => this.toggle());
 		if (!this.initialized) {
 			this.initialized = true;
 			warmTokens.refresh();
 		}
 		return () => {
-			window.removeEventListener("lh:kbd-toggle-dictation", toggle);
-			window.removeEventListener("lh:kbd-cancel-dictation", cancel);
+			offToggle();
 			if (live === this) live = null;
 		};
-	}
-
-	setAppend(append: (text: string) => void): void {
-		this.append = append;
 	}
 
 	private flush(): void {
@@ -169,6 +164,8 @@ export class DictationController {
 			}
 		}
 		this.phase = "idle";
+		this.offLayer?.();
+		this.offLayer = null;
 		for (const waiter of this.waiters.splice(0)) waiter();
 		warmTokens.refresh();
 	}
@@ -223,6 +220,9 @@ export class DictationController {
 	private async start(): Promise<void> {
 		this.error = null;
 		this.phase = "connecting";
+		// A running dictation is the newest layer: Escape cancels it first,
+		// before the focused field's own Escape rule (capture).
+		this.offLayer ??= dismissLayer(() => this.cancel(), { clickOutside: false, capture: true });
 		this.reconnects = 0;
 		this.buffer = [];
 		this.pending = [];
@@ -338,8 +338,4 @@ export class DictationController {
 	clearError = (): void => {
 		this.error = null;
 	};
-}
-
-export function isDictationActive(): boolean {
-	return live?.active === true;
 }

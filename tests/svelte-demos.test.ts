@@ -1,8 +1,8 @@
 /** Svelte ports of the demo/visual artifact cards and the bridge. */
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
-import { buildAbortSteer, buildSubagentSteer } from "../src/core/contracts.ts";
-import { projectView } from "../src/core/view.ts";
+import { buildAbortSteer, buildSubagentSteer } from "../src/jobs/model/types.ts";
+import { projectView } from "../src/session/model/view.ts";
 import { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../src/lib/artifacts/demo-bridge.ts";
 import { slugFilename } from "../src/lib/artifacts/download.ts";
 import { chartSize } from "../src/lib/markdown/mermaid.ts";
@@ -72,8 +72,8 @@ describe("demo output card", () => {
 	});
 
 	it("a failed build renders the note with no iframe", async () => {
-		const body = await html("/src/lib/artifacts/DemoOutputCard.svelte", { output: { title: "T", html: "", tested: true, notes: "FAILED: never passed verification" } });
-		assert.match(body, /FAILED: never passed verification/);
+		const body = await html("/src/lib/artifacts/DemoOutputCard.svelte", { output: { title: "T", html: "", tested: true, failure: "never passed verification" } });
+		assert.match(body, /never passed verification/);
 		assert.ok(!body.includes("<iframe"));
 	});
 
@@ -86,13 +86,11 @@ describe("demo output card", () => {
 describe("visual output card", () => {
 	const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
 
-	it("renders the SVG image, figure caption below, hug sizing and invert/download", async () => {
+	it("renders the SVG image, figure caption below and invert/download", async () => {
 		const body = await html("/src/lib/artifacts/VisualOutputCard.svelte", { output: { svg } });
-		assert.ok(body.includes(encodeURIComponent(svg)) || body.includes(encodeURIComponent(svg).replace(/%20/g, "%20")));
+		assert.ok(body.includes(encodeURIComponent(svg)));
 		assert.ok(body.includes('data-testid="visual-card"'));
 		assert.ok(body.includes('data-testid="visual-svg"'));
-		assert.ok(body.includes("w-fit"));
-		assert.match(body, /class="block h-auto max-w-full"/);
 		const svgAt = body.indexOf('data-testid="visual-svg"');
 		const captionAt = body.indexOf(">Figure<");
 		assert.ok(svgAt !== -1 && captionAt !== -1 && svgAt < captionAt);
@@ -103,8 +101,8 @@ describe("visual output card", () => {
 	});
 
 	it("a failed build renders the failed note with no svg", async () => {
-		const body = await html("/src/lib/artifacts/VisualOutputCard.svelte", { output: { svg: "", notes: "FAILED: iteration limit" } });
-		assert.match(body, /FAILED: iteration limit/);
+		const body = await html("/src/lib/artifacts/VisualOutputCard.svelte", { output: { svg: "", failure: "iteration limit" } });
+		assert.match(body, /iteration limit/);
 		assert.ok(!body.includes("<svg"));
 	});
 
@@ -137,10 +135,10 @@ describe("dispatch card", () => {
 
 	it("live activity, pending pulse, delivered, and failure states", async () => {
 		const live = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({})] });
-		assert.match(live, /Research agent/);
+		assert.match(live, /Researcher/);
 		assert.match(live, /web_search: (&quot;|")plato/);
 		const pending = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [] });
-		assert.match(pending, /Research agent/);
+		assert.match(pending, /Researcher/);
 		assert.match(pending, /Dispatched…/);
 		const done = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "done", activity: "delivered" })] });
 		assert.match(done, /delivered/);
@@ -150,11 +148,11 @@ describe("dispatch card", () => {
 	});
 
 	it("refusals read as info with setup links, never the red failure", async () => {
-		const models = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "error", error: "No model configured — set up your models first (missing: cheap)" })] });
+		const models = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "error", error: "No model configured — set up your models first (missing: cheap)", refusal: "models_not_configured" })] });
 		assert.ok(models.includes('data-testid="dispatch-refused"'));
 		assert.match(models, /needs model setup/);
 		assert.ok(!models.includes("failed"));
-		const keys = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "error", error: "No OpenRouter key is set — add one in Settings → Keys" })] });
+		const keys = await html("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "call-1", kind: "research", jobs: [job({ status: "error", error: "No OpenRouter key is set — add one in Settings → Keys", refusal: "provider_key_missing" })] });
 		assert.ok(keys.includes('data-testid="dispatch-refused"'));
 		assert.match(keys, /needs a provider key/);
 	});
@@ -179,19 +177,26 @@ describe("artifact part job wiring", () => {
 		...over,
 	});
 	const render = (type: string, jobs: unknown[]) =>
-		html("/src/lib/artifacts/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
+		html("/src/lib/chat/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "output-available" }, jobs });
 
 	it("forwards the job list so research and pdf cards settle and refuse", async () => {
-		for (const [type, label] of [["tool-research", "Research agent"], ["tool-pdf", "PDF reader"]] as const) {
+		for (const [type, label] of [["tool-research", "Researcher"], ["tool-pdf", "PDF reader"]] as const) {
 			const done = await render(type, [job({})]);
 			assert.match(done, new RegExp(label));
 			assert.match(done, /delivered/);
 			assert.ok(!done.includes("Dispatched"), `${type} rendered the pending card over a settled job`);
 
-			const models = await render(type, [job({ status: "error", error: "No model configured — set up your models first (missing: cheap)" })]);
+			const models = await render(type, [job({ status: "error", error: "No model configured — set up your models first (missing: cheap)", refusal: "models_not_configured" })]);
 			assert.ok(models.includes('data-testid="dispatch-refused"'), `${type} rendered the refusal as a settled card`);
 			assert.match(models, /needs model setup/);
 			assert.ok(!models.includes("failed"), `${type} rendered the model refusal as a failure`);
+		}
+	});
+
+	it("every job tool shows its card at dispatch, before the tool returns", async () => {
+		for (const type of ["tool-research", "tool-pdf", "tool-demo", "tool-visual"]) {
+			const body = await html("/src/lib/chat/ArtifactPart.svelte", { part: { type, toolCallId: "call-1", state: "input-available" }, jobs: [] });
+			assert.ok(body.includes("Dispatched…"), `${type} rendered nothing while dispatching`);
 		}
 	});
 });
@@ -233,7 +238,7 @@ describe("steer cards", () => {
 	});
 
 	it("pdf failure shows the failed brief", async () => {
-		const body = await render(buildSubagentSteer({ id: "jpf2", kind: "pdf", toolCallId: "cpf2" }, { path: "/tmp/doc.pdf", question: "q", brief: "PDF failed: the file could not be opened", pagesRead: [], pagesConsulted: [] }));
+		const body = await render(buildSubagentSteer({ id: "jpf2", kind: "pdf", toolCallId: "cpf2" }, { path: "/tmp/doc.pdf", question: "q", brief: "", failure: "the file could not be opened", pagesRead: [], pagesConsulted: [] }));
 		assert.match(body, /pdf-brief-card/);
 		assert.match(body, /failed/);
 		assert.match(body, /could not be opened/);
@@ -253,8 +258,8 @@ describe("steer cards", () => {
 		const success = await render(buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg, notes: "Looking at the render, the diagram is clean." }));
 		assert.ok(success.includes(encodeURIComponent(svg)) || success.includes("data:image/svg+xml"));
 		assert.ok(!success.includes("Looking at the render"));
-		const failure = await render(buildSubagentSteer({ id: "jv2", kind: "visual", toolCallId: "cv2" }, { svg: "", notes: "FAILED: iteration limit" }));
-		assert.match(failure, /FAILED: iteration limit/);
+		const failure = await render(buildSubagentSteer({ id: "jv2", kind: "visual", toolCallId: "cv2" }, { svg: "", failure: "iteration limit" }));
+		assert.match(failure, /iteration limit/);
 		assert.ok(!failure.includes("<svg"));
 	});
 

@@ -16,23 +16,18 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-scripts-composition-"));
 process.env.LH_DATA_DIR = TMP;
 process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { closeChatRuntime } = await import("../src/store/durable.ts");
-const { backgroundRun } = await import("../src/agent/subagents/durable-run.ts");
-const { createBackfillPipeline } = await import("../scripts/backfill-graph.ts");
-const { createNotesPipeline } = await import("../scripts/import-notes.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { closeChatRuntime } = await import("../src/session/durable.ts");
+const { backgroundRun } = await import("../src/jobs/durable-run.ts");
+const { boot } = await import("../src/boot.ts");
 
 after(async () => {
 	fs.rmSync(TMP, { recursive: true, force: true });
 });
 
 describe("CLI extraction composition", () => {
-	it("both scripts expose the server's role-resolved pipeline", () => {
-		assert.equal(typeof createBackfillPipeline().runExtraction, "function");
-		assert.equal(typeof createNotesPipeline().importNotes, "function");
-	});
-
-	it("the composition root's background seam is wired for the scripts", async () => {
+	it("boot wires the background seam the scripts' extraction rides", async () => {
+		await boot().recovered;
 		const chat = await chatStore.createChat("Scripts: background seam");
 		try {
 			const faux = createFauxCore({});

@@ -17,16 +17,12 @@ describe("isNodeVisible (search predicate)", () => {
 		assert.equal(isNodeVisible(node, ""), true);
 	});
 
-	it("search matches the statement case-insensitively", () => {
-		assert.equal(isNodeVisible(node, "MONEY multiplier"), true);
-	});
-
-	it("search matches the statement when the name does not", () => {
+	it("search matches the statement case-insensitively when the name does not", () => {
 		assert.equal(isNodeVisible(node, "MAXIMUM ratio"), true);
 		assert.equal(isNodeVisible(node, " velocity"), false);
 	});
 
-	it("search matches the name when the statement does not", () => {
+	it("search matches the name case-insensitively when the statement does not", () => {
 		assert.equal(isNodeVisible(node, "money MULTIPLIER"), true);
 		assert.equal(isNodeVisible(node, " banking"), false);
 	});
@@ -34,8 +30,6 @@ describe("isNodeVisible (search predicate)", () => {
 	it("whitespace-only query is no filter", () => {
 		assert.equal(isNodeVisible(node, "   "), true);
 	});
-
-
 });
 
 describe("displayCostTotals (naming-free cost fold)", () => {

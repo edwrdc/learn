@@ -10,9 +10,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import { findSessionTextMatches, stepSessionMatch } from "../src/core/session-find.ts";
+import { findSessionTextMatches, stepSessionMatch } from "../src/session/model/find.ts";
 import { sessionFindRanges, sessionRangeIdentity, sameSessionRange } from "../src/lib/chat/session-find-dom.ts";
-import { clearSessionFindHighlights, injectFindStyles, sessionFindHasForegroundLayer } from "../src/lib/chat/session-find.ts";
+import { clearSessionFindHighlights, injectFindStyles } from "../src/lib/chat/session-find.ts";
 
 const dom = parseHTML("<html><head><style></style></head><body></body></html>");
 (globalThis as Record<string, unknown>).window = dom.window;
@@ -120,38 +120,7 @@ describe("sessionFindRanges — the displayed-text DOM seam", () => {
 	});
 });
 
-describe("sessionFindHasForegroundLayer — the one-Esc law", () => {
-	const mount = (html: string): void => {
-		document.body.innerHTML = html;
-	};
-
-	it("no surfaced layer when only session content exists", () => {
-		mount(`<div data-testid="user-message"><p>needle</p></div>`);
-		assert.equal(sessionFindHasForegroundLayer(document), false);
-	});
-
-	it("a surfaced menu/dialog/cheat sheet outranks the Find bar", () => {
-		for (const html of [
-			'<div data-lh-menu></div>',
-			'<div data-testid="cheat-sheet"></div>',
-			'<div role="dialog"></div>',
-			'<div data-radix-popper-content-wrapper></div>',
-		]) {
-			mount(html);
-			assert.equal(sessionFindHasForegroundLayer(document), true, html);
-		}
-	});
-
-	it("a closed Radix layer is not surfaced", () => {
-		mount(`<div role="dialog" data-state="closed"></div>`);
-		assert.equal(sessionFindHasForegroundLayer(document), false);
-	});
-});
-
 describe("injectFindStyles — ::highlight rules ship outside the PostCSS pipeline", () => {
-	const mount = (html: string): void => {
-		document.body.innerHTML = html;
-	};
 
 	it("injects both rules once, idempotently", () => {
 		document.head.innerHTML = "";
@@ -171,11 +140,11 @@ describe("clearSessionFindHighlights — browser-API shaped, linkedom-safe", () 
 	};
 	it("clears registered highlights without touching the DOM", () => {
 		mount(`<div data-session-find-root=""><p>needle</p></div>`);
-		const [range] = sessionFindRanges(document.body as unknown as HTMLElement, "needle");
+		const before = document.body.innerHTML;
 		// linkedom ships no Highlight constructor — the publisher guards on it.
 		(CSS as { highlights?: Map<string, unknown> }).highlights = new Map([["lh-session-find", {}]]);
 		clearSessionFindHighlights();
 		assert.equal((CSS as { highlights?: Map<string, unknown> }).highlights!.size, 0);
-		assert.ok(range!, "a range existed and the DOM beneath it is untouched");
+		assert.equal(document.body.innerHTML, before);
 	});
 });

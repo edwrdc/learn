@@ -8,26 +8,30 @@ import { after, before, beforeEach, describe, it } from "node:test";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-custom-endpoint-"));
 process.env.LH_DATA_DIR = TMP;
-process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
+// The auth file sits in its own folder, so a test can make the data folder
+// (settings.json) read-only while keys stay writable.
+const AUTH_FILE = path.join(TMP, "auth", "auth.json");
+fs.mkdirSync(path.dirname(AUTH_FILE));
+process.env.LH_AUTH_FILE = AUTH_FILE;
 process.env.OPENROUTER_API_KEY ??= "test-key-openrouter-custom-endpoint";
 
 const {
-	customEndpointKeyPresent,
+	missingProviderKey,
 	customEndpointState,
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
 	saveCustomEndpoint,
-	syncCustomEndpointProvider,
-} = await import("../src/server/custom-endpoint.ts");
-const { modelCatalog, validateModelsSettings } = await import("../src/server/model-catalog.ts");
-const { keyStatuses } = await import("../src/server/keys.ts");
-const { setCustomEndpointProvider, piEngineForSpec, piModels } = await import("../src/agent/models.ts");
-const { stores } = await import("../src/server/stores.ts");
-const { settingsStore } = stores;
+} = await import("../src/settings/custom-endpoint.ts");
+const { checkModelsSettings, modelCatalog } = await import("../src/settings/model-catalog.ts");
+const { keyStatuses } = await import("../src/settings/keys.ts");
+const { setCustomEndpointProvider, piEngineForSpec } = await import("../src/platform/engines.ts");
+const { stores } = await import("../src/stores.ts");
+const { readSettings, writeSettings } = await import("../src/settings/store.ts");
 const { chatStore } = stores;
-const { handleChatInput } = await import("../src/server/chat-handler.ts");
-const { runningTurn } = await import("../src/server/turn-runs.ts");
-const { resolveRoleSpec } = await import("../src/core/settings-resolution.ts");
+const { handleChatInput } = await import("../src/session/turn.ts");
+await import("./support-durable.ts");
+const { runningTurn } = await import("../src/session/turn-runs.ts");
+const { resolveRoleSpec } = await import("../src/settings/model/resolution.ts");
 
 const KEY = "test-custom-endpoint-key-123456";
 const KEY_B = "test-custom-endpoint-key-B-123456";
@@ -174,17 +178,17 @@ describe("custom endpoint E2E", () => {
 	it("a restored run refuses an edited endpoint base URL and its snapshot carries no credential", async () => {
 		const saved = saveLocal({ apiKey: KEY });
 		assert.ok(saved.ok, saved.ok ? "" : saved.error);
-		const { engineForModel } = await import("../src/server/chat-handler.ts");
+		const { engineForSnapshot } = await import("../src/settings/index.ts");
 		const snapshot = { provider: "custom-endpoint", modelId: MODEL_ID, baseUrl: `${base}/v1` };
-		const engine = engineForModel(snapshot);
+		const engine = engineForSnapshot(snapshot);
 		assert.ok(engine, "the captured endpoint restores");
 		assert.equal(engine!.model.baseUrl, `${base}/v1`);
 		assert.ok(!JSON.stringify(engine!.model).includes(KEY), "the model snapshot carries no credential");
 
 		const moved = saveLocal({ baseUrl: `${base}/v2`, apiKey: KEY });
 		assert.ok(moved.ok, moved.ok ? "" : moved.error);
-		assert.equal(engineForModel(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
-		assert.ok(engineForModel({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
+		assert.equal(engineForSnapshot(snapshot), undefined, "an edited endpoint cannot redirect a restored run");
+		assert.ok(engineForSnapshot({ ...snapshot, baseUrl: `${base}/v2` }), "the new endpoint restores under its own snapshot");
 		setCustomEndpointProvider(null);
 	});
 
@@ -198,7 +202,7 @@ describe("custom endpoint E2E", () => {
 		const settingsText = fs.readFileSync(path.join(TMP, "settings.json"), "utf8");
 		assert.ok(settingsText.includes("Local endpoint"));
 		assert.ok(!settingsText.includes(KEY), "settings.json never holds the key");
-		assert.ok(fs.readFileSync(path.join(TMP, "auth.json"), "utf8").includes(KEY), "auth.json is the secret store");
+		assert.ok(fs.readFileSync(AUTH_FILE, "utf8").includes(KEY), "auth.json is the secret store");
 		assert.ok(!JSON.stringify(customEndpointState()).includes(KEY), "GET state never carries the key");
 		assert.ok(!keyStatuses().some((s) => s.id.startsWith("LH_CUSTOM_ENDPOINT_API_KEY")));
 
@@ -234,8 +238,8 @@ describe("custom endpoint E2E", () => {
 			"builtin providers keep their priced catalog",
 		);
 		const customPin = { model: { provider: "custom-endpoint", id: MODEL_ID } };
-		assert.deepEqual(validateModelsSettings({ strong: customPin, cheap: customPin, vision: customPin }), { ok: true });
-		const record = settingsStore.readSettings()!;
+		assert.equal(checkModelsSettings({ strong: customPin, cheap: customPin, vision: customPin }).ok, true);
+		const record = readSettings()!;
 		const roleSpec = resolveRoleSpec("researcher", {
 			...record,
 			agent: { ...record.agent, models: { researcher: customPin } },
@@ -268,7 +272,7 @@ describe("custom endpoint E2E", () => {
 	});
 
 	it("a real chat turn runs on the custom endpoint and persists the streamed reply", async () => {
-		settingsStore.writeSettings({
+		writeSettings({
 			version: 1,
 			graph: { enabled: false },
 			...(customEndpointState().endpoint ? { customEndpoint: customEndpointState().endpoint! } : {}),
@@ -427,21 +431,18 @@ describe("custom endpoint E2E", () => {
 		const a = saveLocal({ baseUrl: aUrl, models: [model], apiKey: KEY });
 		assert.ok(a.ok, a.ok ? "" : a.error);
 
-		const originalWrite = settingsStore.writeSettings;
-		settingsStore.writeSettings = () => {
-			throw new Error("injected settings write failure");
-		};
+		fs.chmodSync(TMP, 0o555);
 		try {
 			assert.throws(
 				() => saveCustomEndpoint({ displayName: "A2", baseUrl: aUrl, models: [model], apiKey: KEY_B }),
-				/injected settings write failure/,
+				/EACCES/,
 			);
 			assert.throws(
 				() => saveCustomEndpoint({ displayName: "B", baseUrl: bUrl, models: [model], apiKey: KEY_B }),
-				/injected settings write failure/,
+				/EACCES/,
 			);
 		} finally {
-			settingsStore.writeSettings = originalWrite;
+			fs.chmodSync(TMP, 0o755);
 		}
 
 		const afterFailure = customEndpointState();
@@ -470,16 +471,15 @@ describe("custom endpoint E2E", () => {
 		const retried = saveCustomEndpoint({ displayName: "B", baseUrl: bUrl, models: [model], apiKey: KEY_B });
 		assert.ok(retried.ok, retried.ok ? "" : retried.error);
 		assert.equal(customEndpointState().endpoint?.baseUrl, bUrl);
-		const authText = fs.readFileSync(path.join(TMP, "auth.json"), "utf8");
+		const authText = fs.readFileSync(AUTH_FILE, "utf8");
 		assert.ok(authText.includes(KEY_B));
 		assert.ok(!authText.includes(KEY), "the old origin's stored key is pruned after a committed edit");
 
-		const record = settingsStore.readSettings()!;
-		settingsStore.writeSettings({
+		const record = readSettings()!;
+		writeSettings({
 			...record,
 			customEndpoint: { displayName: "A", baseUrl: aUrl, models: [model] },
 		});
-		syncCustomEndpointProvider();
 		assert.equal(customEndpointState().keyPresent, false, "no key exists for the new record's origin");
 		seen.length = 0;
 		const inconsistent = await discoverCustomEndpointModels({ baseUrl: aUrl });
@@ -497,9 +497,9 @@ describe("custom endpoint E2E", () => {
 		const removed = removeCustomEndpoint();
 		assert.equal(removed.endpoint, null);
 		assert.equal(removed.keyPresent, false);
-		assert.ok(!fs.readFileSync(path.join(TMP, "auth.json"), "utf8").includes(KEY), "stored key is gone");
+		assert.ok(!fs.readFileSync(AUTH_FILE, "utf8").includes(KEY), "stored key is gone");
 		assert.ok(!modelCatalog().models.some((m) => m.provider === "custom-endpoint"), "removed models leave the picker");
-		assert.equal(customEndpointKeyPresent(), false);
+		assert.notEqual(missingProviderKey("custom-endpoint", ["strong"]), null, "the removed endpoint has no key");
 
 		const record = (await chatStore.getChat(chat.id))!;
 		assert.deepEqual(record.messages, before, "chats are not rewritten by endpoint removal");
@@ -515,7 +515,7 @@ describe("custom endpoint E2E", () => {
 
 describe("custom endpoint URL boundary (pure)", () => {
 	it("accepts HTTPS anywhere and HTTP only on loopback", async () => {
-		const { normalizeCustomEndpointBaseUrl } = await import("../src/core/custom-endpoint.ts");
+		const { normalizeCustomEndpointBaseUrl } = await import("../src/settings/model/custom-endpoint.ts");
 		assert.equal(normalizeCustomEndpointBaseUrl("https://api.example.com/v1/").ok, true);
 		assert.equal(normalizeCustomEndpointBaseUrl("http://localhost:8080/v1").ok, true);
 		assert.equal(normalizeCustomEndpointBaseUrl("http://127.0.0.1:8080/v1").ok, true);

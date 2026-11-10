@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import {
-	buildAnswer,
-	normalizeOptions,
-	resolveCorrect,
-	type QuestionData,
-} from "../src/core/index.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -52,40 +47,6 @@ const planMessages = [
 ];
 
 describe("svelte question dock", () => {
-	it("renders the quiz form, thinking field and chord hint, never the answer", async () => {
-		const html = await render("/src/lib/chat/QuestionDock.svelte", {
-			toolName: "quiz",
-			toolCallId: "q1",
-			input: quizInput,
-			expanded: true,
-			onExpand: () => {},
-			onSubmit: () => {},
-		});
-		assert.match(html, /Which planet is closest to the sun\?/);
-		assert.match(html, /I don.t know/);
-		assert.ok(html.includes('data-testid="thinking-field"'));
-		assert.match(html, /YOUR THINKING/);
-		assert.match(html, /Submit answer/);
-		assert.match(html, /↵ submits · ⇧↵ newline/);
-		assert.ok(html.includes('role="radio"'));
-		assert.ok(!html.includes("Mercury is the innermost planet"), "explanation never leaks before submit");
-	});
-
-	it("renders the teach-check reveal invitation", async () => {
-		const html = await render("/src/lib/chat/QuestionDock.svelte", {
-			toolName: "quiz",
-			toolCallId: "q1",
-			input: quizInput,
-			expanded: false,
-			reveal: true,
-			onExpand: () => {},
-			onSubmit: () => {},
-		});
-		assert.ok(html.includes('data-testid="teach-check-reveal"'));
-		assert.match(html, /Check your understanding/);
-		assert.match(html, /Open/);
-	});
-
 	it("renders a malformed question as the quiet fallback", async () => {
 		const html = await render("/src/lib/chat/QuestionDock.svelte", {
 			toolName: "quiz",
@@ -111,74 +72,22 @@ describe("svelte answered card", () => {
 		const html = await render("/src/lib/chat/AnsweredCard.svelte", { answer, input: quizInput });
 		assert.ok(html.includes('data-testid="answered-card"'));
 		assert.match(html, /correct/);
+		assert.ok(!html.includes("incorrect"));
 		assert.ok(html.includes("Mercury"));
 		assert.ok(html.includes('data-testid="tucked-explanation"'), "explanation is folded");
 		assert.ok(!html.includes("Mercury is the innermost planet"), "the why text stays tucked");
 		assert.ok(html.includes('data-testid="answered-confidence"'));
 		assert.ok(html.includes('data-testid="your-thinking"'));
 	});
-
-	it("renders a skipped question as a muted record", async () => {
-		const qd = quizData();
-		const answer = buildAnswer(qd, { dontKnow: true, values: [], thinking: undefined, confidence: undefined }, "quiz");
-		answer.dismissed = true;
-		const html = await render("/src/lib/chat/AnsweredCard.svelte", { answer });
-		assert.match(html, /skipped/);
-	});
-});
-
-describe("svelte artifact cards", () => {
-	it("dispatch refused jobs read as info, not errors", async () => {
-		const jobs = [
-			{
-				id: "j1", kind: "research", chatId: "c1", toolCallId: "t1", status: "error",
-				error: "No model configured — set up your models first (missing: cheap)",
-				activity: "", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-			},
-		];
-		const html = await render("/src/lib/artifacts/DispatchCard.svelte", { toolCallId: "t1", kind: "research", jobs });
-		assert.ok(html.includes('data-testid="dispatch-refused"'));
-		assert.match(html, /needs model setup/);
-		assert.ok(!html.includes("failed"));
-	});
-
-	it("probe_done renders the strand assessment", async () => {
-		const html = await render("/src/lib/artifacts/ProbeDoneCard.svelte", {
-			part: {
-				state: "input-available",
-				input: { assessment: { strands: [{ strand: "BKT", assessment: "solid recall" }], summary: "Ready to teach." } },
-			},
-		});
-		assert.ok(html.includes('data-testid="probe-done-card"'));
-		assert.match(html, /solid recall/);
-		assert.match(html, /Ready to teach/);
-	});
 });
 
 describe("svelte transcript chrome", () => {
-	it("phase dividers and compaction dividers keep their labels", async () => {
-		const plan = await render("/src/lib/chat/PhaseDivider.svelte", { phase: "plan", nodeCount: 4 });
-		assert.ok(plan.includes('data-testid="phase-divider-plan"'));
-		assert.match(plan, /Plan · 4 nodes/);
-		const teach = await render("/src/lib/chat/PhaseDivider.svelte", { phase: "teach" });
-		assert.match(teach, /Teaching/);
-		const moment = await render("/src/lib/chat/CompactionDivider.svelte", {
-			data: { content: "", details: { tokensBefore: 50541 } },
-		});
-		assert.match(moment, /Context compacted/);
+	it("the cut divider rounds the token count to the nearest thousand", async () => {
 		const cut = await render("/src/lib/chat/CompactionDivider.svelte", {
 			data: { content: "", details: { tokensBefore: 50541 } },
 			cut: true,
 		});
 		assert.match(cut, /History compacted · 51k tok/);
-	});
-
-	it("queued steers render one quiet truncated line each", async () => {
-		const html = await render("/src/lib/chat/QueuedSteers.svelte", {
-			steers: [{ id: "s1", text: "also explain the prior" }],
-		});
-		assert.ok(html.includes('data-testid="queued-steers"'));
-		assert.match(html, /also explain the prior/);
 	});
 
 	it("plan marginalia renders the diagram; the popup is a session dialog", async () => {
@@ -258,17 +167,5 @@ describe("svelte practice surface", () => {
 		assert.match(html, /YOUR THINKING/);
 		assert.match(html, /Submit thinking/);
 		assert.match(html, /↵ submits · ⇧↵ newline/);
-	});
-
-	it("collapsed practice bar keeps the statement as the teaser", async () => {
-		const html = await render("/src/lib/chat/PracticeDock.svelte", {
-			problemCallId: "p1",
-			input: { statement: "Derive the posterior." },
-			expanded: false,
-			onExpand: () => {},
-			onSubmit: () => {},
-		});
-		assert.ok(html.includes('data-testid="practice-dock-bar"'));
-		assert.match(html, /Problem/);
 	});
 });

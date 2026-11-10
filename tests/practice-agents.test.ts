@@ -14,16 +14,17 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 
 import {
 	activeProblemOf,
-	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
-} from "../src/core/native-messages.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
-import { concludeInputObject, concludeTool, createPracticeGate, problemTool, practiceTools } from "../src/agent/tools/practice.ts";
-import { composeInstructions } from "../src/agent/teacher-agent.ts";
-import { allSegmentPaths } from "../src/agent/prompt-segments.ts";
+} from "../src/session/model/transcript.ts";
+import { CONCLUDE_ACK_TEXT } from "../src/session/model/types.ts";
+import { concludeInputObject, concludeTool, problemTool, practiceTools, type PracticeGate } from "../src/session/tools/practice.ts";
+import { composeInstructions } from "../src/session/prompts.ts";
+import { allSegmentPaths } from "../src/session/prompts.ts";
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
+
+const gateOf = (messages: LhMessage[]): PracticeGate => ({ problemActive: activeProblemOf(messages) !== null });
 
 const STAMPS = {
 	api: "faux",
@@ -92,14 +93,14 @@ const CONCLUDE_INPUT = {
 
 describe("the practice tool gating law", () => {
 	it("problem acks on a quiet record and ends the turn (terminate)", async () => {
-		const result = await problemTool(await createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(gateOf([])).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, undefined);
 		assert.equal(result.terminate, true);
 		assert.match((result.content[0] as { text: string }).text, /Problem posed/);
 	});
 
 	it("problem is REJECTED while a problem is active (conclude first)", async () => {
-		const result = await problemTool(await createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(gateOf(activeProblemRecord())).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, true);
 		assert.deepEqual((result.details as { problems: string[] }).problems, [
 			"a problem is already active — call conclude on it before posing the next one",
@@ -107,7 +108,7 @@ describe("the practice tool gating law", () => {
 	});
 
 	it("conclude is REJECTED with nothing active", async () => {
-		const result = await concludeTool(await createPracticeGate(ctxOf([]))).execute("call_x", CONCLUDE_INPUT as never);
+		const result = await concludeTool(gateOf([])).execute("call_x", CONCLUDE_INPUT as never);
 		assert.equal(result.isError, true);
 		assert.deepEqual((result.details as { problems: string[] }).problems, [
 			"no active problem to conclude — pose one first",
@@ -115,7 +116,7 @@ describe("the practice tool gating law", () => {
 	});
 
 	it("conclude acks on the active problem and the turn CONTINUES (no terminate)", async () => {
-		const result = await concludeTool(await createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_x", CONCLUDE_INPUT as never);
+		const result = await concludeTool(gateOf(activeProblemRecord())).execute("call_x", CONCLUDE_INPUT as never);
 		assert.equal(result.isError, undefined);
 		assert.equal(result.terminate, undefined);
 	});
@@ -126,7 +127,7 @@ describe("the practice tool gating law", () => {
 		// record per execute, so the pose after a successful conclude
 		// always died on "a problem is already active" until the model
 		// gave up ("the problem slot is stuck").
-		const gate = await createPracticeGate(ctxOf(activeProblemRecord()));
+		const gate = gateOf(activeProblemRecord());
 		const tools = { problem: problemTool(gate), conclude: concludeTool(gate) };
 		const conclude = await tools.conclude.execute("call_c1", CONCLUDE_INPUT as never);
 		assert.equal(conclude.isError, undefined, "the conclude acks against the seeded record");
@@ -147,7 +148,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	const graphNodes = () => NODES;
 
 	it("a NAME target silently normalizes to the canonical id (the record carries ids)", async () => {
-		const healed = problemTool(await createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
+		const healed = problemTool(gateOf([]), graphNodes).prepareArguments!({
 			...PROBLEM_INPUT,
 			target: ["Parity of a sum", "pairing"],
 		}) as { target: string[] };
@@ -155,7 +156,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("an id target passes through untouched (already canonical)", async () => {
-		const healed = problemTool(await createPracticeGate(ctxOf([])), graphNodes).prepareArguments!({
+		const healed = problemTool(gateOf([]), graphNodes).prepareArguments!({
 			...PROBLEM_INPUT,
 			target: ["n_parity"],
 		}) as { target: string[] };
@@ -163,7 +164,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("an UNKNOWN target rejects with a one-line error and does NOT arm the gate", async () => {
-		const gate = await createPracticeGate(ctxOf([]));
+		const gate = gateOf([]);
 		const tool = problemTool(gate, graphNodes);
 		const rejected = await tool.execute("call_x", { ...PROBLEM_INPUT, target: ["ghost-prop"] } as never);
 		assert.equal(rejected.isError, true);
@@ -178,7 +179,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("UNTAGGED PROBLEMS (owner round 12): absent target poses freely; [] heals away to absent", async () => {
-		const tool = problemTool(await createPracticeGate(ctxOf([])), graphNodes);
+		const tool = problemTool(gateOf([]), graphNodes);
 		const absent = await tool.execute("call_a", { statement: "S", mode: "recall", modelSolution: "M" } as never);
 		assert.equal(absent.isError, undefined, "no targets = an untagged problem, never a rejection");
 		const healed = tool.prepareArguments!({ statement: "S", mode: "recall", target: [], modelSolution: "M" }) as {
@@ -188,7 +189,7 @@ describe("target validation — names normalize to ids, unknowns reject", () => 
 	});
 
 	it("NO node source (the legacy/test wiring) = no validation, free strings ack", async () => {
-		const result = await problemTool(await createPracticeGate(ctxOf([]))).execute("call_x", PROBLEM_INPUT as never);
+		const result = await problemTool(gateOf([])).execute("call_x", PROBLEM_INPUT as never);
 		assert.equal(result.isError, undefined);
 	});
 });
@@ -205,7 +206,7 @@ describe("the practice agent", () => {
 	});
 
 	it("THE RARELY-NEEDED SET (owner round 10): jobs + map readers compose in when their roots are passed", async () => {
-		const jobs = { chatId: "c1", jobStore: null as never, spawn: (() => {}) as never, searchAvailable: () => false };
+		const jobs = { chatId: "c1", jobStore: null as never, spawn: (() => {}) as never };
 		const graph = { chatStore: null as never, graphStore: null as never };
 		const tools = await practiceTools({ ...ctxOf([]), jobs, graph });
 		// Both jobs remain available keylessly; the prober's two map
@@ -215,8 +216,6 @@ describe("the practice agent", () => {
 			Object.keys(tools).sort(),
 			["conclude", "find", "grep", "list_propositions", "list_sessions", "ls", "pdf", "problem", "read", "research"],
 		);
-		const withSearch = await practiceTools({ ...ctxOf([]), jobs: { ...jobs, searchAvailable: () => true }, graph });
-		assert.ok(withSearch.research, "a live engine also keeps research");
 	});
 
 });
@@ -224,7 +223,7 @@ describe("the practice agent", () => {
 // ── persistent nudges (shipped defaults, no model calls) ──────────────────────
 
 describe("persistent practice nudges", () => {
-	const doctrine = readFileSync(new URL("../src/agent/prompts/practice/10-doctrine.md", import.meta.url), "utf8");
+	const doctrine = readFileSync(new URL("../src/session/prompts/practice/10-doctrine.md", import.meta.url), "utf8");
 	const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim();
 	const approvedParagraphs = [
 		"- When a nudge does not land, reassess where the learner is stuck and offer only the next necessary piece of information. Do not jump to the full solution. Tentative answers, questions, and thinking aloud remain work in progress.",
@@ -291,7 +290,7 @@ describe("persistent practice nudges", () => {
 	});
 
 	it("aligns the conclude description with the canonical ack without changing outcomes or the runtime pause mechanism", async () => {
-		const tool = concludeTool(await createPracticeGate(ctxOf(activeProblemRecord())));
+		const tool = concludeTool(gateOf(activeProblemRecord()));
 		const description = normalizeWhitespace(tool.description);
 		assert.match(description, /records the outcome \+ verdict, reveals the committed solution, and frees the learner's composer/);
 		assert.match(description, /After the result, say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls/);

@@ -1,0 +1,84 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import { Type } from "typebox";
+import type { AppTool } from "../adapter.ts";
+import { serverExecute } from "../execute.ts";
+import {
+	capOutput,
+	formatSize,
+	MAX_OUTPUT_BYTES,
+	matchGlob,
+	resolveSourcePath,
+	walkFiles,
+} from "./shared.ts";
+
+/**
+ * The find tool: pi's find ported to a pure-Node walker (pi shells out to
+ * fd; no binaries here, so it is Electron/Windows-safe). Schemas, fd's glob
+ * semantics, relativized output and notice formats are pi-verbatim; the
+ * deltas are listed in shared.ts, plus a wall-clock timeout with partial
+ * results.
+ */
+
+const DEFAULT_LIMIT = 1000;
+
+const findInput = Type.Object({
+	pattern: Type.String({
+		minLength: 1,
+		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
+	}),
+	path: Type.Optional(Type.String({ description: "Directory to search in (default: the learner's home directory)" })),
+	limit: Type.Optional(Type.Integer({ description: "Maximum number of results (default: 1000)" })),
+});
+
+export const findTool: AppTool<typeof findInput> = {
+	name: "find",
+	description: `Search for files by glob pattern. Returns matching file paths relative to the search directory. Ignores node_modules, .git, and Library directories. Output is truncated to ${DEFAULT_LIMIT} results or ${formatSize(MAX_OUTPUT_BYTES)} (whichever is hit first).`,
+	parameters: findInput,
+	execute: serverExecute("find", findInput, async (input, ctx) => {
+		if (ctx?.signal?.aborted) return "Operation aborted";
+		const searchPath = resolveSourcePath(input.path);
+		let stat;
+		try {
+			stat = await fs.stat(searchPath);
+		} catch {
+			throw new Error(`Path not found: ${searchPath}`);
+		}
+		if (!stat.isDirectory()) throw new Error(`Not a directory: ${searchPath}`);
+
+		const effectiveLimit = input.limit ?? DEFAULT_LIMIT;
+		const matches: string[] = [];
+		let limitReached = false;
+		const { timedOut, aborted } = await walkFiles(
+			searchPath,
+			(filePath) => {
+				const rel = path.relative(searchPath, filePath).split(path.sep).join("/");
+				if (!matchGlob(rel, input.pattern)) return false;
+				if (matches.length >= effectiveLimit) {
+					limitReached = true;
+					return true;
+				}
+				matches.push(rel);
+				return false;
+			},
+			ctx?.signal,
+		);
+
+		if (aborted) {
+			return matches.length > 0
+				? `${matches.join("\n")}\n\n[search aborted — partial results]`
+				: "Search aborted before any results.";
+		}
+		if (matches.length === 0 && !limitReached) {
+			return timedOut
+				? `Search timed out after 10s with no matches yet. Narrow the search to a subdirectory.`
+				: "No files found matching pattern";
+		}
+		const { content, truncated } = capOutput(matches);
+		const notices: string[] = [];
+		if (limitReached || matches.length >= effectiveLimit) notices.push(`${effectiveLimit} results limit reached`);
+		if (truncated) notices.push(`${formatSize(MAX_OUTPUT_BYTES)} limit reached`);
+		if (timedOut) notices.push("search timed out after 10s — partial results, narrow the directory");
+		return notices.length > 0 ? `${content}\n\n[${notices.join(". ")}]` : content;
+	}),
+};

@@ -5,18 +5,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
-import {
-	answerForPresentation,
-	buildAnswer,
-	normalizeOptions,
-	parseAskInput,
-	parseExplainInput,
-	parseQuizInput,
-	repairMathForDisplay,
-	resolveCorrect,
-	transformMathDelimiters,
-	type QuestionData,
-} from "../src/core/index.ts";
+import { answerForPresentation } from "../src/session/model/answer-presentation.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
+import { parseAskInput, parseExplainInput, parseQuizInput } from "../src/session/model/tool-parts.ts";
+import { repairMathForDisplay, transformMathDelimiters } from "../src/tools/model/math-delims.ts";
 import { closeSvelteSsr, renderSvelte } from "./support-svelte-ssr.ts";
 
 after(closeSvelteSsr);
@@ -91,35 +83,29 @@ describe("math delimiters", () => {
 });
 
 describe("house blocks", () => {
-	it("GFM tables carry the copy corner and cell padding without streamdown's wrapper", async () => {
+	it("GFM tables carry the copy corner without streamdown's wrapper", async () => {
 		const body = await md("| A | B |\n| --- | --- |\n| 1 | 2 |");
 		assert.ok(body.includes('data-testid="md-table"'));
 		assert.ok(body.includes('data-streamdown="table"'));
 		assert.ok(!body.includes('data-streamdown="table-wrapper"'));
 		assert.ok(body.includes('aria-label="Copy table"'));
-		assert.ok(body.includes("px-4 py-2"));
-		assert.match(body, /absolute top-1 right-1 z-10/);
 	});
 
-	it("code fences use the named md group and the hover copy corner", async () => {
+	it("code fences carry line numbers and a copy control, no copy pill", async () => {
 		const body = await md("```js\nconst x = 1;\n```");
 		assert.ok(body.includes('data-testid="md-code"'));
 		assert.ok(body.includes('data-streamdown="code-block"'));
 		assert.ok(body.includes('data-streamdown="code-block-body"'));
 		assert.match(body, /aria-label="Copy code"/);
-		assert.ok(body.includes("group/md"));
-		assert.match(body, /group-hover\/md:opacity-100/);
 		assert.ok(!body.includes('data-testid="md-copy-pill"'));
 		assert.ok(body.includes("data-lh-line-numbers"));
 	});
 
-	it("display math gets a block wrapper and its own TeX copy corner", async () => {
+	it("display math gets its own TeX copy control", async () => {
 		const body = await md("$$\n\\int_0^1 x^2\\,dx = \\tfrac{1}{3}\n$$");
 		assert.ok(body.includes("katex-display"));
 		assert.ok(body.includes('data-testid="md-math"'));
 		assert.match(body, /aria-label="Copy equation source"/);
-		assert.match(body, /group\/md relative block/);
-		assert.match(body, /absolute top-0 right-0 z-10/);
 	});
 
 	it("mermaid is the app block, never a code block, source never leaks", async () => {

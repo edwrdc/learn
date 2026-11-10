@@ -1,8 +1,8 @@
-import { kbdEventForAction } from "@/src/core";
+import { onKeyAction } from "$lib/events";
+import { IS_ELECTRON } from "./desktop";
+import { sidebarAutocloseWidth } from "../../../electron/shared.json";
 
 const STORAGE_KEY = "lh:sidebar-open";
-const SIDEBAR_AUTOCLOSE = 928;
-export const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
 
 class SidebarStore {
 	pref = $state(false);
@@ -15,19 +15,14 @@ class SidebarStore {
 		if (this.initialized || typeof window === "undefined") return;
 		this.initialized = true;
 		if (IS_ELECTRON) {
-			document.documentElement.classList.add("lh-electron");
-			document.documentElement.dataset.lhPlatform = window.lh?.platform ?? "";
-			const setZoom = (factor: number) => document.documentElement.style.setProperty("--lh-zoom", String(factor));
-			window.lh?.onZoom?.(setZoom);
-			void window.lh?.getZoom?.().then(setZoom);
-			const onResize = () => (this.narrow = window.innerWidth < SIDEBAR_AUTOCLOSE);
+			const onResize = () => (this.narrow = window.innerWidth < sidebarAutocloseWidth);
 			onResize();
 			window.addEventListener("resize", onResize);
 		}
 		const stored = localStorage.getItem(STORAGE_KEY);
 		this.pref = stored === null ? true : stored === "1";
 		this.mounted = true;
-		window.addEventListener(kbdEventForAction("toggle-sidebar"), () => this.toggle());
+		onKeyAction("toggle-sidebar", () => this.toggle());
 		// Synchronize across tabs (the preference is per device, shared).
 		window.addEventListener("storage", (event) => {
 			if (event.key !== STORAGE_KEY) return;

@@ -12,15 +12,12 @@ import { describe, it } from "node:test";
 import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
-	BACKGROUND_MODEL_ROLES,
-	isHexColor,
-	sanitizeUserSettings,
-} from "../src/core/settings.ts";
+} from "../src/settings/model/settings.ts";
+import { isHexColor, sanitizeUserSettings } from "../src/settings/model/schema.ts";
 
 describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
-		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
@@ -56,7 +53,6 @@ describe("sanitizeUserSettings", () => {
 	it("round-trips a fully valid record field-for-field", () => {
 		const record = {
 			version: 1,
-			general: { autoUpdate: false },
 			agent: {
 				models: {
 					researcher: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" }, thinkingLevel: "high" },
@@ -91,11 +87,10 @@ describe("sanitizeUserSettings", () => {
 	});
 
 	it("absent version defaults to CURRENT; unknown keys ride along VERBATIM", () => {
-		const out = sanitizeUserSettings({ futureSection: { knob: 3 }, general: { autoUpdate: true } });
+		const out = sanitizeUserSettings({ futureSection: { knob: 3 } });
 		assert.ok(out);
 		assert.equal(out.version, CURRENT_SETTINGS_VERSION);
 		assert.deepEqual((out as Record<string, unknown>).futureSection, { knob: 3 });
-		assert.deepEqual(out.general, { autoUpdate: true });
 	});
 
 	it("drops malformed known sections instead of preserving them as unknown keys", () => {
@@ -136,13 +131,11 @@ describe("sanitizeUserSettings", () => {
 
 	it("wrong-typed fields DROP (resolve to factory), never crash", () => {
 		const out = sanitizeUserSettings({
-			general: { autoUpdate: "yes" },
 			agent: { tools: { research: "no" }, prompts: { "system-prompt.md": 1 }, models: { researcher: "fast" } },
 			appearance: { mode: "sepia", sessionNameSerif: "true" },
 			graph: { enabled: 0 },
 		});
 		assert.ok(out);
-		assert.deepEqual(out.general, {});
 		assert.deepEqual(out.agent, {});
 		assert.deepEqual(out.appearance, {});
 		assert.deepEqual(out.graph, {});
@@ -217,7 +210,7 @@ describe("sanitizeUserSettings", () => {
 		const good = sanitizeUserSettings({ version: 1, agent: { search: { engine: "tavily" } } });
 		assert.deepEqual(good?.agent?.search, { engine: "tavily" });
 		const bad = sanitizeUserSettings({ version: 1, agent: { search: { engine: "google" } } });
-		assert.equal(bad?.agent?.search, undefined);
+		assert.equal(bad?.agent?.search?.engine, undefined);
 		const notObject = sanitizeUserSettings({ version: 1, agent: { search: "tavily" } });
 		assert.equal(notObject?.agent?.search, undefined);
 	});
@@ -232,22 +225,12 @@ describe("sanitizeUserSettings", () => {
 		const badShape = sanitizeUserSettings({ version: 1, agent: { graphTools: "on" } });
 		assert.equal(badShape?.agent?.graphTools, undefined);
 		const badEnabled = sanitizeUserSettings({ version: 1, agent: { graphTools: { enabled: "yes" } } });
-		assert.equal(badEnabled?.agent?.graphTools, undefined);
+		assert.equal(badEnabled?.agent?.graphTools?.enabled, undefined);
 	});
 
 	it("partial maps: booleans survive, non-boolean entries drop individually", () => {
 		const out = sanitizeUserSettings({ agent: { tools: { quiz: false, demo: true, visual: "x" } } });
 		assert.ok(out);
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
-	});
-
-	it("BACKGROUND_MODEL_ROLES matches the five background roles (practice trio deleted 2026-10-04)", () => {
-		assert.deepEqual([...BACKGROUND_MODEL_ROLES], [
-			"researcher",
-			"demoBuilder",
-			"visualMaker",
-			"extractor",
-			"auditor",
-		]);
 	});
 });

@@ -1,6 +1,6 @@
 /**
  * GET/PUT/DELETE /api/custom-endpoint — the ONE optional custom OpenAI
- * Responses endpoint (custom-endpoint wave).
+ * Responses endpoint.
  *
  * GET    → {endpoint, keyPresent} (the API key itself NEVER leaves the
  *          server; only its presence is reported).
@@ -11,11 +11,8 @@
  *          silently falling back.
  */
 
-import {
-	customEndpointState,
-	removeCustomEndpoint,
-	saveCustomEndpoint,
-} from "@/src/server";
+import { customEndpointState, removeCustomEndpoint, saveCustomEndpoint } from "@/src/settings";
+import { readJson } from "@/src/platform";
 import type { RequestEvent } from "./$types";
 
 export async function GET() {
@@ -23,7 +20,9 @@ export async function GET() {
 }
 
 export async function PUT({ request }: RequestEvent) {
-	const body = await request.json().catch(() => null);
+	const json = await readJson(request);
+	if (json instanceof Response) return json;
+	const body = json.body;
 	const result = saveCustomEndpoint(body);
 	if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
 	return Response.json(result.state);

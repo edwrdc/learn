@@ -1,30 +1,14 @@
 /** The background-agents feed's pure fold: jobs + extractions → ordered
  *  blobs, money/context doctrine included. */
-import { isModelsRefusal, isProviderKeyRefusal, jobCost, type JobKind, type JobRecord, type CallUsage } from "@/src/core";
+import { jobCost } from "@/src/session/model";
+import type { ActivityFeed, JobKind } from "@/src/jobs/model";
+import { MODELS_NOT_CONFIGURED_CODE, PROVIDER_KEY_MISSING_CODE, type RefusalCode } from "@/src/settings/model";
 
-interface FeedUsage extends NonNullable<JobRecord["usage"]> {
-	lastStep?: CallUsage;
-}
-
-export interface FeedJob extends JobRecord {
-	title: string;
-	usage?: FeedUsage;
-	contextLimit: number | null;
-}
-
-export interface FeedExtraction {
-	id: string;
-	chatId: string;
-	part?: { i: number; n: number };
-	title: string;
-	phase: string;
-	startedAt: number;
-}
-
-export interface ActivityFeed {
-	jobs: FeedJob[];
-	extractions: FeedExtraction[];
-}
+/** How a refused job reads: its status line and the fix button's label. */
+export const REFUSAL_COPY: Record<RefusalCode, { status: string; action: string }> = {
+	[MODELS_NOT_CONFIGURED_CODE]: { status: "needs model setup", action: "Set up models" },
+	[PROVIDER_KEY_MISSING_CODE]: { status: "needs a provider key", action: "Add a key" },
+};
 
 export interface ActivityBlob {
 	id: string;
@@ -41,7 +25,8 @@ export interface ActivityBlob {
 	steps?: number;
 }
 
-export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
+export function toBlobs(feed: Pick<ActivityFeed, "jobs" | "extractions"> | undefined): ActivityBlob[] {
+	if (!feed) return [];
 	const blobs: ActivityBlob[] = feed.jobs.map((job) => {
 		const usage = job.usage;
 		let context: ActivityBlob["context"] = null;
@@ -66,11 +51,7 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			startedAt: Date.parse(job.createdAt) || 0,
 			cost: jobCost(job),
 			context,
-			activity: isModelsRefusal(job.error)
-				? "needs model setup"
-				: isProviderKeyRefusal(job.error)
-					? "needs a provider key"
-					: (job.activity ?? ""),
+			activity: job.refusal ? REFUSAL_COPY[job.refusal].status : (job.activity ?? ""),
 			model: usage?.model,
 			steps: usage?.steps,
 		};

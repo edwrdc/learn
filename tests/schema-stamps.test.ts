@@ -2,7 +2,7 @@
  * SCHEMA STAMPS (schema-versioning wave, owner 2026-10-10): LAZY v1 for
  * chats (record.version, stamped at the write choke point) and the graph
  * family (data/graph/format.json sidecar — ledgers, sources,
- * render-settings; positions deliberately unversioned, rebuildable).
+ * positions deliberately unversioned, rebuildable).
  * Honest refusal: records stamped NEWER than this build are refused on
  * read (the downgrade scenario) — never misparsed, never rewritten.
  *
@@ -21,11 +21,10 @@ import test from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-stamps-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { CURRENT_CHAT_VERSION } = await import("../src/core/contracts.ts");
-const { graphStore } = await import("../src/store/graph.ts");
-const { readRenderSettings, writeRenderSettings } = await import("../src/store/render-settings.ts");
-const { GRAPH_FORMAT_FILE } = await import("../config.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { CURRENT_CHAT_VERSION } = await import("../src/session/model/types.ts");
+const { graphStore } = await import("../src/graph/store.ts");
+const { GRAPH_FORMAT_FILE } = await import("../src/graph/files.ts");
 
 test.after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -34,9 +33,6 @@ test.after(() => {
 // ── chats: lazy stamp at the write choke point ──────────────────────────────
 
 test("chats: createChat stamps the current version on disk", async () => {
-	// v2 is the metadata-only shape: an old build (max v1) refuses it on read
-	// instead of mistaking a transcript-less record for its own format.
-	assert.equal(CURRENT_CHAT_VERSION, 2, "the transcript-less record is a new on-disk version");
 	const r = await chatStore.createChat("stamp test");
 	assert.equal(r.version, CURRENT_CHAT_VERSION, "the in-memory twin is stamped");
 	const onDisk = JSON.parse(fs.readFileSync(path.join(TMP_DATA, "chats", `${r.id}.json`), "utf8"));
@@ -77,7 +73,6 @@ test("chats: a NEWER-stamped record is refused honestly (the downgrade scenario)
 test("graph: reads never write — no sidecar appears from reading alone", async () => {
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "no sidecar before any write");
 	assert.deepEqual(graphStore.readNodes(), [], "ledger reads fine without a sidecar");
-	assert.equal(readRenderSettings(), null, "render-settings reads fine without a sidecar");
 	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE), "reads did NOT create the sidecar (lazy = write-side only)");
 });
 
@@ -100,22 +95,5 @@ test("graph: a NEWER-stamped sidecar is refused honestly", async () => {
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: 99 }), "utf-8");
 	assert.throws(() => graphStore.readNodes(), /older than its data|format version 99/);
 	assert.throws(() => graphStore.readSources(), /older than its data|format version 99/);
-	assert.throws(() => readRenderSettings(), /older than its data|format version 99/);
 });
 
-test("render-settings: its write stamps the family sidecar too", async () => {
-	fs.rmSync(path.dirname(GRAPH_FORMAT_FILE), { recursive: true, force: true });
-	assert.ok(!fs.existsSync(GRAPH_FORMAT_FILE));
-	const written = writeRenderSettings({ sizeUnits: "world", nodeSize: 3 });
-	assert.equal(written.nodeSize, 3);
-	assert.equal(JSON.parse(fs.readFileSync(GRAPH_FORMAT_FILE, "utf8")).version, 1, "the render-settings write stamped the family");
-});
-
-// ── the fixtures stay the legacy pin: golden data reads unstamped ───────────
-
-test("golden fixtures are deliberately the unstamped legacy shape (lazy v1 = current-valid)", async () => {
-	const here = path.dirname(new URL(import.meta.url).pathname);
-	const teach = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "golden-data", "chats", "chat_mv27rrra_feff23b6.json"), "utf8"));
-	assert.equal(teach.version, undefined, "fixture records pin the unstamped read path");
-	assert.ok(!fs.existsSync(path.join(here, "fixtures", "golden-data", "graph", "format.json")), "no sidecar in the fixture graph dir");
-});

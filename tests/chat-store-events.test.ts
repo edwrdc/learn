@@ -19,8 +19,8 @@ import { after, describe, it } from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-chat-store-events-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { chatStore } = await import("../src/store/chats.ts");
-const { subscribe } = await import("../src/core/events.ts");
+const { chatStore } = await import("../src/session/store.ts");
+const { subscribe } = await import("../src/platform/model/events.ts");
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });

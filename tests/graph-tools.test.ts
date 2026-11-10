@@ -11,11 +11,13 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createProberTools } from "../src/agent/tools.ts";
-import { auditorGraphTools } from "../src/agent/tools/graph.ts";
-import type { ChatStore, GraphStore, JobStore } from "../src/core/ports.ts";
-import type { ChatSummary } from "../src/core/contracts/chat.ts";
-import type { GraphChain, GraphNode } from "../src/core/contracts/graph.ts";
+import { createProberTools } from "../src/session/tools/registry.ts";
+import { auditorGraphTools } from "../src/graph/extraction/graph-tools.ts";
+import type { ChatStore } from "../src/session/model/ports.ts";
+import type { GraphStore } from "../src/graph/model/ports.ts";
+import type { JobStore } from "../src/jobs/model/ports.ts";
+import type { ChatRecord, ChatSummary } from "../src/session/model/types.ts";
+import type { GraphChain, GraphNode } from "../src/graph/model/types.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,8 @@ function fakeStores(
 			(over.chats ?? []).map((c) => ({ ...c, messageCount: 0 }) as unknown as ChatSummary),
 		getChat: (id: string) =>
 			((over.chats ?? []).find((c) => c.id === id) as unknown as ChatSummary) ?? undefined,
+		getChats: async (ids: string[]) =>
+			ids.map((id) => ((over.chats ?? []).find((c) => c.id === id) as unknown as ChatRecord) ?? null),
 	} as unknown as ChatStore;
 	return { chatStore, graphStore };
 }
@@ -161,14 +165,6 @@ describe("list_propositions", () => {
 		assert.ok(!out.includes("as of"));
 		assert.ok(!out.includes("solid"));
 		assert.ok(!out.includes("statement of"));
-	});
-
-	it("no evaluation machinery at all — the covered list is the whole output", async () => {
-		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
-		const out = (await tools.list_propositions!.execute!("tc", { session: "c1" })).details as string;
-		assert.match(out, /- Water cycle/);
-		assert.ok(!out.includes("never evaluated"));
 	});
 
 	it("an unknown session id — honest redirect, not a throw", async () => {

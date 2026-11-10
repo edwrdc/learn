@@ -14,12 +14,13 @@ const ENV_KEY = "env-owned-custom-key-123456";
 process.env.LH_CUSTOM_ENDPOINT_API_KEY = ENV_KEY;
 
 const {
-	customEndpointState,
 	discoverCustomEndpointModels,
 	removeCustomEndpoint,
 	saveCustomEndpoint,
-} = await import("../src/server/custom-endpoint.ts");
-const { piEngineForSpec } = await import("../src/agent/models.ts");
+} = await import("../src/settings/custom-endpoint.ts");
+const { piEngineForSpec } = await import("../src/platform/engines.ts");
+const { initAuthEnv } = await import("../src/settings/keys.ts");
+initAuthEnv(); // boot's first step
 
 const MODEL_ID = "deepseek-flash";
 const model = {

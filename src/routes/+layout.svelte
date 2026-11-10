@@ -9,17 +9,18 @@
 	import CheatSheet from "$lib/shell/CheatSheet.svelte";
 	import { serverEvents } from "$lib/state/server-events";
 	import { sidebar } from "$lib/state/sidebar.svelte";
-	import { appearance } from "$lib/state/appearance.svelte";
-	import { activity } from "$lib/state/activity.svelte";
+	import { initDesktop } from "$lib/state/desktop";
+	import { appearance } from "$lib/settings/appearance.svelte";
 	import { initKeyboard } from "$lib/state/keyboard";
 
 	let { children }: { children: Snippet } = $props();
 
+	$effect(() => appearance.apply());
+
 	onMount(() => {
 		serverEvents.start();
+		initDesktop();
 		sidebar.init();
-		appearance.init();
-		activity.init();
 		const offKeyboard = initKeyboard();
 		return () => {
 			offKeyboard();

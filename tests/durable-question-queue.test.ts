@@ -10,6 +10,7 @@
  * a reopen must not lose or duplicate it.
  */
 
+import "./support-tmp-data.ts";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
 import { routeEvent } from "./support-route-event.ts";
@@ -20,19 +21,20 @@ import {
 	type FauxResponseStep,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { isTurnRunning } from "../src/server/turn-liveness.ts";
-import { deliverJobResult } from "../src/server/jobs.ts";
-import { buildSubagentSteer, type JobRecord } from "../src/core/contracts.ts";
-import { chatStore } from "../src/store/chats.ts";
-import { jobStore } from "../src/store/jobs.ts";
-import { closeChatRuntime, openChatRuntime } from "../src/store/durable.ts";
-import { danglingQuestionOf } from "../src/core/native-messages.ts";
-import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/core/question-core.ts";
+import { handleChatRequest } from "../src/session/turn.ts";
+import "./support-durable.ts";
+import { isTurnRunning } from "../src/session/turn-liveness.ts";
+import { deliverJobResult } from "../src/jobs/wake.ts";
+import { buildSubagentSteer, type JobRecord } from "../src/jobs/model/types.ts";
+import { chatStore } from "../src/session/store.ts";
+import { jobStore } from "../src/jobs/store.ts";
+import { closeChatRuntime, openChatRuntime } from "../src/session/durable.ts";
+import { danglingQuestionOf } from "../src/session/model/transcript.ts";
+import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { PiEngine } from "../src/agent/models.ts";
-import type { AppTool } from "../src/agent/tool-adapter.ts";
-import type { QuestionAnswerData } from "../src/core/question-core.ts";
+import type { PiEngine } from "../src/platform/engines.ts";
+import type { AppTool } from "../src/tools/adapter.ts";
+import type { QuestionAnswerData } from "../src/session/model/questions.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -175,7 +177,7 @@ function queueJob(chatId: string): { job: JobRecord; delivered: Promise<void> } 
 	const job = jobStore.createJob({ kind: "research", chatId, toolCallId: `call_job_${Date.now()}` });
 	const result = { brief: "Research brief: the orbit is elliptical.", sources: [] };
 	jobStore.updateJob(job.id, { result });
-	return { job, delivered: deliverJobResult(buildSubagentSteer(job, result)) };
+	return { job, delivered: deliverJobResult(job.chatId, buildSubagentSteer(job, result)) };
 }
 
 const createdChats: string[] = [];
