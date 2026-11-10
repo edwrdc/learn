@@ -1,20 +1,18 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
-	import { getContext } from "svelte";
 	import { hint } from "$lib/hint";
-	import { formatUsd, prettyModel } from "$lib/format";
+	import { prettyModel } from "$lib/format";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import ModelMenuList from "$lib/settings/ModelMenuList.svelte";
 	import ThinkingMenuList from "$lib/settings/ThinkingMenuList.svelte";
-	import { catalogLimits, modelCatalog } from "$lib/state/model-catalog.svelte";
-	import { emitAppEvent, onKeyAction } from "$lib/events";
+	import { modelCatalog } from "$lib/state/model-catalog.svelte";
+	import { onKeyAction } from "$lib/events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
 	import { fetchChat, saveChatSettings } from "$lib/api/chats";
-	import { saveSettingsSection } from "$lib/api/settings";
 	import { ApiError } from "$lib/api/http";
 	import { composeSlotModel, defaultOrderLevel, populateLevel, THINKING_LABEL } from "$lib/settings/compose";
 	import type { ChatSettings } from "@/src/session/model";
-	import type { ModelCatalogEntry, ModelsSettings, ModelSlotName } from "@/src/settings/model";
+	import type { ModelCatalogEntry, ModelsSettings } from "@/src/settings/model";
 	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 
 	let { chatId }: { chatId?: string } = $props();
@@ -57,11 +55,10 @@
 	}
 
 	async function save(next: ModelsSettings) {
-		setError(null);
+		error = null;
 		try {
-			userSettings.set(await saveSettingsSection("models", next));
+			await userSettings.save("models", next);
 			open = null;
-			emitAppEvent("settings-saved", { section: "models" });
 		} catch (err) {
 			showFailure(err);
 		}
@@ -69,7 +66,7 @@
 
 	async function saveChat(next: ChatSettings) {
 		if (!chatId) return;
-		setError(null);
+		error = null;
 		try {
 			session = (await saveChatSettings(chatId, next)).settings;
 			open = null;
@@ -85,10 +82,6 @@
 
 	function pickModel(model: ModelCatalogEntry) {
 		apply(model.provider, model.id, populateLevel(storedLevel, model.supportedLevels));
-	}
-
-	function setError(value: string | null) {
-		error = value;
 	}
 
 	$effect(() => {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
-	import { fetchGraph } from "$lib/api/graph";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 	import { hasPracticeMeta, practiceMetaRows, practiceTargets } from "./practice-meta";
 
 	let {
@@ -15,27 +15,19 @@
 	let trigger = $state<HTMLButtonElement | null>(null);
 	let box = $state<HTMLDivElement | null>(null);
 	let anchor = $state<{ top: number; left: number } | null>(null);
-	let names = $state<Record<string, string> | null>(null);
 
 	const visible = $derived(hasPracticeMeta({ conclude, problem }));
+	const names = $derived.by(() => {
+		const graph = open && practiceTargets(problem).length > 0 ? graphSnapshot.value : undefined;
+		return graph ? Object.fromEntries(graph.nodes.map((node) => [node.id, node.name])) : null;
+	});
 	const rows = $derived(practiceMetaRows({ conclude, problem, names }));
-
-	function loadNames() {
-		if (names || practiceTargets(problem).length === 0) return;
-		void fetchGraph()
-			.then((graph) => (names = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]))))
-			.catch((error) => {
-				console.error("[practice] proposition names unavailable:", error);
-				names = {};
-			});
-	}
 
 	function toggle() {
 		if (open) {
 			open = false;
 			return;
 		}
-		loadNames();
 		const rect = trigger?.getBoundingClientRect();
 		if (rect) anchor = { top: rect.bottom + 8, left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)) };
 		open = true;

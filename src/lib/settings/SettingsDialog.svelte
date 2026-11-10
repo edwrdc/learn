@@ -5,11 +5,7 @@
 	import { hint } from "$lib/hint";
 	import { settingsDialog, type SettingsSectionId } from "$lib/state/dialogs.svelte";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import { saveSettingsSection } from "$lib/api/settings";
-	import { emitAppEvent } from "$lib/events";
 	import Controls from "./Controls.svelte";
-	import CommitInput from "./CommitInput.svelte";
-	import ThinSelect from "./ThinSelect.svelte";
 	import KeysSection from "./KeysSection.svelte";
 	import AgentSection from "./AgentSection.svelte";
 	import AppearanceSection from "./AppearanceSection.svelte";
@@ -50,8 +46,7 @@
 	async function write(section: "agent" | "models" | "appearance" | "graph" | "compaction", body: object) {
 		error = null;
 		try {
-			userSettings.set(await saveSettingsSection(section, body));
-			emitAppEvent("settings-saved", { section });
+			await userSettings.save(section, body);
 		} catch (err) {
 			error = `${section}: ${err instanceof Error ? err.message : String(err)}`;
 		}

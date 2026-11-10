@@ -56,7 +56,7 @@ import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
 import { applyClusterLabels, drawNameLines, LABEL_GAP, LABEL_MAX_WIDTH, LABEL_SIZE, LABEL_WEIGHT, LABELS_FADE_RATIO, REGION_LABEL_LINE_HEIGHT, REGION_LABEL_MAX_LINES, REGION_LABEL_MAX_WIDTH, wrapLabel, wrapRegionLabel, type WorldSizes } from "./graph-labels.ts";
 import { createGraphSimulation, isArgumentId, type LayoutNode, type Position } from "@/src/graph/model";
-import { CHARGE_STRENGTH, CLUSTER_PULL_STRENGTH, DEFAULT_PHYSICS_TUNING, DEFAULT_REGION_TUNING, INCREMENTAL_GRAVITY, LINK_DISTANCE, sanitizePhysicsTuning, sanitizeRegionTuning, type DepthAnchorMode, type GraphRenderSettings, type PhysicsTuning, type RegionTuning } from "@/src/settings/model";
+import { DEFAULT_PHYSICS_TUNING, DEFAULT_REGION_TUNING, sanitizePhysicsTuning, sanitizeRegionTuning, type GraphRenderSettings, type PhysicsTuning, type RegionTuning } from "@/src/settings/model";
 
 
 // ─── Public data contract ──────────────────────────────────────────────────

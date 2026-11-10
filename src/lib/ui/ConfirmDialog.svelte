@@ -12,7 +12,6 @@
 		ids,
 		title,
 		action = "Delete",
-		busyAction = "Deleting…",
 		busy,
 		failure,
 		onConfirm,
@@ -24,7 +23,6 @@
 		ids: string;
 		title: string;
 		action?: string;
-		busyAction?: string;
 		busy: boolean;
 		failure: string | null;
 		onConfirm: () => void;
@@ -47,7 +45,7 @@
 		{/if}
 		<div class="mt-4 flex justify-end gap-2">
 			<button type="button" data-testid="{ids}-cancel" onclick={onClose} disabled={busy} class="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">Cancel</button>
-			<button type="button" data-testid="{ids}-confirm" onclick={onConfirm} disabled={busy} class="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? busyAction : action}</button>
+			<button type="button" data-testid="{ids}-confirm" onclick={onConfirm} disabled={busy} class="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? "Deleting…" : action}</button>
 		</div>
 	</div>
 </div>

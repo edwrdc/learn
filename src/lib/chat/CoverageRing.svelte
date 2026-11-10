@@ -3,25 +3,19 @@
 	import { ringFill } from "./coverage";
 	import { formatTokens, timeAgo } from "$lib/format";
 	import { hint } from "$lib/hint";
-	import { activity } from "$lib/state/activity.svelte";
 	import { chatCoverage } from "$lib/state/coverage.svelte";
 	import { settings } from "$lib/state/settings.svelte";
 
 
-	let { chatId, refreshKey = 0 }: { chatId: string; refreshKey?: number } = $props();
+	let { chatId }: { chatId: string } = $props();
 	const graph = $derived(settings.resolved?.graph);
+	// Two deriveds: state created inside a reaction is not that reaction's
+	// dependency, so reading the store's value where it is built never updates.
 	const store = $derived(chatCoverage(chatId));
 	const coverage = $derived(store.value);
 	let open = $state(false);
 	let root = $state<HTMLDivElement | null>(null);
 
-	const runHere = $derived((activity.value?.extractions ?? []).some((run) => run.chatId === chatId));
-
-	$effect(() => {
-		void refreshKey;
-		void runHere;
-		void store.refresh();
-	});
 	$effect(() => {
 		if (!open) return;
 		return dismissLayer(() => (open = false), { inside: () => [root] });

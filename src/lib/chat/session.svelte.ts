@@ -14,17 +14,14 @@ export class SessionView {
 		steerQueue: [],
 	});
 
-	constructor(opts: { chatId: string; initialMessages: LhMessage[]; onChange?: () => void }) {
+	constructor(opts: { chatId: string; initialMessages: LhMessage[] }) {
 		this.model = new SessionModel({
 			chatId: opts.chatId,
 			// The page data arrives as a Svelte state proxy; core's tool-input
 			// parsing uses structuredClone, which cannot clone a proxy. The
 			// record is plain JSON by contract, so snapshot it at the boundary.
 			initialMessages: JSON.parse(JSON.stringify(opts.initialMessages)) as LhMessage[],
-			onChange: () => {
-				this.sync();
-				opts.onChange?.();
-			},
+			onChange: () => this.sync(),
 		});
 		this.sync();
 	}

@@ -2,12 +2,9 @@
 	import { type GraphContextPick } from "@/src/session/model";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { plural } from "$lib/format";
-import { untrack } from "svelte";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { startDraftSession } from "./new-session";
-	import { strongKeyless } from "$lib/state/keys";
-	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { CornerDownLeft, Dumbbell } from "@lucide/svelte";
 	import type { TurnUsage } from "@/src/session/model";
 	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
@@ -17,21 +14,20 @@ import { untrack } from "svelte";
 	import GraphView from "./GraphView.svelte";
 	import MinimalHome from "./MinimalHome.svelte";
 	import SidebarToggle from "$lib/shell/SidebarToggle.svelte";
-	import { noProviderKey } from "$lib/state/keys.svelte";
-	import { hint } from "$lib/hint";
+	import { needsSetup, noProviderKey } from "$lib/state/keys.svelte";
+	import { settings } from "$lib/state/settings.svelte";
 	import { focusOnMount } from "$lib/dom";
 
 	let { initialConfigured, rendering = true }: { initialConfigured: boolean; rendering?: boolean } = $props();
 
 	let topic = $state("");
 	let topicMirror = "";
-	let configured = $state(untrack(() => initialConfigured));
+	const configured = $derived(settings.configured ?? initialConfigured);
 	let setupOpen = $state(false);
 	let busy = $state(false);
 	let mode = $state<"teach" | "practice">("teach");
 	let practiceProps = $state<GraphContextPick[]>([]);
 	let chainSelectOpen = $state(false);
-	let applied = false;
 
 	const dictation = new DictationController((value) => applyTopic(joinDictation(topicMirror, value)));
 
@@ -43,11 +39,7 @@ import { untrack } from "svelte";
 	async function begin() {
 		const text = topicMirror.trim();
 		if (!text || busy) return;
-		if (!configured) {
-			setupOpen = true;
-			return;
-		}
-		if (noProviderKey.value || strongKeyless(modelCatalog.value)) {
+		if (needsSetup(configured)) {
 			setupOpen = true;
 			return;
 		}
@@ -120,12 +112,6 @@ import { untrack } from "svelte";
 					value={topic}
 					oninput={(event) => applyTopic((event.currentTarget as HTMLTextAreaElement).value)}
 					onkeydown={(event) => {
-						if (event.key === "Escape" && dictation.active) {
-							event.preventDefault();
-							event.stopPropagation();
-							dictation.cancel();
-							return;
-						}
 						if (event.key === "Enter" && !event.shiftKey) {
 							event.preventDefault();
 							start();
@@ -156,5 +142,5 @@ import { untrack } from "svelte";
 		</div>
 	</div>
 
-	<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => { configured = true; setupOpen = false; }} />
+	<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => (setupOpen = false)} />
 </div>

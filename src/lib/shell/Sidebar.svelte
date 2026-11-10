@@ -6,9 +6,9 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
-	import { Dumbbell, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings } from "@lucide/svelte";
+	import { Dumbbell, PanelLeftClose, Plus, Search, Settings } from "@lucide/svelte";
 	import { fuzzyScore } from "@/src/platform/model";
-import { type ChatListItem } from "@/src/session/model";
+	import { chatHref, type ChatListItem } from "@/src/session/model";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import LhMark from "$lib/ui/LhMark.svelte";
@@ -90,13 +90,13 @@ import { type ChatListItem } from "@/src/session/model";
 
 	function openSession(id: string) {
 		kbdIndex = null;
-		void goto(`/chat/${encodeURIComponent(id)}`);
+		void goto(chatHref(id));
 	}
 
 	function onDeleted(id: string, graphRevision: number) {
 		deleting = null;
 		chats = chats ? chats.filter((c) => c.id !== id) : chats;
-		if (pathname === `/chat/${id}`) void goto("/");
+		if (pathname === chatHref(id)) void goto("/");
 		emitAppEvent("graph-revision", { graphRevision });
 	}
 
@@ -317,8 +317,8 @@ import { type ChatListItem } from "@/src/session/model";
 						{:else}
 						<SessionRow
 							{chat}
-							active={pathname === `/chat/${chat.id}`}
-							keyboardFocused={i === kbdIndex && pathname !== `/chat/${chat.id}`}
+							active={pathname === chatHref(chat.id)}
+							keyboardFocused={i === kbdIndex && pathname !== chatHref(chat.id)}
 							onOpen={() => openSession(chat.id)}
 							onContextMenu={(event) => openContext(event, chat)}
 						/>

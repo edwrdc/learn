@@ -13,9 +13,7 @@
 		markerId,
 		pad: padUnits,
 		textCapScale,
-		naturalSize,
-		monochrome,
-		fill,
+		variant,
 	}: {
 		nodes: readonly LayoutNode[];
 		edges: ReadonlyArray<{ from: string; to: string }>;
@@ -24,10 +22,14 @@
 		markerId: string;
 		pad?: number;
 		textCapScale?: number;
-		naturalSize?: boolean;
-		monochrome?: boolean;
-		fill?: boolean;
+		/** block: the transcript card (monochrome, full width); margin: the
+		 *  dock marginalia (fills its box); popup: the full plan (natural size). */
+		variant: "block" | "margin" | "popup";
 	} = $props();
+
+	const monochrome = $derived(variant === "block");
+	const fill = $derived(variant === "margin");
+	const naturalSize = $derived(variant === "popup");
 
 	const BOX: Record<PlanNodeStatus, string> = {
 		visited: "fill-background/50 stroke-white",

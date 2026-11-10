@@ -12,7 +12,6 @@
 		expanded,
 		onExpand,
 		onSubmit,
-		onEscape,
 		compactionRunning = false,
 	}: {
 		problemCallId: string;
@@ -20,7 +19,6 @@
 		expanded: boolean;
 		onExpand: () => void;
 		onSubmit: (text: string) => void;
-		onEscape?: () => void;
 		compactionRunning?: boolean;
 	} = $props();
 
@@ -83,12 +81,6 @@
 					thinking = mirror;
 				}}
 				onkeydown={(event) => {
-					if (event.key === "Escape" && onEscape) {
-						event.preventDefault();
-						event.stopPropagation();
-						onEscape();
-						return;
-					}
 					if (event.key === "Enter" && (!event.shiftKey || event.metaKey || event.ctrlKey)) {
 						event.preventDefault();
 						submit();
@@ -98,7 +90,7 @@
 				rows={4}
 				class="field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground"
 			></textarea>
-			<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => prose?.focus()} />
+			<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} onLeave={() => prose?.focus()} />
 			<div class="flex items-center justify-between gap-2 p-1">
 				<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 					{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

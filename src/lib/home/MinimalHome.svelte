@@ -2,9 +2,9 @@
 	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import { ListTree } from "@lucide/svelte";
 	import type { ChatSummary, GraphCostSummary } from "@/src/session/model";
-	import type { GraphSnapshot } from "@/src/graph/model";
 	import { serverEvents } from "$lib/state/server-events";
-	import { fetchGraph, fetchGraphCosts } from "$lib/api/graph";
+	import { fetchGraphCosts } from "$lib/api/graph";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 	import { listChats } from "$lib/api/chats";
 	import { onAppEvent } from "$lib/events";
 	import { hint } from "$lib/hint";
@@ -19,14 +19,14 @@
 		onChainSelectClose?: () => void;
 	} = $props();
 
-	let snapshot = $state<GraphSnapshot | null>(null);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 	let costs = $state<GraphCostSummary | null>(null);
 	let chats = $state<ChatSummary[]>([]);
 	let chainsOpen = $state(false);
 
 	function readState() {
 		const failed = (what: string) => (error: unknown) => console.error(`[home] ${what} load failed:`, error);
-		fetchGraph().then((value) => (snapshot = value)).catch(failed("graph"));
+		void graphSnapshot.refresh();
 		fetchGraphCosts().then((value) => (costs = value)).catch(failed("costs"));
 		listChats().then((value) => (chats = value)).catch(failed("sessions"));
 	}
@@ -77,7 +77,7 @@
 				<button type="button" onclick={() => (chainsOpen = true)} data-testid="open-chain-table" {@attach hint("Every reasoning chain", { side: "bottom" })} class="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"><ListTree class="size-3" />Chains</button>
 			</div>
 			<div class="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<NotesImport onFinished={readState} />
+				<NotesImport onFinished={() => { readState(); void graphSnapshot.refresh(); }} />
 			</div>
 		</div>
 		{#if costs && costs.runs.length > 0}

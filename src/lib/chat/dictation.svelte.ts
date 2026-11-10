@@ -220,8 +220,9 @@ export class DictationController {
 	private async start(): Promise<void> {
 		this.error = null;
 		this.phase = "connecting";
-		// A running dictation is the newest layer: Escape cancels it first.
-		this.offLayer ??= dismissLayer(() => this.cancel(), { clickOutside: false });
+		// A running dictation is the newest layer: Escape cancels it first,
+		// before the focused field's own Escape rule (capture).
+		this.offLayer ??= dismissLayer(() => this.cancel(), { clickOutside: false, capture: true });
 		this.reconnects = 0;
 		this.buffer = [];
 		this.pending = [];

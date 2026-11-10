@@ -43,6 +43,11 @@ function install(): void {
 	document.addEventListener("keydown", onEscape(false));
 }
 
+/** Is any layer open (a dialog, menu, popover or running dictation)? */
+export function hasOpenLayer(): boolean {
+	return stack.length > 0;
+}
+
 export function dismissLayer(close: () => void, options: LayerOptions = {}): () => void {
 	if (typeof document === "undefined") return () => {};
 	install();

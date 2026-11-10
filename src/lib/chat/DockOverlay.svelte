@@ -30,7 +30,6 @@ import { untrack } from "svelte";
 		onSubmitAnswer,
 		onSubmitThinking,
 		dictationSlot,
-		dictationCancel,
 		setupCta,
 		queuedSteers,
 		plan,
@@ -52,7 +51,6 @@ import { untrack } from "svelte";
 		onSubmitAnswer: (output: QuestionAnswerData) => void;
 		onSubmitThinking: (text: string) => void;
 		dictationSlot?: Snippet;
-		dictationCancel?: () => void;
 		setupCta?: Snippet;
 		queuedSteers: SteerQueueItem[];
 		plan?: Snippet;
@@ -295,7 +293,6 @@ import { untrack } from "svelte";
 				<ReadingThinking
 					value={readingThinking}
 					onChange={(value) => onReadingThinking(value)}
-					onEscape={dictationCancel}
 					onOpen={!expanded ? () => {
 						import("./dictation.svelte").then(({ finishDictation }) => {
 							void finishDictation().then(() => expandAndReveal());
@@ -317,7 +314,6 @@ import { untrack } from "svelte";
 							{phase}
 							onExpand={expandAndReveal}
 							onSubmit={onSubmitAnswer}
-							onEscape={dictationCancel}
 							dictationClaim={!revealPending}
 							{compactionRunning}
 						/>
@@ -333,7 +329,6 @@ import { untrack } from "svelte";
 								suppressFold();
 							}}
 							onSubmit={onSubmitThinking}
-							onEscape={dictationCancel}
 							{compactionRunning}
 						/>
 						{/key}

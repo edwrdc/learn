@@ -3,17 +3,17 @@
 	import { dismissLayer } from "$lib/ui/layer";
 	import { now } from "$lib/state/now.svelte";
 	import { emitAppEvent, onAppEvent, onKeyAction } from "$lib/events";
-	import { onDestroy, onMount } from "svelte";
-	import { FileText, ListTree, Loader2, Search, Settings, Upload, Waypoints } from "@lucide/svelte";
-	import { incrementalLayout, type ExtractionRunView, type GraphNode, type GraphSnapshot } from "@/src/graph/model";
-	import { ARROW_LENGTH_LADDER, CHARGE_RANGE, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, DEPTH_BASE_RADIUS_RANGE, DEPTH_SPACING_RANGE, DEPTH_STRENGTH_RANGE, EDGE_WIDTH_LADDER, GRAVITY_RANGE, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, LINK_DISTANCE_RANGE, LINK_STRENGTH_RANGE, NODE_SIZE_LADDER, REGION_BITMAP_OPTIONS, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, labelZoomDisplay, sanitizeRenderSettings, snapToLadder, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphRenderSettings } from "@/src/settings/model";
-import { propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
+	import { FileText, ListTree, Loader2, Search, Settings, Waypoints } from "@lucide/svelte";
+	import { incrementalLayout, type ExtractionRunView, type GraphNode } from "@/src/graph/model";
+	import { ARROW_LENGTH_LADDER, CLUSTER_LABEL_SIZE_LADDER, CLUSTER_PULL_RANGE, EDGE_WIDTH_LADDER, LABEL_SIZE_LADDER, LABEL_ZOOM_LADDER, NODE_SIZE_LADDER, REGION_BLUR_LADDER, REGION_DILATION_LADDER, REGION_EDGE_ALPHA_LADDER, VELOCITY_DECAY_RANGE, fromLadderPosition, fromOffSliderPosition, fromSliderPosition, labelZoomDisplay, sanitizeRenderSettings, toLadderPosition, toOffSliderPosition, toSliderPosition, type GraphRenderSettings } from "@/src/settings/model";
+	import { chatHref, propositionSessionHref, type GraphCostSummary } from "@/src/session/model";
 	import { GraphCanvasRenderer } from "./graph-canvas.ts";
 	import { cameraSaver, readCamera } from "./graph-camera";
 	import { displayCostTotals, isNodeVisible, renameSessionsPatch, seedMissingNodePositions } from "./graph-view";
 	import { serverEvents } from "$lib/state/server-events";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-	import { fetchExtractionRuns, fetchGraph, fetchGraphCosts, savePositions } from "$lib/api/graph";
+	import { fetchExtractionRuns, fetchGraphCosts, savePositions } from "$lib/api/graph";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 	import { saveSettingsSection } from "$lib/api/settings";
 	import { hint } from "$lib/hint";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
@@ -34,7 +34,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let container = $state<HTMLDivElement | null>(null);
 	let card = $state<HTMLDivElement | null>(null);
-	let snapshot = $state<GraphSnapshot | null>(null);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 	let selected = $state<{ node: GraphNode; sourceIds: string[]; anchor: { x: number; y: number } } | null>(null);
 	let query = $state("");
 	/** This view's edits win over the saved record until the page reloads. */
@@ -44,7 +44,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let rendererReady = $state(false);
 	let fitted = false;
 	let positions: Map<string, { x: number; y: number }> | null = null;
-	let refreshTick = $state(0);
 	let chainsOpen = $state(false);
 	let ctxNode = $state<{ id: string; name: string; x: number; y: number } | null>(null);
 	let ctxAnchor = $state<HTMLDivElement | null>(null);
@@ -56,7 +55,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	let settingsOpen = $state(false);
 	let costAnchor = $state<HTMLDivElement | null>(null);
 	let settingsAnchor = $state<HTMLDivElement | null>(null);
-	let labelTick = $state(0);
 	let rowIds = new Set<string>();
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 	let statusDebounce: ReturnType<typeof setTimeout> | undefined;
@@ -86,13 +84,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	}
 
 
-	async function readGraph() {
-		try {
-			snapshot = await fetchGraph();
-		} catch (error) {
-			console.error("[graph] load failed:", error);
-		}
-	}
 	async function readCosts() {
 		try {
 			costs = await fetchGraphCosts();
@@ -105,7 +96,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 			const runs = await fetchExtractionRuns();
 			pipelineRuns = runs;
 			const ids = new Set(runs.map((run) => run.id));
-			if ([...rowIds].some((id) => !ids.has(id))) refreshTick += 1;
+			if ([...rowIds].some((id) => !ids.has(id))) void graphSnapshot.refresh();
 			rowIds = ids;
 		} catch (error) {
 			console.error("[graph] status load failed:", error);
@@ -127,13 +118,9 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 	}
 
 	function openSession(id: string) {
-		void goto(`/chat/${id}`);
+		void goto(chatHref(id));
 	}
 
-	$effect(() => {
-		void refreshTick;
-		void readGraph();
-	});
 	$effect(() => {
 		if (chainSelectOpen) chainsOpen = true;
 	});
@@ -148,17 +135,13 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 			}),
 			serverEvents.onResync(() => {
 				void readStatus();
-				void readGraph();
+				void graphSnapshot.refresh();
 			}),
 		];
-		const onRevision = () => {
-			refreshTick += 1;
-			void readCosts();
-		};
+		const onRevision = () => void readCosts();
 		const onRenamed = (detail: { id: string; title: string }) => {
 			if (!snapshot) return;
 			renameSessionsPatch(snapshot, detail.id, detail.title);
-			labelTick += 1;
 			renderer?.setClusterLabels(new Map([[detail.id, detail.title]]));
 		};
 		const onFind = () => searchInput?.focus();
@@ -302,9 +285,6 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 		);
 	});
 
-	onMount(() => {
-	});
-
 	const costTotals = $derived(costs ? displayCostTotals(costs) : { totalDollars: 0, unpricedRuns: 0 });
 	const displayTotal = $derived(costTotals.totalDollars);
 	const unpricedRuns = $derived(costTotals.unpricedRuns);
@@ -369,7 +349,7 @@ import { propositionSessionHref, type GraphCostSummary } from "@/src/session/mod
 				</div>
 			{/if}
 			<div class="shrink-0 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
-				<NotesImport onFinished={() => { refreshTick += 1; void readCosts(); }} />
+				<NotesImport onFinished={() => { void graphSnapshot.refresh(); void readCosts(); }} />
 			</div>
 			{#if !isEmpty}
 				<div class="graph-chrome-fade-in shrink-0">

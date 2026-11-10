@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
 	import { COMPACTION_THRESHOLD_FLOOR, CURRENT_SETTINGS_VERSION, MODEL_SLOTS, THINKING_LEVELS, resolveSettings, type AgentSettings, type CompactionSettings, type GraphSettings, type ModelsSettings, type ModelSlotName, type PromptSegmentInfo } from "@/src/settings/model";
-	import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai";
 	import { JOB_KINDS, SEARCH_ENGINES, type SearchEngineId, type SearchStatus } from "@/src/tools/model";
-	import { deletePromptOverride, fetchKeys, fetchPromptSegments, fetchSearchStatus, savePromptOverride } from "$lib/api/settings";
+	import { deletePromptOverride, fetchPromptSegments, fetchSearchStatus, savePromptOverride } from "$lib/api/settings";
+	import { keys } from "$lib/state/keys.svelte";
 	import { modelCatalog } from "$lib/state/model-catalog.svelte";
 	import { prettyModel } from "$lib/format";
 	import { onAppEvent } from "$lib/events";
@@ -14,12 +14,14 @@
 	import CommitInput from "./CommitInput.svelte";
 	import ModelMenuList from "./ModelMenuList.svelte";
 	import ThinkingMenuList from "./ThinkingMenuList.svelte";
+	import { SLOT_META } from "./setup";
 
-	const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
-		strong: { label: "Strong", roster: "The main model for your sessions" },
-		cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
-		vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
+	const SLOT_HINT: Record<ModelSlotName, string> = {
+		strong: "The main model for your sessions",
+		cheap: "The assistants that research, build demos, and grade your work",
+		vision: "The assistants that draw and read PDFs",
 	};
+
 
 	let {
 		agent,
@@ -40,16 +42,19 @@
 	} = $props();
 
 	let search = $state<SearchStatus | null>(null);
-	let engineKeys = $state<Partial<Record<SearchEngineId, boolean>>>({});
 	let prompts = $state<{ prober: PromptSegmentInfo[]; teacher: PromptSegmentInfo[] } | null>(null);
 	let openSegment = $state<string | null>(null);
 	let segmentDraft = $state<Record<string, string>>({});
 	let segmentStatus = $state<string | null>(null);
 	let openMenu = $state<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" } | null>(null);
-	let addAnchor = $state<HTMLElement | null>(null);
+	/** The menu triggers, by `${kind}-${slot}` and "search". */
+	let triggers = $state<Record<string, HTMLButtonElement | null>>({});
 
 	const catalog = $derived(modelCatalog.value?.models ?? null);
 	const slots = $derived(modelCatalog.value?.slots ?? null);
+	const engineKeys = $derived(
+		Object.fromEntries(SEARCH_ENGINES.map(({ id, envVar }) => [id, keys.value?.keys.some((k) => k.id === envVar && k.present) ?? false])) as Record<SearchEngineId, boolean>,
+	);
 	const loadFailed = (what: string) => (error: unknown) => console.error(`[settings] ${what} load failed:`, error);
 
 	function readPrompts() {
@@ -60,13 +65,7 @@
 
 	$effect(() => {
 		readPrompts();
-		fetchKeys()
-			.then((body) => {
-				const present: Partial<Record<SearchEngineId, boolean>> = {};
-				for (const { id, envVar } of SEARCH_ENGINES) present[id] = body.keys.some((k) => k.id === envVar && k.present);
-				engineKeys = present;
-			})
-			.catch(loadFailed("keys"));
+		void keys.refresh();
 	});
 
 	$effect(() => {
@@ -86,7 +85,7 @@
 	$effect(() => {
 		if (openMenu === null) return;
 		return dismissLayer(() => (openMenu = null), {
-			inside: () => [...document.querySelectorAll('[data-testid^="slot-"], [data-testid="search-engine-trigger"]')],
+			inside: () => Object.values(triggers),
 			menus: true,
 			closeWithin: '[role="dialog"]',
 		});
@@ -137,20 +136,20 @@
 		{@const levels = chosen ? chosen.supportedLevels : THINKING_LEVELS}
 		{@const thisMenu = openMenu?.target === slot ? openMenu.kind : null}
 		{@const slotCatalog = slot === "vision" ? catalog?.filter((model) => model.input.includes("image")) : catalog}
-		<Controls kind="row" label={SLOT_META[slot].label} hint={SLOT_META[slot].roster} testid={`slot-row-${slot}`}>
+		<Controls kind="row" label={SLOT_META[slot].label} hint={SLOT_HINT[slot]} testid={`slot-row-${slot}`}>
 			<span class="relative flex items-center gap-2">
-				<button type="button" aria-label={`${SLOT_META[slot].label} model`} aria-expanded={thisMenu === "model"} data-testid={`slot-model-${slot}`} onclick={() => (openMenu = thisMenu === "model" ? null : { target: slot, kind: "model" })} class="flex h-7 min-w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
+				<button bind:this={triggers[`model-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} model`} aria-expanded={thisMenu === "model"} data-testid={`slot-model-${slot}`} onclick={() => (openMenu = thisMenu === "model" ? null : { target: slot, kind: "model" })} class="flex h-7 min-w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
 					<span class="min-w-0 flex-1 truncate">{modelId ? prettyModel(modelId) : "—"}</span>
 					<span aria-hidden="true" class="text-muted-foreground">▾</span>
 				</button>
 				<span>
-					<button type="button" aria-label={`${SLOT_META[slot].label} thinking`} aria-expanded={thisMenu === "thinking"} data-testid={`slot-thinking-${slot}`} onclick={() => (openMenu = thisMenu === "thinking" ? null : { target: slot, kind: "thinking" })} class="flex h-7 w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
+					<button bind:this={triggers[`thinking-${slot}`]} type="button" aria-label={`${SLOT_META[slot].label} thinking`} aria-expanded={thisMenu === "thinking"} data-testid={`slot-thinking-${slot}`} onclick={() => (openMenu = thisMenu === "thinking" ? null : { target: slot, kind: "thinking" })} class="flex h-7 w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors hover:border-muted-foreground/50">
 						<span class="min-w-0 flex-1 truncate">{thinking || (chosen ? THINKING_LABEL[defaultOrderLevel(levels)] ?? defaultOrderLevel(levels) : "") || "—"}</span>
 						<span aria-hidden="true" class="text-muted-foreground">▾</span>
 					</button>
 				</span>
 				{#if thisMenu === "model"}
-					<MenuShell anchorTestid={`slot-model-${slot}`} testid={`slot-model-menu-${slot}`} preferredSide="down" menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
+					<MenuShell anchor={triggers[`model-${slot}`]} testid={`slot-model-menu-${slot}`} preferredSide="down" menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
 						<ModelMenuList
 							models={slotCatalog ?? undefined}
 							effectiveId={modelId}
@@ -165,7 +164,7 @@
 					</MenuShell>
 				{/if}
 				{#if thisMenu === "thinking"}
-					<MenuShell anchorTestid={`slot-thinking-${slot}`} testid={`slot-thinking-menu-${slot}`} preferredSide="down" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
+					<MenuShell anchor={triggers[`thinking-${slot}`]} testid={`slot-thinking-menu-${slot}`} preferredSide="down" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
 						<ThinkingMenuList
 							levels={levels.map(String)}
 							effectiveLevel={thinking || (chosen ? defaultOrderLevel(levels) : undefined)}
@@ -205,12 +204,12 @@
 	{@const searchOpen = openMenu?.target === "search"}
 	<Controls kind="row" label="Search engine" hint={search?.reason ?? undefined} testid="search-engine-row" dimmed={!anyKey}>
 		<span class="relative flex items-center gap-2">
-			<button type="button" aria-label="Search engine" aria-expanded={searchOpen} data-testid="search-engine-trigger" onclick={() => { if (anyKey) openMenu = searchOpen ? null : { target: "search", kind: "engine" }; }} class="flex h-7 min-w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors {anyKey ? 'hover:border-muted-foreground/50' : 'cursor-not-allowed'}">
+			<button bind:this={triggers.search} type="button" aria-label="Search engine" aria-expanded={searchOpen} data-testid="search-engine-trigger" onclick={() => { if (anyKey) openMenu = searchOpen ? null : { target: "search", kind: "engine" }; }} class="flex h-7 min-w-20 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors {anyKey ? 'hover:border-muted-foreground/50' : 'cursor-not-allowed'}">
 				<span class="min-w-0 flex-1 truncate">{SEARCH_ENGINES.find((e) => e.id === engine)?.label ?? "Automatic"}</span>
 				<span aria-hidden="true" class="text-muted-foreground">▾</span>
 			</button>
 			{#if searchOpen}
-				<MenuShell anchorTestid="search-engine-trigger" testid="search-engine-menu" preferredSide="down" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
+				<MenuShell anchor={triggers.search} testid="search-engine-menu" preferredSide="down" menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl">
 					<button type="button" data-testid="engine-option-auto" onclick={() => { onSectionChange(composeSearchEngine(agent, null)); openMenu = null; }} class="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted {engine === null ? 'bg-muted/60 text-card-foreground' : 'text-card-foreground'}">
 						<span>Automatic</span><span class="text-muted-foreground">{engine === null ? "✓" : ""}</span>
 					</button>

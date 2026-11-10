@@ -14,5 +14,5 @@
 </script>
 
 {#if tree && tree.nodes.length > 0}
-	<PlanDiagram nodes={tree.nodes} edges={tree.edges} {statusOf} glowId={statuses?.current ?? null} {markerId} pad={MARGIN_PAD} textCapScale={TEXT_CAP_SCALE} fill />
+	<PlanDiagram nodes={tree.nodes} edges={tree.edges} {statusOf} glowId={statuses?.current ?? null} {markerId} pad={MARGIN_PAD} textCapScale={TEXT_CAP_SCALE} variant="margin" />
 {/if}

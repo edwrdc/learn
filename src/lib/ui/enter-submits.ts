@@ -3,7 +3,7 @@
  *  native Enter" rule. */
 import { isTypingSurface } from "@/src/settings/model";
 
-const OVERLAY_ROOTS = '[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"]';
+const OVERLAY_ROOTS = '[data-lh-menu], [role="menu"], [role="dialog"]';
 
 export function buttonKeepsNativeEnter(el: HTMLElement): boolean {
 	try {

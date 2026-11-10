@@ -1,4 +1,4 @@
-import type { GraphContextPick } from "@/src/session/model";
+import { chatHref, type GraphContextPick } from "@/src/session/model";
 import { createChat } from "../api/chats.ts";
 
 /** Create-on-send for the sessionless draft: nothing exists until the first
@@ -16,5 +16,5 @@ export async function startDraftSession(
 			? { title, kind: "practice", ...(picks.length > 0 ? { graphContext: { propositions: [...picks] } } : {}) }
 			: { title },
 	);
-	return `/chat/${encodeURIComponent(id)}?prompt=${encodeURIComponent(prompt)}`;
+	return `${chatHref(id)}?prompt=${encodeURIComponent(prompt)}`;
 }

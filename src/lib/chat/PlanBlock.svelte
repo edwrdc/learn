@@ -20,5 +20,5 @@
 	{@attach hint("Open the full plan", { side: "bottom" })}
 	class="block w-full text-left"
 >
-	<PlanDiagram nodes={data.nodes} edges={data.edges} {statusOf} {markerId} pad={GRAPH_PAD} textCapScale={TEXT_CAP_SCALE} monochrome />
+	<PlanDiagram nodes={data.nodes} edges={data.edges} {statusOf} {markerId} pad={GRAPH_PAD} textCapScale={TEXT_CAP_SCALE} variant="block" />
 </button>

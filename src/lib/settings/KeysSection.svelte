@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { dismissLayer } from "$lib/ui/layer";
-	import { deleteKey as removeKey, fetchKeys, saveKey as putKey } from "$lib/api/settings";
-import { untrack } from "svelte";
-	import { type AuthKeyStatus } from "@/src/settings/model";
-	import { classifyKeys, keyStatusLine } from "./keys";
+	import { deleteKey as removeKey, saveKey as putKey } from "$lib/api/settings";
+	import { untrack } from "svelte";
 	import type { AuthProviderInfo } from "@/src/settings/model";
+	import { keys } from "$lib/state/keys.svelte";
+	import { classifyKeys, keyStatusLine } from "./keys";
 	import { emitAppEvent } from "$lib/events";
 	import MenuShell from "$lib/ui/MenuShell.svelte";
 	import Controls from "./Controls.svelte";
@@ -15,9 +15,9 @@ import { untrack } from "svelte";
 
 
 	let { initialRow }: { initialRow?: string } = $props();
-	let statuses = $state<AuthKeyStatus[] | null>(null);
-	let providers = $state<AuthProviderInfo[] | undefined>(undefined);
-	let loading = $state(true);
+	/** Null while loading; a failed first load shows no rows. */
+	const statuses = $derived(keys.value?.keys ?? (keys.failed ? [] : null));
+	const providers = $derived(keys.value?.providers);
 	let openRow = $state<string | null>(untrack(() => initialRow ?? null));
 	let adding = $state<AuthProviderInfo | null>(null);
 	let addError = $state<string | null>(null);
@@ -31,6 +31,10 @@ import { untrack } from "svelte";
 
 	$effect(() => {
 		if (initialRow !== undefined) openRow = initialRow;
+	});
+
+	$effect(() => {
+		void keys.refresh();
 	});
 
 	$effect(() => {
@@ -49,37 +53,26 @@ import { untrack } from "svelte";
 		return dismissLayer(() => (addProviderOpen = false), { inside: () => [addAnchor], menus: true, closeWithin: '[role="dialog"]' });
 	});
 
-	function reload() {
-		return fetchKeys()
-			.then((body) => {
-				statuses = body.keys;
-				providers = body.providers;
-			})
-			.catch((error) => {
-				console.error("[settings] keys load failed:", error);
-				statuses = [];
-			})
-			.finally(() => (loading = false));
-	}
-
-	$effect(() => {
-		void reload();
-	});
-
 	async function saveKey(id: string, value: string): Promise<string | null> {
 		try {
 			await putKey(id, value);
 		} catch (error) {
 			return error instanceof Error ? error.message : String(error);
 		}
-		await reload();
+		await keys.refresh();
 		emitAppEvent("settings-saved", { section: "keys" });
 		return null;
 	}
 
 	async function deleteKey(id: string) {
-		await removeKey(id).catch((error) => console.error(`[settings] delete ${id} failed:`, error));
-		await reload();
+		rowError = null;
+		try {
+			await removeKey(id);
+		} catch (error) {
+			rowError = error instanceof Error ? error.message : String(error);
+			return;
+		}
+		await keys.refresh();
 		emitAppEvent("settings-saved", { section: "keys" });
 	}
 
@@ -110,7 +103,7 @@ import { untrack } from "svelte";
 	const classified = $derived(statuses ? classifyKeys(statuses, providers) : null);
 </script>
 
-{#if loading || statuses === null}
+{#if statuses === null}
 	<p class="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>
 {:else if classified}
 	<Controls kind="group" label="Model providers" testid="group-provider-keys">

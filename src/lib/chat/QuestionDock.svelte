@@ -19,7 +19,6 @@ import { repairMathForDisplay } from "@/src/tools/model";
 		reveal = false,
 		onExpand,
 		onSubmit,
-		onEscape,
 		phase = "probe",
 		dictationClaim = true,
 		compactionRunning = false,
@@ -31,7 +30,6 @@ import { repairMathForDisplay } from "@/src/tools/model";
 		reveal?: boolean;
 		onExpand: () => void;
 		onSubmit: (output: QuestionAnswerData) => void;
-		onEscape?: () => void;
 		phase?: Phase3;
 		dictationClaim?: boolean;
 		compactionRunning?: boolean;
@@ -437,12 +435,6 @@ import { repairMathForDisplay } from "@/src/tools/model";
 									text = answerRefValue;
 								}}
 								onkeydown={(event) => {
-									if (event.key === "Escape" && onEscape) {
-										event.preventDefault();
-										event.stopPropagation();
-										onEscape();
-										return;
-									}
 									if (event.key === "Enter" && (event.metaKey || event.ctrlKey || !event.shiftKey)) {
 										event.preventDefault();
 										submit();
@@ -462,12 +454,6 @@ import { repairMathForDisplay } from "@/src/tools/model";
 									thinking = thinkingRefValue;
 								}}
 								onkeydown={(event) => {
-									if (event.key === "Escape" && onEscape) {
-										event.preventDefault();
-										event.stopPropagation();
-										onEscape();
-										return;
-									}
 									if (event.key === "Enter" && (!event.shiftKey || event.metaKey || event.ctrlKey)) {
 										event.preventDefault();
 										submit();
@@ -481,7 +467,7 @@ import { repairMathForDisplay } from "@/src/tools/model";
 								)}
 							></textarea>
 						{/if}
-						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} {onEscape} onLeave={() => (qd.mode === "text" ? prose : thinkingEl)?.focus()} />
+						<CodeInput value={code} onChange={(value) => (code = value)} onSubmit={submit} onLeave={() => (qd.mode === "text" ? prose : thinkingEl)?.focus()} />
 						<div class="flex items-center justify-between gap-2 p-1">
 							<span aria-hidden="true" class="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}

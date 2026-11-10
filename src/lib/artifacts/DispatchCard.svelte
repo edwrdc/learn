@@ -5,10 +5,10 @@
 	import { type JobKind, type JobRecord } from "@/src/jobs/model";
 	import { jobAgentLabel } from "@/src/tools/model";
 	import { CHAT_ACTIONS, type ChatActions } from "$lib/session-context";
+	import { REFUSAL_COPY } from "$lib/state/activity";
 	import BrailleSpinner from "$lib/ui/BrailleSpinner.svelte";
 
-	let { toolCallId, kind, jobs: jobsProp }: { toolCallId: string; kind: JobKind; jobs?: JobRecord[] } = $props();
-	const jobs = $derived(jobsProp ?? []);
+	let { toolCallId, kind, jobs }: { toolCallId: string; kind: JobKind; jobs: JobRecord[] } = $props();
 	const actions = getContext<ChatActions | null>(CHAT_ACTIONS) ?? null;
 	const job = $derived(jobs.find((j) => j.toolCallId === toolCallId) ?? null);
 	const label = $derived(jobAgentLabel(kind));
@@ -29,22 +29,14 @@
 			<div class="mt-1 text-sm text-muted-foreground" data-testid="dispatch-pending">Dispatched…</div>
 		{/if}
 	</div>
-{:else if job.refusal === "models_not_configured"}
+{:else if job.refusal}
+	{@const copy = REFUSAL_COPY[job.refusal]}
 	<div class="flex items-center gap-2 text-xs text-muted-foreground" data-testid="dispatch-refused">
 		<Settings class="size-3.5" />
 		<span class="font-medium uppercase tracking-wide">{label}</span>
-		<span>needs model setup</span>
+		<span>{copy.status}</span>
 		{#if actions}
-			<button type="button" data-testid="dispatch-setup-link" onclick={actions.openSetup} class="ml-1 rounded-sm border border-border bg-card px-2 py-0.5 font-ui normal-case tracking-normal text-foreground transition-colors hover:border-muted-foreground/50">Set up models</button>
-		{/if}
-	</div>
-{:else if job.refusal === "provider_key_missing"}
-	<div class="flex items-center gap-2 text-xs text-muted-foreground" data-testid="dispatch-refused">
-		<Settings class="size-3.5" />
-		<span class="font-medium uppercase tracking-wide">{label}</span>
-		<span>needs a provider key</span>
-		{#if actions}
-			<button type="button" data-testid="dispatch-setup-link" onclick={actions.openSetup} class="ml-1 rounded-sm border border-border bg-card px-2 py-0.5 font-ui normal-case tracking-normal text-foreground transition-colors hover:border-muted-foreground/50">Add a key</button>
+			<button type="button" data-testid="dispatch-setup-link" onclick={actions.openSetup} class="ml-1 rounded-sm border border-border bg-card px-2 py-0.5 font-ui normal-case tracking-normal text-foreground transition-colors hover:border-muted-foreground/50">{copy.action}</button>
 		{/if}
 	</div>
 {:else if job.status === "error"}

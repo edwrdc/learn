@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { plural } from "$lib/format";
-	import { formatTokens } from "$lib/format";
+	import { formatTokens, plural } from "$lib/format";
 	import { extractChat } from "$lib/api/graph";
 	import { ApiError } from "$lib/api/http";
 	import { chatCoverage } from "$lib/state/coverage.svelte";
@@ -23,12 +22,6 @@
 	$effect(() => {
 		if (!extracting || !coverage) return;
 		if (coverage.running || (requestedAt !== null && coverage.uncoveredTokens !== requestedAt)) extracting = false;
-	});
-
-	$effect(() => {
-		if (!extracting) return;
-		const timer = setInterval(() => void store.refresh(), 2000);
-		return () => clearInterval(timer);
 	});
 
 	async function extract() {

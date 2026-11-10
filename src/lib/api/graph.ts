@@ -14,3 +14,10 @@ export const savePositions = async (positions: Record<string, Position>) =>
 export const deleteGraphNode = (id: string) => deleteJson<{ graphRevision: number }>(path`/api/graph/nodes/${id}`);
 
 export const extractChat = (chatId: string) => postJson<{ started: true }>("/api/graph/coverage/extract", { chatId });
+
+/** The body is validated by the caller (notes-import.ts). */
+export const importNotes = (files: readonly File[]) => {
+	const form = new FormData();
+	for (const file of files) form.append("files", file);
+	return postJson<unknown>("/api/graph/import", form);
+};

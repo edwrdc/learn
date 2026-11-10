@@ -14,7 +14,6 @@
 		onStop,
 		canSend,
 		autoFocus = false,
-		onEscape,
 		placeholder = "Ask, answer, or steer the lesson…",
 		nextProblem = false,
 		onNext,
@@ -28,7 +27,6 @@
 		onStop: () => void;
 		canSend: boolean;
 		autoFocus?: boolean;
-		onEscape?: () => void;
 		placeholder?: string;
 		nextProblem?: boolean;
 		onNext?: () => void;
@@ -59,12 +57,6 @@
 		{value}
 		oninput={(event) => onChange((event.currentTarget as HTMLTextAreaElement).value)}
 		onkeydown={(event) => {
-			if (event.key === "Escape" && onEscape) {
-				event.preventDefault();
-				event.stopPropagation();
-				onEscape();
-				return;
-			}
 			if (event.key === "Enter" && (event.metaKey || event.ctrlKey || !event.shiftKey)) {
 				event.preventDefault();
 				act();
@@ -103,6 +95,6 @@
 	{/if}
 	</div>
 	{#if onCodeChange}
-		<CodeInput value={code} onChange={onCodeChange} onSubmit={act} {onEscape} onLeave={() => prose?.focus()} />
+		<CodeInput value={code} onChange={onCodeChange} onSubmit={act} onLeave={() => prose?.focus()} />
 	{/if}
 </form>

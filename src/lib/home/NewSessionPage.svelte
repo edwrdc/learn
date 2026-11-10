@@ -2,15 +2,10 @@
 	import { picksFor, type GraphContextPick } from "@/src/session/model";
 	import SetupCta from "$lib/settings/SetupCta.svelte";
 	import { plural } from "$lib/format";
-	import { fetchGraph } from "$lib/api/graph";
-import { untrack } from "svelte";
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { startDraftSession } from "./new-session";
-	import { strongKeyless } from "$lib/state/keys";
-	import { modelCatalog } from "$lib/state/model-catalog.svelte";
-	import type { GraphSnapshot } from "@/src/graph/model";
-import type { TurnUsage } from "@/src/session/model";
+	import type { TurnUsage } from "@/src/session/model";
 	import Composer from "$lib/chat/Composer.svelte";
 	import { withCode } from "$lib/chat/code-input";
 	import DictationBar from "$lib/chat/DictationBar.svelte";
@@ -19,7 +14,9 @@ import type { TurnUsage } from "@/src/session/model";
 	import ChainTableOverlay from "./ChainTableOverlay.svelte";
 	import SetupDialog from "$lib/settings/SetupDialog.svelte";
 	import { afterDictation, DictationController, joinDictation } from "$lib/chat/dictation.svelte";
-	import { noProviderKey } from "$lib/state/keys.svelte";
+	import { needsSetup, noProviderKey } from "$lib/state/keys.svelte";
+	import { settings } from "$lib/state/settings.svelte";
+	import { graphSnapshot } from "$lib/state/graph.svelte";
 
 	let { initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" } = $props();
 
@@ -27,11 +24,11 @@ import type { TurnUsage } from "@/src/session/model";
 	let code = $state("");
 	let textMirror = "";
 	let busy = $state(false);
-	let configured = $state(untrack(() => initialConfigured));
+	const configured = $derived(settings.configured ?? initialConfigured);
 	let setupOpen = $state(false);
 	let picks = $state<GraphContextPick[]>([]);
 	let pickerOpen = $state(false);
-	let snapshot = $state<GraphSnapshot | null>(null);
+	const snapshot = $derived(graphSnapshot.value ?? null);
 
 	const dictation = new DictationController((value) => applyText(joinDictation(textMirror, value)));
 
@@ -45,23 +42,16 @@ import type { TurnUsage } from "@/src/session/model";
 			pickerOpen = true;
 			return;
 		}
-		void fetchGraph()
-			.then((value) => {
-				snapshot = value;
-				pickerOpen = true;
-			})
-			.catch((error) => console.error("[new session] graph load failed:", error));
+		void graphSnapshot.refresh().then(() => {
+			if (graphSnapshot.value) pickerOpen = true;
+		});
 	}
 
 
 	function send() {
 		const draft = withCode(textMirror, code).trim();
 		if (!draft || busy) return;
-		if (!configured) {
-			setupOpen = true;
-			return;
-		}
-		if (noProviderKey.value || strongKeyless(modelCatalog.value)) {
+		if (needsSetup(configured)) {
 			setupOpen = true;
 			return;
 		}
@@ -138,7 +128,6 @@ import type { TurnUsage } from "@/src/session/model";
 								onStop={() => {}}
 								{canSend}
 								autoFocus
-								onEscape={dictation.active ? dictation.cancel : undefined}
 								placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 							/>
 						</div>
@@ -168,4 +157,4 @@ import type { TurnUsage } from "@/src/session/model";
 	</header>
 </div>
 
-<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => { configured = true; setupOpen = false; }} />
+<SetupDialog open={setupOpen} onClose={() => (setupOpen = false)} onDone={() => (setupOpen = false)} />

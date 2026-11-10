@@ -1,4 +1,6 @@
 import type { NotesImportResult } from "@/src/graph/model";
+import { importNotes } from "$lib/api/graph";
+import { ApiError } from "$lib/api/http";
 
 /** Notes import transport: response validation and error projection. */
 export function parseNotesImportResults(body: unknown, files: readonly File[]): NotesImportResult[] {
@@ -38,18 +40,13 @@ export function parseNotesImportResults(body: unknown, files: readonly File[]): 
 }
 
 export async function postNotesImport(files: readonly File[]): Promise<NotesImportResult[]> {
-	const form = new FormData();
-	for (const file of files) form.append("files", file);
-	const response = await fetch("/api/graph/import", { method: "POST", body: form });
 	let body: unknown;
 	try {
-		body = await response.json();
-	} catch {
-		throw new Error("Invalid import response. Please retry the file.");
-	}
-	if (!response.ok) {
-		const detail = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? `: ${body.error}` : "";
-		throw new Error(`Import request failed (HTTP ${response.status})${detail}. Please retry the file.`);
+		body = await importNotes(files);
+	} catch (error) {
+		if (!(error instanceof ApiError)) throw error;
+		const detail = error.body?.error ? `: ${error.body.error}` : "";
+		throw new Error(`Import request failed (HTTP ${error.status})${detail}. Please retry the file.`);
 	}
 	return parseNotesImportResults(body, files);
 }

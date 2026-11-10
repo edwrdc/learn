@@ -40,7 +40,7 @@
 	</div>
 	<PanZoomViewer box={tree ? box : null} label="Plan viewport" fitLabel="Fit plan to screen" fitTestid="plan-popup-fit">
 		{#if tree}
-			<PlanDiagram nodes={tree.nodes} edges={tree.edges} {statusOf} glowId={statuses?.current ?? null} {markerId} pad={POPUP_PAD} naturalSize />
+			<PlanDiagram nodes={tree.nodes} edges={tree.edges} {statusOf} glowId={statuses?.current ?? null} {markerId} pad={POPUP_PAD} variant="popup" />
 		{/if}
 		{#snippet fallback()}
 			<div class="flex h-full items-center justify-center text-sm text-muted-foreground">No plan in this session yet.</div>

@@ -33,7 +33,10 @@
 							enumEmpty = true;
 						} else localFonts = families;
 					})
-					.catch(() => (localFonts = null));
+					.catch((error) => {
+						console.error("[settings] local font enumeration failed:", error);
+						localFonts = null;
+					});
 			}
 		}
 		fontOpen = !fontOpen;

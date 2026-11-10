@@ -8,13 +8,10 @@
 	import { ChatSync } from "./chat-sync.svelte";
 	import { renameSession } from "$lib/state/sessions";
 	import { settings as userSettings } from "$lib/state/settings.svelte";
-import { untrack } from "svelte";
-	import { onMount, setContext, tick } from "svelte";
+	import { onMount, setContext, tick, untrack } from "svelte";
 	import { Waypoints, Dumbbell } from "@lucide/svelte";
-	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type ChatSettings, type LhMessage, type LhViewMessage, type QuestionAnswerData, type TurnUsage } from "@/src/session/model";
+	import { activeProblemOf, continuationSignature, dismissedAnswer, findPendingToolCall, firstSourceTextParts, hasPracticeProblem, messageAnchorId, messageIdFromHash, needsContinuation, phaseAt3, phaseTimeline, questionNeedsReveal, teachStepIndex, textPartMessageId, type LhMessage, type QuestionAnswerData } from "@/src/session/model";
 	import { isQuestionTool, toolQuestionKind } from "@/src/tools/model";
-import { slotsConfigured } from "@/src/settings/model";
-import { type GraphSnapshot } from "@/src/graph/model";
 	import { visibleQueuedSteers, type SteerQueueItem } from "$lib/chat/session-core.ts";
 	import Markdown from "$lib/markdown/Markdown.svelte";
 	import PhaseChip from "./PhaseChip.svelte";
@@ -44,18 +41,11 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	import { StickToBottom } from "./stick.svelte";
 	import { CHAT_ACTIONS } from "$lib/session-context";
 	import { SESSION_MERMAID } from "$lib/session-context";
-	import { sidebar } from "$lib/state/sidebar.svelte";
 	import { serverEvents } from "$lib/state/server-events";
 	import { hint } from "$lib/hint";
 	import { toggleUserThinking } from "./thinking-store.svelte";
 	import { scrollSessionTarget } from "./session-nav";
-	import {
-		escAbortTarget,
-		initialPromptOwed,
-		parseModelsRefusal,
-		parseModelUnavailableRefusal,
-		parseProviderKeyRefusal,
-	} from "./chat-logic";
+	import { escAbortTarget, initialPromptOwed, parseRefusal } from "./chat-logic";
 
 	type Props = {
 		chatId: string;
@@ -91,9 +81,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	let text = $state("");
 	let code = $state("");
 	let textMirror = "";
-	let configured = $derived(userSettings.record === undefined ? initialConfigured : slotsConfigured(userSettings.record?.models));
+	const configured = $derived(userSettings.configured ?? initialConfigured);
 	let setupOpen = $state(false);
-	let coverageTick = $state(0);
 	let dockReserve = $state(208);
 	let planOpen = $state(false);
 	let mermaidFocus = $state<string | null>(null);
@@ -109,7 +98,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	let scope = $state<HTMLDivElement | null>(null);
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
 	let lastJump: { hash: string; target: HTMLElement } | null = null;
-	let sentInitial = false;
 	let mountContinuation = false;
 	let continuedTail: string | null = null;
 	let draft: { text: string; code: string } | null = null;
@@ -162,19 +150,11 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			!activeProblem &&
 			!compacting &&
 			!busy &&
-			nativeMessages.some(
-				(m) =>
-					(m as { role?: string }).role === "assistant" &&
-					Array.isArray((m as { content?: unknown[] }).content) &&
-					(m as { content: Array<{ type?: string; name?: string }> }).content.some(
-						(b) => b.type === "toolCall" && b.name === "problem",
-					),
-			),
+			hasPracticeProblem(nativeMessages),
 	);
 
 	setContext(CHAT_ACTIONS, {
 		chatId: untrack(() => chatId),
-		syncFromServer: sync.syncRecord,
 		sendText: (value: string) => session.send({ type: "text", text: value }),
 		openSetup: () => (setupOpen = true),
 	});
@@ -329,7 +309,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		if (turnInFlight && (status === "submitted" || status === "streaming")) turnInFlight = false;
 		if (was !== "ready" && status === "ready") {
 			void sync.syncTurns();
-			coverageTick += 1;
 			void sync.syncRecord();
 		}
 	});
@@ -349,10 +328,9 @@ import { type GraphSnapshot } from "@/src/graph/model";
 
 	$effect(() => {
 		if (!error || handlingRefusal) return;
-		const missing = parseModelsRefusal(error.message);
-		const keyRefused = parseProviderKeyRefusal(error.message);
-		const unavailable = parseModelUnavailableRefusal(error.message);
-		if (!missing && !keyRefused && !unavailable) return;
+		const refusal = parseRefusal(error.message);
+		if (!refusal) return;
+		const unavailable = refusal === "model_unavailable";
 		handlingRefusal = true;
 		let cancelled = false;
 		void (async () => {
@@ -439,7 +417,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		// A mount full sync would replace the view while the ?prompt send is optimistic.
 
 		if (initialPromptOwed(initialMessages, initialPrompt) && initialPrompt) {
-			sentInitial = true;
 			session.send({ type: "text", text: initialPrompt });
 		}
 		if (initiallyInFlight) session.resumeStream(false);
@@ -453,20 +430,8 @@ import { type GraphSnapshot } from "@/src/graph/model";
 			if (id === chatId) titleText = next;
 		});
 		const onAbort = () => {
-			const target = escAbortTarget({
-				abortAsk: abortAsk !== null,
-				mermaidFocus: mermaidFocus !== null || figureFocus !== null,
-				planOpen,
-				setupOpen,
-				pending: pending !== null,
-				problem: activeProblem !== null,
-				busy,
-			});
-			if (target === "question" || target === "problem" || target === "turn") abortAsk = target;
-			else if (target === "mermaid") {
-				mermaidFocus = null;
-				figureFocus = null;
-			} else if (target === "plan") planOpen = false;
+			const target = escAbortTarget({ abortAsk: abortAsk !== null, pending: pending !== null, problem: activeProblem !== null, busy });
+			if (target) abortAsk = target;
 		};
 		const offAbort = onKeyAction("abort-turn", onAbort);
 		const offToggleThinking = onKeyAction("toggle-user-thinking", () => toggleUserThinking());
@@ -517,7 +482,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 		onSend={onSend}
 		onStop={abortInFlightTurn}
 		canSend={canSend}
-		onEscape={dictation.active ? dictation.cancel : undefined}
 		nextProblem={nextReady}
 		onNext={sendNext}
 		placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
@@ -536,7 +500,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 	<div class="flex min-w-0 flex-1 flex-col">
 		<TopBar
 			drag={!renaming}
-			onMouseDown={(event) => {
+			onmousedown={(event) => {
 				if (renaming && event.target !== titleInput) titleInput?.blur();
 			}}
 		>
@@ -584,7 +548,7 @@ import { type GraphSnapshot } from "@/src/graph/model";
 				</button>
 			{/if}
 			{#if kind !== "practice"}
-				<CoverageRing {chatId} refreshKey={coverageTick} />
+				<CoverageRing {chatId} />
 			{/if}
 			{#if kind === "practice"}
 				<span data-testid="phase-chip" data-phase="practice" aria-hidden="true" class="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -721,7 +685,6 @@ import { type GraphSnapshot } from "@/src/graph/model";
 					onSubmitAnswer={(output) => void submitAnswer(output)}
 					onSubmitThinking={submitThinking}
 					{dictationSlot}
-					dictationCancel={dictation.active ? dictation.cancel : undefined}
 					{setupCta}
 					{queuedSteers}
 					plan={hasPlan ? planMarginalia : undefined}
@@ -752,8 +715,5 @@ import { type GraphSnapshot } from "@/src/graph/model";
 <SetupDialog
 	open={setupOpen}
 	onClose={() => (setupOpen = false)}
-	onDone={() => {
-		setupOpen = false;
-		configured = true;
-	}}
+	onDone={() => (setupOpen = false)}
 />

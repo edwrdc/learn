@@ -3,11 +3,15 @@
 	import { abortProcess } from "$lib/api/chats";
 	import { ApiError } from "$lib/api/http";
 	import { Activity, Bot, FileText, PenTool, Play, Search, Square, Waypoints } from "@lucide/svelte";
-	import { jobAgentLabel } from "@/src/tools/model";
+	import { jobAgentLabel, type JobKind } from "@/src/tools/model";
+	import { chatHref } from "@/src/session/model";
+	import type { Component } from "svelte";
 	import { formatUsd } from "$lib/format";
 	import { activity } from "$lib/state/activity.svelte";
 	import { formatElapsed, toBlobs, type ActivityBlob } from "$lib/state/activity";
 	import { goto } from "$app/navigation";
+
+	const JOB_ICON: Record<JobKind, Component> = { research: Search, demo: Play, visual: PenTool, pdf: FileText };
 
 	let openBlob = $state<string | null>(null);
 	let abortStates = $state<Record<string, "pending" | "failed">>({});
@@ -54,7 +58,7 @@
 	{#if blobs.length > 0}
 		<div class="flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
 			{#each blobs as blob (blob.id)}
-				{@const Icon = blob.process === "extraction" ? Waypoints : blob.jobKind === "research" ? Search : blob.jobKind === "demo" ? Play : blob.jobKind === "visual" ? PenTool : blob.jobKind === "pdf" ? FileText : Bot}
+				{@const Icon = blob.process === "extraction" ? Waypoints : blob.jobKind ? JOB_ICON[blob.jobKind] : Bot}
 				{@const label = labelOf(blob)}
 				<div
 					data-testid={`activity-blob-${blob.process}`}
@@ -117,7 +121,7 @@
 								{#if blob.steps !== undefined}
 									<div class="flex justify-between gap-2"><span>Steps</span><span class="tabular-nums text-card-foreground">{blob.steps}</span></div>
 								{/if}
-								<a href={`/chat/${blob.chatId}`} class="text-primary hover:underline" onclick={(e) => { e.preventDefault(); void goto(`/chat/${blob.chatId}`); }}>Open session →</a>
+								<a href={chatHref(blob.chatId)} class="text-primary hover:underline" onclick={(e) => { e.preventDefault(); void goto(chatHref(blob.chatId)); }}>Open session →</a>
 							</div>
 							<div class="mt-2 text-muted-foreground/80">
 								{abortStates[blob.id] === "failed" ? "Abort failed — try again" : abortStates[blob.id] === "pending" ? "Stopping…" : ""}
