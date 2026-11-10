@@ -261,7 +261,7 @@ describe("composeInstructions: override honoring + the byte-identical source pat
 					.sort()
 					.map((f) => fs.readFileSync(path.join(dir, f), "utf-8").trim())
 					.filter(Boolean);
-			const base = fs.readFileSync("src/session/system-prompt.md", "utf-8").trim();
+			const base = fs.readFileSync("src/session/prompts/system-prompt.md", "utf-8").trim();
 			return [
 				base,
 				...fragmentsOf(`src/session/prompts/${kind}`),

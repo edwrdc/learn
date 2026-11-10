@@ -8,8 +8,6 @@ import "./support-tmp-data.ts";
 import "./support-durable.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { describe, it } from "node:test";
 import {
 	createFauxCore, createModels, fauxAssistantMessage, fauxText, fauxToolCall,
@@ -22,7 +20,6 @@ import { PDF_ROLE } from "../src/jobs/roles/pdf.ts";
 import { runRole } from "../src/jobs/roles/role.ts";
 import type { HeadlessApi } from "../src/jobs/headless.ts";
 import { AUTH_PROVIDER_KEYS } from "../src/settings/model/auth-keys.ts";
-import { providerEventsDir } from "../src/platform/provider-events.ts";
 import type * as appContracts from "../src/jobs/model/types.ts";
 
 const OR_KEY = "dummy-openrouter-MUST-NOT-REACH-other-endpoints";
@@ -55,9 +52,6 @@ const TRANSPORTS: Transport[] = [
 async function isolated<T>(env: Record<string, string>, run: () => Promise<T>): Promise<T> {
 	const previous = process.env;
 	const fetch = globalThis.fetch;
-	const previousEventsDir = providerEventsDir.current;
-	const eventsDir = mkdtempSync(path.join(tmpdir(), "lh-provider-neutral-"));
-	providerEventsDir.current = eventsDir;
 	globalThis.fetch = async () => { throw new Error("CLOSED: unexpected fetch"); };
 	process.env = { NODE_ENV: "test", HOME: "/nonexistent/provider-neutral-test-home", ...env };
 	try {
@@ -65,8 +59,6 @@ async function isolated<T>(env: Record<string, string>, run: () => Promise<T>): 
 	} finally {
 		process.env = previous;
 		globalThis.fetch = fetch;
-		providerEventsDir.current = previousEventsDir;
-		rmSync(eventsDir, { recursive: true, force: true });
 	}
 }
 

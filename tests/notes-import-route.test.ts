@@ -69,6 +69,8 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 	};
 	let calls = 0;
 	const pipeline = createExtractionPipeline({ chatStore: stores.chatStore, graphStore,
+		providerKeyMissing: () => null,
+		getChunkTokens: () => 4096,
 		engineFor: (role) => {
 			const faux = createFauxCore({});
 			faux.setResponses([() => {

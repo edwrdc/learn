@@ -43,8 +43,6 @@ import type { Static, TSchema } from "typebox";
  * result the model can see.
  */
 const TOOL_TIMEOUT_MS = 30_000;
-/** Test seam. */
-export const toolTimeoutMs = { current: TOOL_TIMEOUT_MS };
 
 /** How long an aborted/timed-out call may take to settle on its own before
  *  the hard reject lands — cooperative tools poll the signal and return
@@ -62,9 +60,7 @@ function runWithAbortGuard<T>(
 		if (parent.aborted) controller.abort();
 		else parent.addEventListener("abort", forwardAbort, { once: true });
 	}
-	const timeoutMs = toolTimeoutMs.current;
-	const timer = setTimeout(() => controller.abort(), timeoutMs);
-	const humanTimeout = timeoutMs >= 1_000 ? `${Math.round(timeoutMs / 1000)}s` : `${timeoutMs}ms`;
+	const timer = setTimeout(() => controller.abort(), TOOL_TIMEOUT_MS);
 	let graceTimer: ReturnType<typeof setTimeout> | undefined;
 	const cleanup = () => {
 		clearTimeout(timer);
@@ -89,7 +85,7 @@ function runWithAbortGuard<T>(
 						new Error(
 							parent?.aborted
 								? "Operation aborted"
-								: `Tool "${toolName}" timed out after ${humanTimeout} — the result was discarded`,
+								: `Tool "${toolName}" timed out after ${TOOL_TIMEOUT_MS / 1000}s — the result was discarded`,
 						),
 					),
 				TOOL_ABORT_GRACE_MS,

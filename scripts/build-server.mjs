@@ -26,7 +26,7 @@ export const RUNTIME_EXTERNALS = [
 	"puppeteer-core",
 ];
 
-const RUNTIME_ASSETS = [path.join("src", "session", "system-prompt.md"), path.join("src", "session", "prompts")];
+const RUNTIME_ASSETS = [path.join("src", "session", "prompts")];
 
 const FORBIDDEN_ENTRIES = ["tests", "docs", "AGENTS.md"];
 

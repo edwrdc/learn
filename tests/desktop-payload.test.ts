@@ -15,7 +15,8 @@ const launcher = fs.readFileSync(path.join(ROOT, "scripts", "server-launch.mjs")
 const { RUNTIME_EXTERNALS } = await import("../scripts/build-server.mjs");
 const BUILD = "dist-server";
 const PAYLOAD = path.join(BUILD, "standalone");
-const PROMPT = path.join("src", "session", "system-prompt.md");
+const PROMPTS = path.join("src", "session", "prompts");
+const PROMPT = path.join(PROMPTS, "system-prompt.md");
 
 type Fixture = {
 	root: string;
@@ -225,7 +226,7 @@ describe("desktop standalone payload", () => {
 
 	it("still refuses a missing runtime prompt asset", () => {
 		withPayload(({ root, remove, run }) => {
-			remove(PROMPT);
+			remove(PROMPTS);
 			const result = run();
 			assert.equal(result.status, 1);
 			assert.match(String(result.stderr), /prompt asset missing/);

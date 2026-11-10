@@ -31,13 +31,9 @@ import path from "node:path";
 import { PATHS } from "./config.ts";
 
 /** Max bytes per chat's JSONL before recording stops (with a marker). */
-const CAP_BYTES = 20 * 1024 * 1024;
+export const PROVIDER_EVENTS_CAP_BYTES = 20 * 1024 * 1024;
 
-/** Test seam (the toolTimeoutMs idiom): shrink the cap to exercise it. */
-export const providerEventsCap = { current: CAP_BYTES };
-
-/** Test seam (the toolTimeoutMs idiom): redirect the output directory. */
-export const providerEventsDir = { current: path.join(PATHS.debug, "provider-events") };
+const EVENTS_DIR = path.join(PATHS.debug, "provider-events");
 
 /** The model shape the observer receives (structural — pi passes Model). */
 interface ProviderEventModel {
@@ -56,7 +52,7 @@ function fileFor(chatId: string): string {
 	// chat ids are app-minted (chat_<base36>) — sanitize against any future
 	// id scheme putting path-hostile characters in here.
 	const safe = chatId.replace(/[^a-zA-Z0-9_-]/g, "_");
-	return path.join(providerEventsDir.current, `${safe}.jsonl`);
+	return path.join(EVENTS_DIR, `${safe}.jsonl`);
 }
 
 function writeLine(file: string, line: Record<string, unknown>): void {
@@ -68,9 +64,9 @@ function writeLine(file: string, line: Record<string, unknown>): void {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.appendFileSync(file, text, "utf-8");
 		const bytes = before + Buffer.byteLength(text);
-		if (bytes > providerEventsCap.current) {
+		if (bytes > PROVIDER_EVENTS_CAP_BYTES) {
 			files().set(file, { bytes, capped: true });
-			fs.appendFileSync(file, `${JSON.stringify({ t: Date.now(), note: `cap ${providerEventsCap.current} bytes reached — recording stopped` })}\n`, "utf-8");
+			fs.appendFileSync(file, `${JSON.stringify({ t: Date.now(), note: `cap ${PROVIDER_EVENTS_CAP_BYTES} bytes reached — recording stopped` })}\n`, "utf-8");
 		} else {
 			files().set(file, { bytes, capped: false });
 		}

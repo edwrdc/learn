@@ -53,7 +53,6 @@ import { POST as dismissPOST } from "../src/routes/api/chats/[id]/dismiss/+serve
 import { buildAnswer, normalizeOptions, resolveCorrect, type QuestionData } from "../src/session/model/questions.ts";
 import { projectView } from "../src/session/model/view.ts";
 import { bareQuestionTools } from "./support-tools.ts";
-import { providerEventsDir } from "../src/platform/provider-events.ts";
 import { PATHS } from "../src/platform/config.ts";
 import type { PiEngine } from "../src/platform/engines.ts";
 import type { AppTool } from "../src/tools/adapter.ts";
@@ -395,9 +394,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 
 	it("the raw provider recorder captures the durable run's stream events", async () => {
 		const chat = await createChat("Durable: provider events");
-		const dir = fs.mkdtempSync(path.join(PATHS.data, "provider-events-"));
-		const previous = providerEventsDir.current;
-		providerEventsDir.current = dir;
+		const dir = path.join(PATHS.debug, "provider-events");
 		process.env.LH_PROVIDER_EVENTS = "1";
 		try {
 			const { engine } = scripted([fauxAssistantMessage([fauxText("recorded")])]);
@@ -414,9 +411,7 @@ describe("durable foreground turn", { concurrency: false }, () => {
 			);
 			assert.ok(lines.some((line) => typeof line.note === "string" && line.note.includes("run start")), "the run marker records");
 		} finally {
-			process.env.LH_PROVIDER_EVENTS = undefined;
-			providerEventsDir.current = previous;
-			fs.rmSync(dir, { recursive: true, force: true });
+			delete process.env.LH_PROVIDER_EVENTS;
 		}
 	});
 

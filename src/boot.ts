@@ -49,6 +49,10 @@ async function recover(): Promise<void> {
 }
 
 export function boot(options: BootOptions = {}): AppServices {
+	const first = processState("bootOptions", () => options);
+	if ((first.upkeep ?? true) !== (options.upkeep ?? true) || first.engineFor !== options.engineFor) {
+		throw new Error("boot() was already called with different options");
+	}
 	const services = processState("services", () => {
 		initAuthEnv();
 		const engineFor = (role: ModelRole) => options.engineFor?.(role) ?? resolveEngine(role);

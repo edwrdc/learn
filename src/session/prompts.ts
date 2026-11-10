@@ -18,7 +18,6 @@ import { PATHS, PROMPTS_OVERRIDE_DIR, writeFileAtomic } from "../platform/index.
 import { FRAGMENT_RE, isValidSegmentPath, type AgentSettings, type PromptAgent, type PromptSegmentInfo } from "../settings/model/index.ts";
 import { readSettings, writeSettings } from "../settings/index.ts";
 
-const PROMPTS_DIR = path.join(PATHS.root, "src", "session", "prompts");
 
 /** Shared fragments the PRACTICE agent composes: the VOICE, ACCURACY,
  *  and MENTAL-MODEL chunks joined the formatting guide (owner rounds 13
@@ -71,16 +70,16 @@ export function listSourceSegments(agent: PromptAgent): Array<{ path: string; sh
 	// agent (owner, 2026-10-04 late): LaTeX delimiters and markdown apply
 	// in all settings — practice shares the $...$/$$...$$ authoring contract.
 	const segments: Array<{ path: string; shared: boolean; file: string }> = agent === "practice" ? [] : [
-		{ path: "system-prompt.md", shared: true, file: PATHS.teacherPrompt },
+		{ path: "system-prompt.md", shared: true, file: path.join(PATHS.prompts, "system-prompt.md") },
 	];
-	const dir = path.join(PROMPTS_DIR, agent);
+	const dir = path.join(PATHS.prompts, agent);
 	if (fs.existsSync(dir)) {
 		const fragments = fs.readdirSync(dir).filter((f) => FRAGMENT_RE.test(f)).sort();
 		for (const f of fragments) {
 			segments.push({ path: `${agent}/${f}`, shared: false, file: path.join(dir, f) });
 		}
 	}
-	const sharedDir = path.join(PROMPTS_DIR, "shared");
+	const sharedDir = path.join(PATHS.prompts, "shared");
 	if (fs.existsSync(sharedDir)) {
 		// The practice allowlist (owner, 2026-10-04 late): formatting only.
 		const allow = agent === "practice" ? PRACTICE_SHARED_FRAGMENTS : null;

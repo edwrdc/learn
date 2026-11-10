@@ -28,8 +28,8 @@ describe("LH_DATA_DIR seam", () => {
 			assert.equal(PATHS.chats, path.join(dir, "chats"));
 			assert.equal(PATHS.graph, path.join(dir, "graph"));
 			assert.equal(
-				PATHS.teacherPrompt,
-				path.join(ROOT, "src", "session", "system-prompt.md"),
+				PATHS.prompts,
+				path.join(ROOT, "src", "session", "prompts"),
 				"read-only prompt assets stay bundle-anchored on purpose",
 			);
 		} finally {

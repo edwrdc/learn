@@ -50,11 +50,16 @@ import {
 	NOTES_EXTRACTOR_INSTRUCTIONS,
 } from "../src/graph/extraction/pipeline.ts";
 import type { ExtractionPipelineDeps } from "../src/graph/extraction/pipeline.ts";
+import { FACTORY_SETTINGS } from "../src/settings/model/index.ts";
 
 /** Pipelines with a scripted engine per stage, wired through engineFor. */
-function createExtractionPipeline(deps: ExtractionPipelineDeps & { extractor?: PiEngine; auditor?: PiEngine }) {
+function createExtractionPipeline(
+	deps: Partial<ExtractionPipelineDeps> & Pick<ExtractionPipelineDeps, "chatStore" | "graphStore"> & { extractor?: PiEngine; auditor?: PiEngine },
+) {
 	const { extractor, auditor, ...rest } = deps;
 	return createPipeline({
+		providerKeyMissing: () => null,
+		getChunkTokens: () => FACTORY_SETTINGS.graph.extractionChunkTokens,
 		...rest,
 		engineFor: (role) => (role === "extractor" ? extractor : role === "auditor" ? auditor : undefined) ?? rest.engineFor?.(role),
 	});

@@ -23,7 +23,8 @@ const DATA_ROOT = process.env.LH_DATA_DIR
 export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
-	teacherPrompt: path.join(ROOT, "src", "session", "system-prompt.md"),
+	/** The agents' prompt tree (shipped as a runtime asset). */
+	prompts: path.join(ROOT, "src", "session", "prompts"),
 	data: DATA_ROOT,
 	/** Chat session METADATA (one JSON file per chat; the transcript lives
 	 *  in the durable store — see src/store/chats.ts). */

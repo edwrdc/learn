@@ -865,20 +865,18 @@ describe("researcher agent", () => {
 		testEngines.pdfReader = undefined;
 	});
 
-	it("a hung role tool hits the per-call timeout instead of holding the run", async () => {
+	it("a hung role tool hits the per-call timeout instead of holding the run", async (t) => {
 		const { DEMO_ROLE } = await import("../src/jobs/roles/demo.ts");
-		const { toolTimeoutMs } = await import("../src/tools/execute.ts");
-		const previous = toolTimeoutMs.current;
-		toolTimeoutMs.current = 50;
-		try {
-			const tools = DEMO_ROLE.tools({
-				state: { read: async () => ({ html: "<p>x</p>" }), update: async () => undefined },
-				host: { headless: { unavailableReason: () => null, runDemo: () => new Promise(() => undefined) } },
-			} as never);
-			await assert.rejects(tools.run_demo!.execute("c1", {}), /timed out/);
-		} finally {
-			toolTimeoutMs.current = previous;
-		}
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const tools = DEMO_ROLE.tools({
+			state: { read: async () => ({ html: "<p>x</p>" }), update: async () => undefined },
+			host: { headless: { unavailableReason: () => null, runDemo: () => new Promise(() => undefined) } },
+		} as never);
+		const pending = assert.rejects(tools.run_demo!.execute("c1", {}), /timed out/);
+		await new Promise((resolve) => setImmediate(resolve));
+		t.mock.timers.tick(30_000);
+		t.mock.timers.tick(250);
+		await pending;
 	});
 
 	it("the pdf-reader's 'all' page spec counts every page of the document", async () => {
@@ -1182,7 +1180,7 @@ describe("prompt composition", () => {
 		assert.ok(!instructions.includes("Prompt fragments"), "README content must not leak");
 		assert.ok(!instructions.includes("Rules for adding a fragment"), "README content must not leak (rules)");
 		// every numeric fragment DOES compose, verbatim, after the base prompt
-		const base = fs.readFileSync("src/session/system-prompt.md", "utf-8").trim();
+		const base = fs.readFileSync("src/session/prompts/system-prompt.md", "utf-8").trim();
 		assert.ok(instructions.startsWith(base), "base prompt first");
 		for (const f of fs.readdirSync("src/session/prompts").filter((f) => /^\d+-[\w.-]+\.md$/.test(f)).sort()) {
 			const body = fs.readFileSync(`src/session/prompts/${f}`, "utf-8").trim();

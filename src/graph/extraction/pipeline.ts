@@ -4,7 +4,6 @@ import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../../settings/model/index.ts";
 import {
-	FACTORY_SETTINGS,
 	ModelsNotConfiguredError,
 	ProviderKeyMissingError,
 	ROLE_SLOT,
@@ -468,25 +467,21 @@ interface ExtractionModels {
 	 *  stages lands). BYOK (owner, 2026-09-22): the chain (role override →
 	 *  slot → NOTHING) may end EMPTY → undefined; the front doors refuse
 	 *  with ModelsNotConfiguredError before any stage runs. */
-	engineFor?: (role: ModelRole) => PiEngine | undefined;
+	engineFor: (role: ModelRole) => PiEngine | undefined;
 	/** Key-presence gate (provider-key interlude, 2026-09-25): given a
 	 *  stage engine's provider + the role's slot tier, the injected check
 	 *  returns the refusal envelope when the provider's key is missing
 	 *  (null = run). Same injection discipline as the job runner's seam
-	 *  (the agent layer may not read the key store); absent in tests that
-	 *  inject engines directly (test engines never owe a key). A keyless
-	 *  stage refuses with ProviderKeyMissingError BEFORE any batch runs. */
-	providerKeyMissing?: (provider: string, slots: ModelSlotName[]) => ProviderKeyMissing | null;
+	 *  (the agent layer may not read the key store). A keyless stage refuses
+	 *  with ProviderKeyMissingError BEFORE any batch runs. */
+	providerKeyMissing: (provider: string, slots: ModelSlotName[]) => ProviderKeyMissing | null;
 }
 
 export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
 	/** The chunk budget — the transcript-token share of the extractor's
 	 *  context; batches fill to it (the trigger fires on the same number,
-	 *  read fresh per turn by the composition root). OPTIONAL with the
-	 *  factory default (4096) so test fixtures stay minimal; the server
-	 *  callers wire the live effective settings (extraction-UX redesign,
-	 *  2026-09-24). */
-	getChunkTokens?: () => number;
+	 *  read fresh per run). */
+	getChunkTokens: () => number;
 }
 
 interface NotesImportInput {
@@ -541,7 +536,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	const { chatStore, graphStore } = deps;
 	// Resolved FRESH per stage call (a settings PUT between stages lands).
 	// undefined = the BYOK chain came up empty; the front doors refuse.
-	const stageEngine = (role: ModelRole): PiEngine | undefined => deps.engineFor?.(role);
+	const stageEngine = (role: ModelRole): PiEngine | undefined => deps.engineFor(role);
 	/** The per-need refusal guard: which slot tiers the pipeline's stages
 	 *  found unset,
 	 *  and whether a configured stage's provider key is gone (provider-key
@@ -561,7 +556,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		// auditor); fixing that key re-gates and the next run surfaces the
 		// next offender, if any.
 		for (const [role, engine] of stages) {
-			const refusal = deps.providerKeyMissing?.(engine!.model.provider, [ROLE_SLOT[role]]);
+			const refusal = deps.providerKeyMissing(engine!.model.provider, [ROLE_SLOT[role]]);
 			if (refusal) {
 				console.info(`[extraction] refused — ${JSON.stringify(refusal)}`);
 				throw new ProviderKeyMissingError(refusal.provider, refusal.slots);
@@ -927,7 +922,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				console.info(`[extraction ${chatId}] nothing uncovered — no-op`);
 				return { nodes: 0, chains: 0 };
 			}
-			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
+			const chunkTokens = deps.getChunkTokens();
 			// The batcher's one rule (owner, Wave D): a tool-call message and
 			// its result message(s) are INSEPARABLE — one chunk, covered
 			// together, read together (core/coverage.ts batchRuns).
@@ -1024,7 +1019,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// standalone extract → audit → merge, so no single call carries a
 			// whole large file. Abort mid-run keeps earlier chunks merged
 			// (same doctrine as chat batches).
-			const chunkTokens = deps.getChunkTokens?.() ?? FACTORY_SETTINGS.graph.extractionChunkTokens;
+			const chunkTokens = deps.getChunkTokens();
 			const chunks = chunkNotes(input.text, chunkTokens);
 			console.info(
 				`[extraction ${id}] notes pipeline start (${input.filePath}) — ${chunks.length} chunk(s) of ≤${chunkTokens} tok`,
