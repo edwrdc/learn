@@ -2,6 +2,16 @@
 
 Date: 2026-09-12. Status: PLANNED (facts verified, awaiting go).
 
+> **Current code (this record is historical).** The pi-agent-core loop and
+> the UIMessage bridge described below were later replaced: the conversation
+> runtime is pi-durable (one SQLite store per chat, `src/session/durable.ts`),
+> a turn is composed in `src/session/turn.ts` (`handleChatInput`), its SSE
+> view is `src/session/pi/durable-turn.ts`, the client is the Svelte UI in
+> `src/lib/`, engines are built in `src/platform/engines.ts` from the BYOK
+> model settings, and prices live in `src/session/model/prices.ts`. See
+> [`architecture.md`](architecture.md). Paths below are as they were at the
+> time (`chat-handler.ts`, `src/server/…`, `core/…`).
+
 Decision (user, 2026-09-12): swap the server agent engine (Band B) and the
 UI-stream bridge (Band C) from the Vercel AI SDK to **@earendil-works/pi-ai**
 (provider/catalog/streaming layer) + **@earendil-works/pi-agent-core**

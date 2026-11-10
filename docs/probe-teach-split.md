@@ -145,9 +145,11 @@ live-derived movement.
 - **Assessment viewer** — the strand assessments displayed to the learner
   as a proper card (data already durable in the transcript; the plain v1
   probe-done card renders the assessment meanwhile).
-- **Model / thinking control** — currently hardcoded per role in
-  `config.ts` MODELS. The split gives natural `MODELS.prober` /
-  `MODELS.teacher` entries; runtime control comes after.
+- **Model / thinking control** — at the time hardcoded per role in
+  `config.ts` MODELS. (Landed since: BYOK model slots in `settings.json`,
+  resolved per role by `resolveRoleSpec` / per chat by
+  `resolveConversationSpec` in `src/settings/model/resolution.ts`; the
+  prober/teacher pair runs the chat's own model.)
 - **Graph context, properly designed** — what the global graph should feed
   into sessions (§5).
 

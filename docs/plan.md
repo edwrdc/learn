@@ -2,6 +2,8 @@
 
 Execution plan for `docs/vision.md`. Section references (§) point into that document. Not exact — a dependency-ordered wave structure with verification gates. Written 2026-08-22.
 
+> **Historical plan.** File paths below are as they were in 2026-08 and no longer exist. Current homes: prompt fragments `src/session/prompts/` (composed by `src/session/prompts.ts`); contracts split into each feature's `model/` folder (plan tree `src/session/model/plan-tree.ts` + `plan-types.ts`, graph types `src/graph/model/types.ts`); the graph store `src/graph/store.ts` and derivation `src/graph/snapshot.ts`; the graph view `src/lib/home/GraphView.svelte` over `src/lib/home/graph-canvas.ts`; job roles `src/jobs/roles/`. See [`architecture.md`](architecture.md).
+
 ## Execution model
 
 - **Workers (GLM 5.3) implement everything.** Each task brief carries: exact file ownership, contracts to code against, acceptance criteria, and the standing instruction — *when anything is undecided or ambiguous, ask the orchestrator (me) via your ask tool; never guess details.*

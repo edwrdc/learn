@@ -6,17 +6,22 @@ second pillar of input).
 
 ## Architecture
 
-- **Registry**: `src/core/keyboard.ts` — `KEYBOARD_ACTIONS` holds every
-  action: `{ id, label, scope, binding }`. The cheat sheet renders FROM
-  the registry, so it can never list a non-functional shortcut.
-- **Provider**: `src/lib/state/keyboard.ts` — one window-level
-  keydown listener (bubble phase, mounted once in AppShell). Normalizes
-  keys to `mod+d`-style strings, resolves overrides, dispatches
-  `lh:kbd-<action-id>` window CustomEvents. Surfaces listen for their
-  own events (matching the pre-existing `lh:chat-renamed` seam style).
+- **Registry**: `src/settings/model/keyboard.ts` — `KEYBOARD_ACTIONS` holds every
+  action: `{ id, label, scope, binding, displayOnly? }`. The cheat sheet
+  (`src/lib/shell/CheatSheet.svelte`) and the settings keyboard section
+  (`src/lib/settings/KeyboardSection.svelte`) render FROM the registry, so
+  neither can list a non-functional shortcut.
+- **Provider**: `src/lib/state/keyboard.ts` — `initKeyboard()`, one window-level
+  keydown listener mounted once in `src/routes/+layout.svelte`. Normalizes
+  keys to `mod+d`-style strings (`eventBinding`), resolves overrides
+  (`actionForBinding`), handles navigation and dialog actions itself
+  (`new-session`, `jump-graph`, `open-settings`, `cheat-sheet`) and
+  dispatches the rest as `lh:kbd-<action-id>` window CustomEvents
+  (`emitKeyAction`/`kbdEventForAction` in `src/lib/events.ts`). Surfaces
+  listen for their own events.
 - **Persistence**: overrides live under localStorage `lh:keymap` as
-  `{actionId: binding}` merged over defaults. No editor yet — the
-  settings milestone owns key map editing.
+  `{actionId: binding}` merged over defaults (`loadOverrides`/`saveOverrides`);
+  the settings keyboard section edits them.
 - **displayOnly entries**: the registry also lists SURFACE-owned keys
   (the question dock's row machine) for the cheat sheet only —
   `effectiveKeymap` skips them so bare arrows can never leak to pages
@@ -44,20 +49,22 @@ second pillar of input).
 
 | Action | Binding | Seam |
 |---|---|---|
-| Toggle dictation | ⌘D | `lh:kbd-toggle-dictation` (dictation.tsx) |
-| Model selector | ⌘K | `lh:kbd-open-model-picker` (model-picker.tsx) |
-| Cycle thinking level | Shift+Tab | `lh:kbd-cycle-thinking` (model-picker.tsx) |
-| Toggle sidebar | ⌘B | `lh:toggle-sidebar` (sidebar.tsx) |
-| Sessions search | ⌘⇧F | `lh:kbd-sessions-search` (sidebar.tsx) |
-| Walk search results | ↑ / ↓ *in the search field* | sidebar.tsx (cycles the filtered rows, wraps) |
-| Open search result | Enter *in the search field* | sidebar.tsx (walked row, else the first match) |
+| Toggle dictation | ⌘D | `lh:kbd-toggle-dictation` (`src/lib/chat/dictation.svelte.ts`) |
+| Open settings | ⌘, | `settingsDialog.open()` in `src/lib/state/keyboard.ts` |
+| Model selector | ⌘K | `lh:kbd-open-model-picker` (`src/lib/chat/ModelControl.svelte`) |
+| Cycle thinking level | Shift+Tab | `lh:kbd-cycle-thinking` (`src/lib/chat/ModelControl.svelte`) |
+| Toggle sidebar | ⌘B | `lh:kbd-toggle-sidebar` (`src/lib/state/sidebar.svelte.ts`) |
+| Sessions search | ⌘⇧F | `lh:kbd-sessions-search` (`src/lib/shell/Sidebar.svelte`) |
+| Walk search results | ↑ / ↓ *in the search field* | `Sidebar.svelte` (cycles the filtered rows, wraps) |
+| Open search result | Enter *in the search field* | `Sidebar.svelte` (walked row, else the first match) |
 | ~~Cycle session~~ | ~~⌥↑ / ⌥↓~~ | RETIRED (owner, 2026-10-10) — the search walk above replaces it |
 | ~~Open selected session~~ | ~~⌥Enter~~ | RETIRED (owner, 2026-10-10) — the search Enter above replaces it |
-| Jump to graph (home) | ⌘G | router.push in keyboard-shortcuts.tsx |
-| New session | ⌘N | router.push in keyboard-shortcuts.tsx |
-| Rename session | F2 | `lh:kbd-rename-session` (chat.tsx) |
-| Cheat sheet | ? | keyboard-shortcuts.tsx |
-| Find (graph: node search) | ⌘F | `lh:kbd-find` (graph-view.tsx; chat transcript search rides the same event when that feature lands) |
+| Jump to graph (home) | ⌘G | `goto("/")` in `src/lib/state/keyboard.ts` |
+| New session | ⌘N | `goto("/chat/new")` in `src/lib/state/keyboard.ts` |
+| Rename session | F2 | `lh:kbd-rename-session` (`src/lib/chat/ChatPage.svelte`) |
+| Toggle all your thinking | ⌘T | `lh:kbd-toggle-user-thinking` (`src/lib/chat/ChatPage.svelte`) |
+| Cheat sheet | ? | `cheatSheet.open` in `src/lib/state/keyboard.ts` |
+| Find | ⌘F | `lh:kbd-find` (graph node search in `src/lib/home/GraphView.svelte`; chat transcript search in `src/lib/chat/SessionFind.svelte`) |
 
 ## Model menu keyboard machine (owner polish, 2026-09-17)
 
@@ -125,6 +132,5 @@ contract:
 
 - Wave A (global plumbing + shortcuts above) — landed, CDP-verified.
 - Wave B (question row machine) — landed, CDP-verified.
-- Wave C remainder: ⌘F chat transcript search (new feature, needs its own
-  design pass), ⌘I import notes on graph. ⌘F graph node search shipped
-  early (owner live-tested the gap).
+- ⌘F find ships on both surfaces (graph node search, chat transcript
+  search). ⌘I import notes on graph is not in the registry.
