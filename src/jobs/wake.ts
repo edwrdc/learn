@@ -39,10 +39,9 @@ import type { TurnInput } from "../session/model/index.ts";
 import { danglingQuestionOf, endsInDismissal, modelTextOf, type LhMessage } from "../session/model/index.ts";
 import { InboxDoc, LiveDoc } from "@earendil-works/pi-durable";
 import { fireJobAbort, isJobLive } from "./aborts.ts";
-import { stores } from "../stores.ts";
-import { isCommittedRunLive, isTurnRunning } from "../session/index.ts";
+import { jobStore } from "./store.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { openChatRuntime } from "../session/index.ts";
+import { sessionHook } from "./durable-run.ts";
 import { abortBackgroundRun } from "./runtime.ts";
 
 /** Fires one server-side teacher turn: (chatId, input) → HTTP-ish status.
@@ -168,7 +167,7 @@ export function deliverJobResult(chatId: string, steer: SteerMessage): Promise<v
  *  Returns false when no committed run is live. Idempotent by the steer's
  *  deterministic request id. */
 async function submitSteer(chatId: string, steer: SteerMessage): Promise<boolean> {
-	const runtime = await openChatRuntime(chatId);
+	const runtime = await sessionHook("openRuntime")(chatId);
 	return runtime.root.commit(async (tx) => {
 		if ((await tx.doc(LiveDoc, runtime.root.id)).run === undefined) return false;
 		if (await tx.submissionByRequest(runtime.root.id, steer.id)) return true;
@@ -287,13 +286,13 @@ interface AbortOutcome {
  * so an aborted job's money record survives the kill.
  */
 export function abortJob(jobId: string): AbortOutcome {
-	const job = stores.jobStore.getJob(jobId);
+	const job = jobStore.getJob(jobId);
 	if (!job) return { ok: false, reason: "not_found" };
 	if (job.status !== "running") return { ok: false, reason: "not_running" };
 
 	let killed = false;
 	try {
-		const persisted = stores.jobStore.updateJob(jobId, {
+		const persisted = jobStore.updateJob(jobId, {
 			status: "error",
 			error: "Aborted by learner",
 			activity: "aborted",
@@ -356,7 +355,7 @@ async function pump(chatId: string): Promise<void> {
 			}
 
 			// Gone chat: nothing to deliver into.
-			const record = await stores.chatStore.getChat(chatId);
+			const record = await sessionHook("chatStore").getChat(chatId);
 			// The queue can change across the await (abortJob filters it, a
 			// delivery appends): restart with the current one, so a dropped
 			// steer is never fired from a stale snapshot.
@@ -388,7 +387,7 @@ async function pump(chatId: string): Promise<void> {
 			// VEHICLE 1 — THE LIVE RUN's durable inbox. A probe-handoff never
 			// rides a live run (it must START the teacher's run); while one is
 			// pending, wait the run out and fall through to the idle wake.
-			if (await isCommittedRunLive(chatId)) {
+			if (await sessionHook("isCommittedRunLive")(chatId)) {
 				const handoffWaits = stillPending.some((e) => e.steer.customType === "probe-handoff");
 				const riders = stillPending.filter((e) => e.steer.customType !== "probe-handoff");
 				let allAdmitted = true;
@@ -420,7 +419,7 @@ async function pump(chatId: string): Promise<void> {
 			// Re-fetch AFTER the gates open — waitForIdle can wait out a quiz
 			// answer (minutes), and sending the pre-wait snapshot would clobber
 			// the client's answer + continuation in the write-ahead persist.
-			const fresh = await stores.chatStore.getChat(chatId);
+			const fresh = await sessionHook("chatStore").getChat(chatId);
 			// The installed array is `stillPending` (set above), not the
 			// snapshot this iteration started from: compare against what the
 			// pump actually published.
@@ -516,11 +515,11 @@ async function pump(chatId: string): Promise<void> {
 
 /** Flip the job to its final status now that the lesson has resumed. */
 function finalizeJob(jobId: string): void {
-	const job = stores.jobStore.getJob(jobId);
+	const job = jobStore.getJob(jobId);
 	if (!job || job.status !== "running") return;
 	const result = job.result;
 	const failed = result ? isJobFailure(result as JobResult) : true;
-	stores.jobStore.updateJob(jobId, {
+	jobStore.updateJob(jobId, {
 		status: failed ? "error" : "done",
 		activity: failed ? "failed" : "delivered",
 	});
@@ -530,9 +529,9 @@ function failJob(jobId: string, err: Error): void {
 	// An aborted job stays aborted even when its (abort) steer
 	// delivery fails — the user's action is the terminal fact, not the
 	// delivery error. Non-running records are never overwritten here.
-	const job = stores.jobStore.getJob(jobId);
+	const job = jobStore.getJob(jobId);
 	if (!job || job.status !== "running") return;
-	stores.jobStore.updateJob(jobId, { status: "error", error: err.message, activity: "delivery failed" });
+	jobStore.updateJob(jobId, { status: "error", error: err.message, activity: "delivery failed" });
 }
 
 /**
@@ -544,14 +543,14 @@ function failJob(jobId: string, err: Error): void {
  */
 async function waitForIdle(chatId: string): Promise<void> {
 	for (;;) {
-		const record = await stores.chatStore.getChat(chatId);
+		const record = await sessionHook("chatStore").getChat(chatId);
 		if (!record) return;
-		const blocked = (await isTurnRunning(chatId)) || danglingQuestionOf(record.messages) !== null;
+		const blocked = (await sessionHook("isTurnRunning")(chatId)) || danglingQuestionOf(record.messages) !== null;
 		if (!blocked) {
 			await delay(GRACE_MS);
-			const recheck = await stores.chatStore.getChat(chatId);
+			const recheck = await sessionHook("chatStore").getChat(chatId);
 			if (
-				!(await isTurnRunning(chatId)) &&
+				!(await sessionHook("isTurnRunning")(chatId)) &&
 				recheck &&
 				danglingQuestionOf(recheck.messages) === null
 			) {
@@ -580,23 +579,23 @@ async function waitForIdle(chatId: string): Promise<void> {
 export async function recoverStaleJobs(): Promise<void> {
 	const s = state();
 	try {
-		for (const chat of await stores.chatStore.listChats()) {
-			for (const job of stores.jobStore.listJobs(chat.id)) {
+		for (const chat of await sessionHook("chatStore").listChats()) {
+			for (const job of jobStore.listJobs(chat.id)) {
 				if (job.status !== "running") continue;
 				if (isJobLive(job.id)) continue; // provably executing here — never re-run beside it
-				if (!(await stores.chatStore.getChat(job.chatId))) continue;
-				if (await isTurnRunning(job.chatId)) continue; // a wake turn may be delivering it right now
+				if (!(await sessionHook("chatStore").getChat(job.chatId))) continue;
+				if (await sessionHook("isTurnRunning")(job.chatId)) continue; // a wake turn may be delivering it right now
 				if (job.result) {
 					// The wake never fired (or crashed mid-flight): re-deliver.
 					const steer = buildSubagentSteer(job, job.result as JobResult);
-					stores.jobStore.updateJob(job.id, { activity: "recovering: re-delivering" });
+					jobStore.updateJob(job.id, { activity: "recovering: re-delivering" });
 					void deliverJobResult(job.chatId, steer).catch(() => {
 						/* deliverJobResult marks the job error on failure */
 					});
 				} else {
 					// The sub-agent loop itself died with the process: re-spawn.
 					if (!s.respawn) continue;
-					stores.jobStore.updateJob(job.id, { activity: "recovering: re-running" });
+					jobStore.updateJob(job.id, { activity: "recovering: re-running" });
 					s.respawn(job.id);
 				}
 			}

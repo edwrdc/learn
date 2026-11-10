@@ -14,6 +14,8 @@
  * (pages read, the current SVG, a validated submit) from `state`.
  */
 
+import type { ChatRuntime } from "../session/index.ts";
+import type { ChatStore } from "../session/model/index.ts";
 import type { JsonObject } from "@earendil-works/pi-durable";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../settings/model/index.ts";
@@ -194,6 +196,21 @@ interface BackgroundServices {
 	/** Run (or reattach to) one role conversation (jobs/runtime.ts; tests
 	 *  replace it to script a summary). */
 	run(request: BackgroundRunRequest): Promise<BackgroundRunResult>;
+	/** The chat's durable runtime, where its runs live (session owns it). */
+	openRuntime(chatId: string): Promise<ChatRuntime>;
+	/** A turn holds the chat (its committed run or this process's claim). */
+	isTurnRunning(chatId: string): Promise<boolean>;
+	/** The chat's committed foreground run is live (steers can ride it). */
+	isCommittedRunLive(chatId: string): Promise<boolean>;
+	/** The chats the wake pipeline delivers into. */
+	chatStore: ChatStore;
+}
+
+/** One session function as configured by boot. */
+export function sessionHook<K extends "openRuntime" | "isTurnRunning" | "isCommittedRunLive" | "chatStore">(name: K): BackgroundServices[K] {
+	const hook = backgroundServices()[name];
+	if (!hook) throw new Error(`background runs are not configured (boot): ${name}`);
+	return hook;
 }
 
 export function backgroundServices(): Partial<BackgroundServices> {

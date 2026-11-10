@@ -1,8 +1,8 @@
-export { activityFeed } from "./activity.ts";
 export { backgroundRun, configureBackgroundRuns } from "./durable-run.ts";
 export type { RoleRunIdentity, RoleStateIo, RunDescriptor, SubmitRunState } from "./durable-run.ts";
 export { createJobRunner } from "./runner.ts";
-export { resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
+export { registerDurableRoles, resumeBackgroundRuns, retireBackgroundRun, runBackgroundConversation } from "./runtime.ts";
+export type { DurableRole } from "./roles/role.ts";
 export { jobStore } from "./store.ts";
 export { jobTools } from "./tools.ts";
 export type { JobToolContext, SpawnJob } from "./tools.ts";

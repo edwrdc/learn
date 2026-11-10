@@ -56,7 +56,7 @@ const zones = [
 	{
 		target: "./src/routes",
 		from: "./src",
-		except: ["./routes", "./lib", "./stores.ts", "./boot.ts", ...modelIndexes, ...featureIndexes],
+		except: ["./routes", "./lib", "./stores.ts", "./boot.ts", "./activity.ts", ...modelIndexes, ...featureIndexes],
 		message: "Routes import lib, model/index.ts and the features' index.ts.",
 	},
 ];

@@ -1,10 +1,10 @@
 export { commitPositions } from "./commit-positions.ts";
 export { coverageOf } from "./coverage.ts";
-export { auditorGraphTools, proberGraphTools } from "./extraction/graph-tools.ts";
+export { proberGraphTools } from "./extraction/graph-tools.ts";
 export type { GraphDeps } from "./snapshot.ts";
 export { NotesImportError, abortExtraction, createExtractionPipeline, extractionStatuses, stopExtraction } from "./extraction/pipeline.ts";
 export type { ExtractionPipeline, NotesFile, RunningExtraction } from "./extraction/pipeline.ts";
-export { AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool } from "./extraction/submit-role.ts";
+export { EXTRACTION_ROLES } from "./extraction/submit-role.ts";
 export type { SubmitRunInput } from "./extraction/submit-role.ts";
 export { deleteGraphNode, extractionRuns, graphCosts, graphRevision, graphView } from "./service.ts";
 export { graphStore } from "./store.ts";

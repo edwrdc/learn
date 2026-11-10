@@ -14,7 +14,9 @@ import type { AppTool, AppToolResult } from "../../tools/index.ts";
 import { invalidInputResult, toToolResult } from "../../tools/index.ts";
 import type { AuditVerdicts } from "../model/types.ts";
 import { findingsSchema, sessionFindingsSchema } from "../model/findings.ts";
-import type { RoleStateIo, SubmitRunState } from "../../jobs/index.ts";
+import type { DurableRole, RoleStateIo, SubmitRunState } from "../../jobs/index.ts";
+import { auditorGraphTools } from "./graph-tools.ts";
+import { stores } from "../../stores.ts";
 
 /** What the extractor SUBMITS (the redesign's wire shape) — propositions
  *  + chains. fillFindings normalizes it; validateFindingsChains checks
@@ -188,3 +190,20 @@ export function submitRoleTool(
 		},
 	};
 }
+
+/** The extraction stages as durable roles: one validated submit ends the
+ *  run; the auditor also explores the graph (the run's own, else the app's). */
+function submitRole(kind: "extract" | "audit"): DurableRole<SubmitRunState> {
+	return {
+		initialState: () => ({ kind, submitted: null }),
+		submitTool: kind === "audit" ? AUDIT_TOOL : FINDINGS_TOOL,
+		tools(run) {
+			const submit = submitRoleTool(run.input as unknown as SubmitRunInput, run.state);
+			if (kind !== "audit") return { [submit.name]: submit };
+			const graph = run.host.graph ?? { chatStore: stores.chatStore, graphStore: stores.graphStore };
+			return { ...auditorGraphTools(graph), [submit.name]: submit };
+		},
+	};
+}
+
+export const EXTRACTION_ROLES = { extract: submitRole("extract"), audit: submitRole("audit") };

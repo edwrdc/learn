@@ -37,7 +37,10 @@ import { usageFromPi } from "./model/types.ts";
 import type { ChatPhase } from "./model/phases.ts";
 import { createHash } from "node:crypto";
 import type { PiEngine } from "../platform/index.ts";
-import { backgroundRun } from "../jobs/index.ts";
+import { backgroundRun, type DurableRole } from "../jobs/index.ts";
+
+/** The summarizer's run: no tools, the answer is the summary. */
+export const COMPACT_ROLE: DurableRole<{ kind: "compact" }> = { initialState: () => ({ kind: "compact" }), tools: () => ({}) };
 
 /** The summarizer's system prompt — server-owned operational framing,
  *  not model-facing doctrine (buildCompactionPrompt carries the shape). */

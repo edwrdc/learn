@@ -19,10 +19,10 @@
  * from the pipeline's module for the abort route to call.
  */
 
-import { extractionRuns, graphRevision } from "../graph/index.ts";
-import { stores } from "../stores.ts";
-import { catalogContextLimits } from "../settings/index.ts";
-import type { ActivityExtraction, ActivityFeed, ActivityJob } from "./model/types.ts";
+import { extractionRuns, graphRevision } from "./graph/index.ts";
+import { stores } from "./stores.ts";
+import { catalogContextLimits } from "./settings/index.ts";
+import type { ActivityExtraction, ActivityFeed, ActivityJob } from "./jobs/model/index.ts";
 
 
 /** The dock's whole world in one payload: every running process, every view.

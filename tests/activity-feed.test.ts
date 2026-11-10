@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { chatStore } from "../src/session/store.ts";
 import { jobStore } from "../src/jobs/store.ts";
 import { PATHS } from "../src/platform/config.ts";
-import { activityFeed } from "../src/jobs/activity.ts";
+import { activityFeed } from "../src/activity.ts";
 
 test("activityFeed: running jobs across ALL chats, running-only, title-joined, oldest first", async () => {
 	const chatA = await chatStore.createChat("feed chat A");

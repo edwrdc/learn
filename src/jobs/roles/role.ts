@@ -28,7 +28,8 @@ import { realHeadless, type HeadlessApi } from "../headless.ts";
 export interface RoleHost {
 	headless: HeadlessApi;
 	search: () => SearchProvider | null;
-	graph: () => GraphDeps;
+	/** The graph the caller passed with the run (extraction), if any. */
+	graph?: GraphDeps;
 	onActivity?: (line: string) => void;
 }
 
@@ -106,9 +107,6 @@ export async function runRole<I, R extends JobResult, S extends RunState>(
 	const host: RoleHost = {
 		headless: roleHeadless(options.headless),
 		search: options.search ?? (() => backgroundServices().searchProvider?.() ?? null),
-		graph: () => {
-			throw new Error(`${role.kind} has no graph access`);
-		},
 		onActivity: options.onActivity,
 	};
 	const blocked = await role.precheck?.(input, host);

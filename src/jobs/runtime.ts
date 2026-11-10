@@ -50,15 +50,15 @@ import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context"
 import type { ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
 import { accumulateJobUsage, type JobUsage } from "./model/types.ts";
 import { usageFromPi } from "../session/model/index.ts";
-import { auditorGraphTools, AUDIT_TOOL, FINDINGS_TOOL, submitRoleTool, type GraphDeps, type SubmitRunInput } from "../graph/index.ts";
 import { toRegistrations } from "../tools/index.ts";
-import { bindRunEngine, modelSnapshot, runsSnapshot, unbindRunEngine, type PiEngine } from "../platform/index.ts";
+import { bindRunEngine, modelSnapshot, readConversationEntries, runsSnapshot, unbindRunEngine, type PiEngine } from "../platform/index.ts";
 import { modelKey } from "../settings/model/index.ts";
 import { providerEventObserver } from "../platform/index.ts";
-import { openChatRuntime, readConversationEntries, type ChatRuntime } from "../session/index.ts";
+import type { ChatRuntime } from "../session/index.ts";
 import {
 	backgroundServices,
 	RunFailure,
+	sessionHook,
 	type BackgroundKind,
 	type BackgroundRunRequest,
 	type BackgroundRunResult,
@@ -67,11 +67,10 @@ import {
 	type RunDescriptor,
 	type RunState,
 	type RunStep,
-	type SubmitRunState,
 } from "./durable-run.ts";
 import { JOB_ROLES } from "./roles/registry.ts";
 import { roleHeadless, type DurableRole, type RoleHost, type RoleRun } from "./roles/role.ts";
-import { stores } from "../stores.ts";
+import { jobStore } from "./store.ts";
 
 interface RunRef {
 	conversationId: number;
@@ -118,31 +117,20 @@ export const BackgroundRunDoc = defineDoc<JsonObject>({
 	checkpointWhen: () => false,
 });
 
-/** The extraction stages: one validated submit ends the run; the auditor
- *  also explores the live graph. */
-function submitRole(kind: "extract" | "audit"): DurableRole<SubmitRunState> {
-	return {
-		initialState: () => ({ kind, submitted: null }),
-		// Read at run time: graph and jobs import each other.
-		get submitTool() {
-			return kind === "audit" ? AUDIT_TOOL : FINDINGS_TOOL;
-		},
-		tools(run) {
-			const submit = submitRoleTool(run.input as unknown as SubmitRunInput, run.state);
-			return kind === "audit" ? { ...auditorGraphTools(run.host.graph()), [submit.name]: submit } : { [submit.name]: submit };
-		},
-	};
+/** The roles the engine can run: the job roles, plus whatever the other
+ *  features register at boot (extraction's submit stages, compaction). */
+function durableRoles(): Map<BackgroundKind, DurableRole<any>> {
+	return processState("durableRoles", () => new Map(Object.entries(JOB_ROLES)) as Map<BackgroundKind, DurableRole<any>>);
 }
 
-const DURABLE_ROLES: Record<BackgroundKind, DurableRole<any>> = {
-	...JOB_ROLES,
-	extract: submitRole("extract"),
-	audit: submitRole("audit"),
-	compact: { initialState: () => ({ kind: "compact" }), tools: () => ({}) },
-};
+export function registerDurableRoles(roles: Partial<Record<BackgroundKind, DurableRole<any>>>): void {
+	for (const [kind, role] of Object.entries(roles)) durableRoles().set(kind as BackgroundKind, role);
+}
 
-function productionGraph(): GraphDeps {
-	return { chatStore: stores.chatStore, graphStore: stores.graphStore };
+function durableRole(kind: BackgroundKind): DurableRole<any> {
+	const role = durableRoles().get(kind);
+	if (!role) throw new Error(`no durable role registered for ${kind} (boot registers them)`);
+	return role;
 }
 
 function roleHost(request: BackgroundRunRequest | undefined): RoleHost {
@@ -150,7 +138,7 @@ function roleHost(request: BackgroundRunRequest | undefined): RoleHost {
 	return {
 		headless: roleHeadless(request?.headless),
 		search: request?.search ?? (() => services.searchProvider?.() ?? null),
-		graph: () => request?.graph ?? productionGraph(),
+		graph: request?.graph,
 		onActivity: request?.onActivity,
 	};
 }
@@ -213,7 +201,7 @@ function roleExtension(
 	descriptor: RunDescriptor,
 	host: RoleHost,
 ): Extension {
-	const role = DURABLE_ROLES[descriptor.kind];
+	const role = durableRole(descriptor.kind);
 	const run = roleRun(runtime, conversation, descriptor, host);
 	return defineExtension({
 		name: `lh-bg-${descriptor.runId}`,
@@ -393,7 +381,7 @@ function descriptorOf(
 		systemPrompt: request.systemPrompt,
 		prompt: request.prompt,
 		input: request.input ?? {},
-		state: DURABLE_ROLES[request.kind].initialState(),
+		state: durableRole(request.kind).initialState(),
 	};
 }
 
@@ -493,7 +481,7 @@ function installRun(
 }
 
 async function attachBackgroundConversation(request: BackgroundRunRequest): Promise<BackgroundRunResult> {
-	const runtime = await openChatRuntime(request.chatId);
+	const runtime = await sessionHook("openRuntime")(request.chatId);
 	const { conversationId, ref, descriptor } = await ensureRun(runtime, request, request.engine);
 	const conversation = await runtime.harness.conversation(conversationId, BACKGROUND_CONTEXT);
 	if (!conversation) throw new Error(`background run ${descriptor.runId}: conversation missing`);
@@ -598,7 +586,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
  *  own abort is the kill switch. Marks the index failed so a later sweep
  *  does not reattach a run the learner stopped. */
 export async function abortBackgroundRun(chatId: string, jobId: string): Promise<boolean> {
-	const runtime = await openChatRuntime(chatId);
+	const runtime = await sessionHook("openRuntime")(chatId);
 	const index = await readIndex(runtime);
 	const ref = index.runs[jobId] as unknown as RunRef | undefined;
 	if (!ref || ref.status !== "running") return false;
@@ -611,7 +599,7 @@ export async function abortBackgroundRun(chatId: string, jobId: string): Promise
 
 /** Drop one consumed run from the chat's durable index. */
 export async function retireBackgroundRun(chatId: string, jobId: string): Promise<void> {
-	const runtime = await openChatRuntime(chatId);
+	const runtime = await sessionHook("openRuntime")(chatId);
 	await updateIndex(runtime, jobId, null);
 }
 
@@ -635,7 +623,7 @@ export async function resumeBackgroundRuns(runtime: ChatRuntime): Promise<void> 
 		// A learner abort may have landed while the runtime was unavailable:
 		// honor the durable intent before resolving the missing model or resuming.
 		const job = (JOB_KINDS as readonly string[]).includes(descriptor.kind)
-			? stores.jobStore.getJob(descriptor.jobId)
+			? jobStore.getJob(descriptor.jobId)
 			: null;
 		if (job !== null && job.status !== "running") {
 			await conversation.abort(BACKGROUND_CONTEXT);

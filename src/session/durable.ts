@@ -36,7 +36,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { PATHS } from "../platform/index.ts";
 import { modelTextOf, wireOf, type LhMessage } from "./model/transcript.ts";
-import { APP_IDENTITY, routedModels, unbindRunEngine } from "../platform/index.ts";
+import { APP_IDENTITY, readConversationEntries, routedModels, unbindRunEngine } from "../platform/index.ts";
 
 /** Entry kind of the bookkeeping input that starts a reaction run. It is
  *  hidden from the projection and dropped from every provider request
@@ -273,18 +273,6 @@ export async function closeChatRuntime(chatId: string): Promise<void> {
  *  Deletion is a real removal — no tombstone. */
 export function removeChatRuntimeFiles(chatId: string): void {
 	fs.rmSync(durableDir(chatId), { recursive: true, force: true });
-}
-
-/** Every entry of a conversation, oldest first. */
-export async function readConversationEntries(conversation: ChatRuntime["root"], context: Context = BACKGROUND_CONTEXT): Promise<EntryRecord[]> {
-	const out: EntryRecord[] = [];
-	let cursor: Record<string, unknown> | undefined;
-	for (;;) {
-		const page = await conversation.entries({ order: "ascending" }, 256, cursor as never, context);
-		out.push(...page.items);
-		if (!page.next) return out;
-		cursor = page.next as Record<string, unknown>;
-	}
 }
 
 /** Every entry of the chat's root conversation, oldest first. */

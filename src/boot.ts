@@ -1,11 +1,13 @@
 import { processState } from "./platform/model/index.ts";
 import { effectiveSettings, stores } from "./stores.ts";
-import { configureBackgroundRuns, createJobRunner, recoverStaleJobs, resumeBackgroundRuns, runBackgroundConversation, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
-import { createExtractionPipeline, type ExtractionPipeline } from "./graph/index.ts";
+import { configureBackgroundRuns, createJobRunner, registerDurableRoles, recoverStaleJobs, resumeBackgroundRuns, runBackgroundConversation, setJobRespawn, setTurnRunner, deliverJobResult, type JobRunner } from "./jobs/index.ts";
+import { createExtractionPipeline, EXTRACTION_ROLES, type ExtractionPipeline } from "./graph/index.ts";
+import { COMPACT_ROLE } from "./session/index.ts";
 import { resolveRoleSpec, type ModelRole } from "./settings/model/index.ts";
 import type { PiEngine } from "./platform/index.ts";
 import { engineForSnapshot, engineForSpec, initAuthEnv, missingProviderKey, readSettings, searchProvider } from "./settings/index.ts";
 import { openChatRuntime, setRuntimeBootstrap } from "./session/durable.ts";
+import { isCommittedRunLive, isTurnRunning } from "./session/turn-liveness.ts";
 import { handleChatInput, resumeForegroundTurn } from "./session/turn.ts";
 
 interface BootOptions {
@@ -60,10 +62,15 @@ export function boot(options: BootOptions = {}): AppServices {
 		const extraction = createExtractionPipeline({ ...stores, engineFor, providerKeyMissing: missingProviderKey, getChunkTokens: () => effectiveSettings().graph.extractionChunkTokens });
 		setTurnRunner(async (chatId, input) => (await handleChatInput(chatId, input)).status);
 		setJobRespawn((jobId) => void jobRunner.runJob(jobId));
+		registerDurableRoles({ ...EXTRACTION_ROLES, compact: COMPACT_ROLE });
 		configureBackgroundRuns({
 			resolveEngine: (descriptor) => engineForSnapshot(descriptor.model),
 			searchProvider,
 			run: runBackgroundConversation,
+			openRuntime: openChatRuntime,
+			isTurnRunning,
+			isCommittedRunLive,
+			chatStore: stores.chatStore,
 		});
 		setRuntimeBootstrap(async (runtime) => {
 			await resumeBackgroundRuns(runtime);
