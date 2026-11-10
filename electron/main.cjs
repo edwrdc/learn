@@ -450,6 +450,8 @@ async function main() {
 		await waitUntilUp(url);
 		log(`server up: ${url}`);
 	} else {
+		// `desktop:dev` starts vite and electron together.
+		await waitUntilUp(devUrl);
 		log(`dev mode: ${devUrl}`);
 	}
 
