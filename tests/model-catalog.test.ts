@@ -1,14 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-	catalogDefaultsFor,
 	catalogProviders,
-	catalogRolePins,
-	catalogSlots,
 	clampChatLevel,
 	clampModelsLevels,
 	modelCatalog,
-	rolePinsFor,
+	pinOf,
+	pinsOf,
 	toModelDto,
 	validateModelChoice,
 	validateModelsSettings,
@@ -105,13 +103,13 @@ describe("the model catalog projection", () => {
 	});
 
 	it("defaults: the strong slot verbatim; null when unset (BYOK, per-session models 2026-09-28)", () => {
-		assert.equal(catalogDefaultsFor(null), null);
+		assert.equal(pinOf(null), null);
 		const strong = { provider: "openrouter", id: "z-ai/glm-5.3-flash", thinkingLevel: "low" as const };
-		const d = catalogDefaultsFor(strong);
+		const d = pinOf(strong);
 		assert.deepEqual(d, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "low" });
 		// No level stored → the model alone reports (the level resolves at
 		// engine build from DEFAULT_THINKING_ORDER).
-		const bare = catalogDefaultsFor({ provider: "openrouter", id: "qwen/qwen3.8-flash" });
+		const bare = pinOf({ provider: "openrouter", id: "qwen/qwen3.8-flash" });
 		assert.deepEqual(bare, { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } });
 	});
 
@@ -129,7 +127,7 @@ describe("the model catalog projection", () => {
 
 describe("the background roles' resolved pins (rolePins)", () => {
 	it("no record → every role is NULL (BYOK: no phantom defaults)", () => {
-		const pins = rolePinsFor(resolveSettings(null).agent.models);
+		const pins = pinsOf(BACKGROUND_MODEL_ROLES, resolveSettings(null).agent.models);
 		assert.deepEqual(Object.keys(pins), [...BACKGROUND_MODEL_ROLES]);
 		for (const role of BACKGROUND_MODEL_ROLES) {
 			assert.equal(pins[role], null, role);
@@ -142,14 +140,14 @@ describe("the background roles' resolved pins (rolePins)", () => {
 			models: { cheap: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } } },
 			agent: { models: { researcher: { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "high" as const } } },
 		};
-		const pins = rolePinsFor(resolveSettings(record).agent.models);
+		const pins = pinsOf(BACKGROUND_MODEL_ROLES, resolveSettings(record).agent.models);
 		assert.deepEqual(pins.researcher, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, thinkingLevel: "high" });
 		assert.deepEqual(pins.auditor, { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } }); // level unset
 		assert.equal(pins.visualMaker, null, "vision tier untouched");
 	});
 
-	it("catalogRolePins matches the same resolution the engine wiring uses", () => {
-		const pins = catalogRolePins();
+	it("the catalog's role pins match the same resolution the engine wiring uses", () => {
+		const pins = modelCatalog().rolePins;
 		for (const role of BACKGROUND_MODEL_ROLES) {
 			assert.ok(pins[role] === null || typeof pins[role]!.model.id === "string");
 		}
@@ -157,10 +155,10 @@ describe("the background roles' resolved pins (rolePins)", () => {
 });
 
 describe("the model slots surface (model slots wave, 2026-09-20)", () => {
-	it("catalogSlots projects the record's tiers — NULL only where a tier holds no model", () => {
+	it("the catalog's slots project the record's tiers — NULL only where a tier holds no model", () => {
 		// machine-aware (one-fs-owner: READ the record, never pin it)
 		const record = readSettings();
-		const slots = catalogSlots();
+		const slots = modelCatalog().slots;
 		for (const name of ["strong", "cheap", "vision"] as const) {
 			const stored = record?.models?.[name];
 			if (stored?.model) {

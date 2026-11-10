@@ -521,19 +521,16 @@ export async function graphSnapshot(deps: GraphDeps): Promise<GraphSnapshot> {
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
 	const sources = new Map(deps.graphStore.readSources().map((source) => [source.id, source.filePath]));
-	for (let i = 0; i < ids.length; i += 3) {
-		const batch = ids.slice(i, i + 3);
-		const records = await Promise.all(batch.map((id) => deps.chatStore.getChat(id)));
-		batch.forEach((id, index) => {
-			const chat = records[index];
-			if (chat) {
-				sessions[id] = chat.title;
-				return;
-			}
-			const filePath = sources.get(id);
-			if (filePath) fileSources[id] = filePath;
-		});
-	}
+	const records = await deps.chatStore.getChats(ids);
+	ids.forEach((id, index) => {
+		const chat = records[index];
+		if (chat) {
+			sessions[id] = chat.title;
+			return;
+		}
+		const filePath = sources.get(id);
+		if (filePath) fileSources[id] = filePath;
+	});
 
 	const nodeSessions: Record<string, string[]> = {};
 	for (const [nodeId, chats] of nodeChats) {

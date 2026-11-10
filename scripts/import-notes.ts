@@ -4,7 +4,7 @@
  * extraction run (extractor → auditor → merger) over its raw text. Run
  * from this worktree only — data never crosses trees:
  *
- *   npx tsx --env-file=.env.local scripts/import-notes.ts <dir> [concurrency]
+ *   npx tsx --env-file=.env.local scripts/import-notes.ts <dir>
  *
  * Default dir: real-data-extraction/learn-sessions (the prototype
  * learning-session exports — deliberately NOT imported as chats: they run
@@ -22,36 +22,38 @@ import { stores } from "../src/stores.ts";
 
 async function main() {
 	const dir = process.argv[2] ?? "real-data-extraction/learn-sessions";
-	const limit = Number(process.argv[3] ?? 4);
 	const files = fs
 		.readdirSync(dir)
 		.filter((f) => f.endsWith(".md") || f.endsWith(".markdown") || f.endsWith(".txt"))
 		.sort();
-	console.log(`[import-notes] ${files.length} note files from ${dir} (concurrency ${limit})`);
+	console.log(`[import-notes] ${files.length} note files from ${dir}`);
 
 	const { extraction: pipeline } = boot({ upkeep: false });
-	const queue = [...files];
 	const totals = { nodes: 0, chains: 0, failed: 0 };
-	const workers = Array.from({ length: Math.min(limit, files.length) }, async () => {
-		for (;;) {
-			const file = queue.shift();
-			if (!file) return;
-			const filePath = path.join(dir, file);
-			const t0 = Date.now();
-			try {
-				const stats = await pipeline.importNotes({ filePath, text: fs.readFileSync(filePath, "utf-8") });
-				totals.nodes += stats.nodes;
-				totals.chains += stats.chains ?? 0;
-				console.log(
-					`[import-notes] ${file}: ${stats.nodes} nodes, ${stats.chains ?? 0} chains in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
-				);
-			} catch (err) {
+	const startedAt: number[] = [];
+	await pipeline.importNotesFiles(
+		files.map((file, index) => ({
+			filePath: path.join(dir, file),
+			text: () => {
+				startedAt[index] = Date.now();
+				return fs.readFileSync(path.join(dir, file), "utf-8");
+			},
+		})),
+		(index, outcome) => {
+			const file = files[index];
+			if (outcome.status === "rejected") {
 				totals.failed++;
-				console.error(`[import-notes] ${file} FAILED:`, err);
+				console.error(`[import-notes] ${file} FAILED:`, outcome.reason);
+				return;
 			}
-		}
-	});
-	await Promise.all(workers);
+			const stats = outcome.value;
+			totals.nodes += stats.nodes;
+			totals.chains += stats.chains;
+			console.log(
+				`[import-notes] ${file}: ${stats.nodes} nodes, ${stats.chains} chains in ${((Date.now() - startedAt[index]!) / 1000).toFixed(1)}s`,
+			);
+		},
+	);
 
 	const graph = getGraph(stores.graphStore);
 	console.log(

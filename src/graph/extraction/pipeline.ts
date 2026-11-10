@@ -1,5 +1,5 @@
 import type { SessionFindings } from "../model/findings.ts";
-import { tokensForChars } from "../../platform/model/index.ts";
+import { abortError, isAbortError, tokensForChars } from "../../platform/model/index.ts";
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ModelRole } from "../../settings/model/index.ts";
@@ -12,7 +12,7 @@ import {
 	type ProviderKeyMissing,
 } from "../../settings/model/index.ts";
 import type { PiEngine } from "../../platform/index.ts";
-import { withBgLlmSlot } from "../../jobs/index.ts";
+import { BG_LLM_PERMITS, withBgLlmSlot } from "./llm-slots.ts";
 import type { AuditVerdicts, CoverageEntry, ExtractionPhase, EmissionStats } from "../model/types.ts";
 import { usageFromPi, type CallUsage, type ChatRecord, type ExtractionRunUsage, type ExtractionStageUsage } from "../../session/model/index.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type GraphDeps } from "../snapshot.ts";
@@ -461,7 +461,6 @@ interface ExtractionSource {
 	assertPresent?: () => Promise<void>;
 }
 
-const isAbort = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
 
 interface ExtractionModels {
 	/** Settings-resolved engine per role — the same slot treatment the
@@ -523,6 +522,19 @@ export interface ExtractionPipeline {
 	 *  path, so re-importing the same file re-runs extraction against the
 	 *  same source identity (mappings dedupe by it). */
 	importNotes(input: NotesImportInput): Promise<EmissionStats>;
+	/** Import several files, as many at once as the LLM pool runs. Each
+	 *  file's text is read when its turn comes; `onSettled` reports each
+	 *  outcome as it lands. Resolves to the outcomes in input order. */
+	importNotesFiles(
+		files: NotesFile[],
+		onSettled?: (index: number, outcome: PromiseSettledResult<EmissionStats>) => void,
+	): Promise<PromiseSettledResult<EmissionStats>[]>;
+}
+
+/** One file for importNotesFiles. */
+export interface NotesFile {
+	filePath: string;
+	text: () => Promise<string> | string;
 }
 
 export function createExtractionPipeline(deps: ExtractionPipelineDeps): ExtractionPipeline {
@@ -618,9 +630,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		const aborted = new Promise<never>((_, reject) => {
 			if (!signal) return;
 			onAbort = () => {
-				const err = new Error("extraction aborted while waiting for the audit gate");
-				err.name = "AbortError";
-				reject(err);
+				reject(abortError("extraction aborted while waiting for the audit gate"));
 			};
 			if (signal.aborted) onAbort();
 			else signal.addEventListener("abort", onAbort, { once: true });
@@ -798,7 +808,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				continue;
 			}
 			const err = result.reason;
-			if (err instanceof Error && err.name === "AbortError") aborted = true;
+			if (isAbortError(err)) aborted = true;
 			else {
 				failed++;
 				console.error(`[extraction ${sourceId}] job failed (isolated):`, err);
@@ -872,12 +882,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				settled.push({ status: "fulfilled", value: stats });
 			} catch (err) {
 				let failure = err;
-				if (signal?.aborted && !isAbort(err)) {
-					failure = new Error(`Extraction aborted; job cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
-					(failure as Error).name = "AbortError";
+				if (signal?.aborted && !isAbortError(err)) {
+					failure = abortError(`Extraction aborted; job cleanup failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
 				}
 				settled.push({ status: "rejected", reason: failure });
-				if (isAbort(failure)) break;
+				if (isAbortError(failure)) break;
 			}
 		}
 		return { settled, merged };
@@ -948,9 +957,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				// gone here and rides the abort path.
 				assertPresent: async () => {
 					if (await chatStore.getChat(chatId)) return;
-					const gone = new Error(`chat deleted mid-run: ${chatId}`);
-					gone.name = "AbortError";
-					throw gone;
+					throw abortError(`chat deleted mid-run: ${chatId}`);
 				},
 			});
 			const stats = aggregateJobs(chatId, settled);
@@ -1037,7 +1044,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// Zero findings (and an empty file after the readiness gate) are valid.
 			const rejected = settled.filter((r) => r.status === "rejected");
 			if (rejected.length > 0 || settled.length !== chunks.length) {
-				const aborted = rejected.some((r) => r.reason instanceof Error && r.reason.name === "AbortError");
+				const aborted = rejected.some((r) => isAbortError(r.reason));
 				const outcome = aborted ? "aborted" : settled.some((r) => r.status === "fulfilled") ? "partial" : "failed";
 				const details = rejected.map((r) => r.reason instanceof Error ? r.reason.message : String(r.reason)).join("; ");
 				throw new NotesImportError(outcome, mergedStats, details || "Notes import did not complete");
@@ -1050,7 +1057,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		} catch (err) {
 			console.error(`[extraction ${id}] notes pipeline failed (${Math.round(performance.now() - t0)}ms):`, err);
 			if (err instanceof NotesImportError || err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) throw err;
-			throw new NotesImportError(err instanceof Error && err.name === "AbortError" ? "aborted" : "failed", mergedStats,
+			throw new NotesImportError(isAbortError(err) ? "aborted" : "failed", mergedStats,
 				err instanceof Error ? err.message : String(err), { cause: err });
 		} finally {
 			finishExtraction(id); // done or failed — no longer running
@@ -1078,6 +1085,28 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	return { runExtraction, isRunning: (chatId) => inFlight.has(chatId), importNotes };
+	async function importNotesFiles(
+		files: NotesFile[],
+		onSettled?: (index: number, outcome: PromiseSettledResult<EmissionStats>) => void,
+	): Promise<PromiseSettledResult<EmissionStats>[]> {
+		const outcomes: PromiseSettledResult<EmissionStats>[] = [];
+		let next = 0;
+		const worker = async () => {
+			while (next < files.length) {
+				const index = next++;
+				const file = files[index]!;
+				try {
+					outcomes[index] = { status: "fulfilled", value: await importNotes({ filePath: file.filePath, text: await file.text() }) };
+				} catch (reason) {
+					outcomes[index] = { status: "rejected", reason };
+				}
+				onSettled?.(index, outcomes[index]);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(BG_LLM_PERMITS, files.length) }, worker));
+		return outcomes;
+	}
+
+	return { runExtraction, isRunning: (chatId) => inFlight.has(chatId), importNotes, importNotesFiles };
 }
 

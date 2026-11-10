@@ -6,7 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers; type-only imports
  * of "ai" (safe everywhere: server, client, tests). See docs/vision.md.
  */
-import type { ExtractionPhase } from "../../graph/model/index.ts";
+import type { ExtractionRunView } from "../../graph/model/index.ts";
 import type { CallUsage } from "../../session/model/index.ts";
 import type { RefusalCode } from "../../settings/model/index.ts";
 import type { LhMessage, LhMarkerMessage } from "../../session/model/index.ts";
@@ -326,14 +326,7 @@ export interface ActivityJob extends JobRecord {
 
 /** One running extraction job (a multi-chunk source owns several). chatId is
  *  the source id; the title carries the "· i/N" chunk suffix. */
-export interface ActivityExtraction {
-	id: string;
-	chatId: string;
-	part?: { i: number; n: number };
-	title: string;
-	phase: ExtractionPhase;
-	startedAt: number;
-}
+export type ActivityExtraction = Omit<ExtractionRunView, "usage">;
 
 /** GET /api/activity: every running process, oldest first, plus the graph's
  *  version stamp. Cost folds are the client's. */

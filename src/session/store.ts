@@ -128,6 +128,17 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 	return { ...record, version: CURRENT_CHAT_VERSION };
 }
 
+/** Read chats three at a time: each read opens that chat's runtime. */
+async function readInBatches(ids: string[], read: (id: string) => Promise<ChatRecord | null>): Promise<(ChatRecord | null)[]> {
+	const out: (ChatRecord | null)[] = [];
+	for (let i = 0; i < ids.length; i += 3) out.push(...(await Promise.all(ids.slice(i, i + 3).map(read))));
+	return out;
+}
+
+function getChats(ids: string[]): Promise<(ChatRecord | null)[]> {
+	return readInBatches(ids, getChat);
+}
+
 async function listChats(): Promise<ChatSummary[]> {
 	let names: string[];
 	try {
@@ -137,34 +148,33 @@ async function listChats(): Promise<ChatSummary[]> {
 		return [];
 	}
 	const out: ChatSummary[] = [];
-	for (let i = 0; i < names.length; i += 3) {
-		const batch = names.slice(i, i + 3);
-		const records = await Promise.all(batch.map((name) => getChat(name.slice(0, -5)).catch((error: unknown) => {
-			console.error(`[chat ${name.slice(0, -5)}] unreadable, left out of the list:`, error);
+	const records = await readInBatches(names.map((name) => name.slice(0, -5)), (id) =>
+		getChat(id).catch((error: unknown) => {
+			console.error(`[chat ${id}] unreadable, left out of the list:`, error);
 			return null;
-		})));
-		for (const record of records) {
-			if (!record) continue;
-			// Per-record isolation: a record whose projection fails must not blank
-			// the whole sidebar.
-			try {
-				const kind = record.kind ?? "teach";
-				const summary: ChatSummary = {
-					id: record.id,
-					title: record.title,
-					createdAt: record.createdAt,
-					updatedAt: record.updatedAt,
-					kind,
-					messageCount: record.messages.length,
-					phase: phaseAt3Lh(record.messages),
-					pendingQuestion: danglingQuestionOf(record.messages) !== null,
-					pendingProblem: kind === "practice" && activeProblemOf(record.messages) !== null,
-					...(record.settings ? { settings: record.settings } : {}),
-				};
-				out.push(summary);
-			} catch (err) {
-				console.error(`[chat ${record.id}] summary projection failed:`, err);
-			}
+		}),
+	);
+	for (const record of records) {
+		if (!record) continue;
+		// Per-record isolation: a record whose projection fails must not blank
+		// the whole sidebar.
+		try {
+			const kind = record.kind ?? "teach";
+			const summary: ChatSummary = {
+				id: record.id,
+				title: record.title,
+				createdAt: record.createdAt,
+				updatedAt: record.updatedAt,
+				kind,
+				messageCount: record.messages.length,
+				phase: phaseAt3Lh(record.messages),
+				pendingQuestion: danglingQuestionOf(record.messages) !== null,
+				pendingProblem: kind === "practice" && activeProblemOf(record.messages) !== null,
+				...(record.settings ? { settings: record.settings } : {}),
+			};
+			out.push(summary);
+		} catch (err) {
+			console.error(`[chat ${record.id}] summary projection failed:`, err);
 		}
 	}
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -262,6 +272,7 @@ async function saveTree(id: string, tree: PlanTree): Promise<void> {
 export const chatStore: ChatStore = {
 	createChat,
 	getChat,
+	getChats,
 	listChats,
 	saveMessages,
 	touchChat,

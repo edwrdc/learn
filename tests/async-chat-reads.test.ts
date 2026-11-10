@@ -34,22 +34,6 @@ function chatFile(id: string): string {
 	return path.join(chatsDir(), `${id}.json`);
 }
 
-interface Deferred<T> {
-	promise: Promise<T>;
-	resolve: (value: T) => void;
-	reject: (error: unknown) => void;
-}
-
-function defer<T>(): Deferred<T> {
-	let resolve!: (value: T) => void;
-	let reject!: (error: unknown) => void;
-	const promise = new Promise<T>((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
-	return { promise, resolve, reject };
-}
-
 function writeLegacyRecord(id: string): Buffer {
 	const bytes = Buffer.from(
 		JSON.stringify(
@@ -122,8 +106,8 @@ describe("listChats batches record reads", () => {
 	});
 });
 
-describe("graphSnapshot batches source-label reads", () => {
-	it("keeps three reads in flight and labels sources in source order", async () => {
+describe("graphSnapshot source labels", () => {
+	it("labels chat sources in source order and falls back to notes paths", async () => {
 		const chatIds = ["chat_snap_a", "chat_snap_b", "chat_snap_c"];
 		const mergeSource = (id: string, statement: string): void => {
 			mergeFindings(
@@ -138,36 +122,14 @@ describe("graphSnapshot batches source-label reads", () => {
 		graphStore.upsertSource({ id: "src_snap_notes", filePath: "/vault/snapshot notes.md", importedAt: "2026-10-01T00:00:00.000Z" });
 		mergeSource("src_snap_notes", "Snapshot notes statement.");
 		mergeSource("chat_snap_absent", "Snapshot absent statement.");
-		const sourceOrder = [...chatIds, "src_snap_notes", "chat_snap_absent"];
 
-		const gates = new Map<string, Deferred<ChatRecord | null>>();
-		const started: string[] = [];
-		const firstStart = defer<void>();
-		const fourthStart = defer<void>();
+		const titles: Record<string, string> = { chat_snap_a: "Snapshot A", chat_snap_b: "Snapshot B", chat_snap_c: "Snapshot C" };
 		const fakeChatStore: ChatStore = {
 			...chatStore,
-			getChat: (id) => {
-				started.push(id);
-				if (started.length === 1) firstStart.resolve();
-				if (started.length === 4) fourthStart.resolve();
-				const gate = defer<ChatRecord | null>();
-				gates.set(id, gate);
-				return gate.promise;
-			},
+			getChats: async (ids) => ids.map((id) => (titles[id] ? fakeRecord(id, titles[id]) : null)),
 		};
 
 		const snapshot = graphSnapshot({ chatStore: fakeChatStore, graphStore });
-
-		await firstStart.promise;
-		assert.deepEqual(started, sourceOrder.slice(0, 3), "the first batch opens three source reads");
-		gates.get("chat_snap_c")!.resolve(fakeRecord("chat_snap_c", "Snapshot C"));
-		gates.get("chat_snap_b")!.resolve(fakeRecord("chat_snap_b", "Snapshot B"));
-		gates.get("chat_snap_a")!.resolve(fakeRecord("chat_snap_a", "Snapshot A"));
-		await fourthStart.promise;
-		assert.deepEqual(started, sourceOrder, "the next batch starts only after the first settles");
-		gates.get("src_snap_notes")!.resolve(null);
-		gates.get("chat_snap_absent")!.resolve(null);
-
 		const snap = await snapshot;
 
 		assert.deepEqual(Object.keys(snap.sessions), chatIds, "labels land in source order, not completion order");
@@ -188,9 +150,9 @@ describe("graphSnapshot batches source-label reads", () => {
 		);
 		const fakeChatStore: ChatStore = {
 			...chatStore,
-			getChat: async (id) => {
-				if (id === "chat_snap_rejection") throw boom;
-				return null;
+			getChats: async (ids) => {
+				if (ids.includes("chat_snap_rejection")) throw boom;
+				return ids.map(() => null);
 			},
 		};
 
@@ -198,8 +160,8 @@ describe("graphSnapshot batches source-label reads", () => {
 	});
 });
 
-describe("graphCosts batches usage-record reads", () => {
-	it("keeps three reads in flight and folds runs in summary order", async () => {
+describe("graphCosts", () => {
+	it("folds runs newest first, in summary order on ties", async () => {
 		const created: string[] = [];
 		const startedAt = new Map<string, number>();
 		const rows: Array<[string, number | null]> = [
@@ -221,32 +183,13 @@ describe("graphCosts batches usage-record reads", () => {
 		for (const summary of summaries) records.set(summary.id, (await chatStore.getChat(summary.id))!);
 
 		const realChatStore = stores.chatStore;
-		const gates = new Map<string, Deferred<ChatRecord | null>>();
-		const started: string[] = [];
-		const firstStart = defer<void>();
-		const fourthStart = defer<void>();
 		try {
 			stores.chatStore = {
 				...realChatStore,
 				listChats: async () => summaries,
-				getChat: (id) => {
-					started.push(id);
-					if (started.length === 1) firstStart.resolve();
-					if (started.length === 4) fourthStart.resolve();
-					const gate = defer<ChatRecord | null>();
-					gates.set(id, gate);
-					return gate.promise;
-				},
+				getChats: async (ids) => ids.map((id) => records.get(id) ?? null),
 			};
 			const costs = graphCosts();
-			await firstStart.promise;
-
-			assert.deepEqual(started, summaries.slice(0, 3).map((summary) => summary.id), "the first batch opens three record reads");
-			for (const summary of summaries.slice(0, 3)) gates.get(summary.id)!.resolve(records.get(summary.id)!);
-			await fourthStart.promise;
-			assert.deepEqual(started, summaries.map((summary) => summary.id), "the next batch starts only after the first settles");
-			for (const summary of summaries.slice(3)) gates.get(summary.id)!.resolve(records.get(summary.id)!);
-
 			const folded = await costs;
 			const expected = summaries
 				.filter((summary) => startedAt.has(summary.id))
@@ -276,7 +219,7 @@ describe("graphCosts batches usage-record reads", () => {
 			stores.chatStore = {
 				...realChatStore,
 				listChats: async () => [summary],
-				getChat: async () => {
+				getChats: async () => {
 					throw boom;
 				},
 			};

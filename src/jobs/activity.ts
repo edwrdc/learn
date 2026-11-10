@@ -19,7 +19,7 @@
  * from the pipeline's module for the abort route to call.
  */
 
-import { extractionStatuses, graphRevision } from "../graph/index.ts";
+import { extractionRuns, graphRevision } from "../graph/index.ts";
 import { stores } from "../stores.ts";
 import { catalogContextLimits } from "../settings/index.ts";
 import type { ActivityExtraction, ActivityFeed, ActivityJob } from "./model/types.ts";
@@ -51,23 +51,12 @@ export async function activityFeed(): Promise<ActivityFeed> {
 			}
 		}
 	}
-	const extractions: ActivityExtraction[] = await Promise.all(extractionStatuses().map(async (run) => ({
-		id: run.id,
-		chatId: run.chatId,
-		part: run.part,
-		// The run's own label (a notes file path), else the chat's title,
-		// plus the chunk suffix when the source fanned out.
-		title:
-			(run.label ?? (await stores.chatStore.getChat(run.chatId))?.title ?? run.chatId) +
-			(run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
-		phase: run.phase,
-		startedAt: run.startedAt,
-	})));
+	const extractions: ActivityExtraction[] = (await extractionRuns()).map(({ usage: _usage, ...run }) => run);
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
 		jobs,
-		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
+		extractions,
 		graphRevision: graphRevision(),
 	};
 }

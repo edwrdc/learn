@@ -1,4 +1,4 @@
-import { processState } from "../platform/model/index.ts";
+import { abortError, processState } from "../../platform/model/index.ts";
 
 /**
  * THE SHARED BACKGROUND-LLM SEMAPHORE (owner ruling, 2026-09-29): ONE
@@ -58,9 +58,7 @@ export async function withBgLlmSlot<T>(
 			if (!signal) return;
 			const die = () => {
 				ticket.dead = true; // the permit handoff must skip us
-				const err = new Error("background LLM job aborted while queued for a permit");
-				err.name = "AbortError";
-				reject(err);
+				reject(abortError("background LLM job aborted while queued for a permit"));
 			};
 			if (signal.aborted) die();
 			else signal.addEventListener("abort", die, { once: true });

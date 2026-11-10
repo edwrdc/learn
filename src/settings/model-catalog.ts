@@ -22,99 +22,35 @@ import type { ModelThinkingLevel as ThinkingLevel } from "@earendil-works/pi-ai"
 import { catalogModels, customEndpointState } from "./custom-endpoint.ts";
 import { CUSTOM_ENDPOINT_KEY_ID, CUSTOM_ENDPOINT_PROVIDER_ID } from "./model/custom-endpoint.ts";
 import { effectiveSettings } from "../stores.ts";
-import { keyValue } from "./keys.ts";
+import { providerKeyPresent } from "./keys.ts";
 import type { ModelChoice } from "./model/index.ts";
 import {
 	modelKey,
-	type CatalogDefaults,
 	type CatalogProvider,
 	type ModelCatalogEntry,
 	type ModelCatalogResponse,
-	type RolePins,
-	type SlotPins,
+	type ModelPin,
 } from "./model/models.ts";
 import type { EffectiveModelSpec } from "./model/resolution.ts";
 import { AUTH_PROVIDER_KEYS } from "./model/auth-keys.ts";
-import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type BackgroundModelRole, type ModelsSettings } from "./model/settings.ts";
+import { BACKGROUND_MODEL_ROLES, MODEL_SLOTS, type ModelsSettings } from "./model/settings.ts";
 
-/** The picker's client-safe model entry (contract: core/contracts/models.ts). */
-type ModelDto = ModelCatalogEntry;
-
-/**
- * The conversation agents' resolved default (pure form — the strong slot
- * in, CatalogDefaults out; `catalogDefaults()` below is the fs wrapper).
- * PER-SESSION MODELS (owner, 2026-09-28): every session owns its model +
- * thinking level from birth, stamped verbatim from the strong slot — the
- * STRONG SLOT IS THE NEW-SESSION DEFAULT, and the resolve-time fallback
- * for legacy settings-less records. BYOK (owner, 2026-09-22): there is no
- * factory floor — when the strong slot names no model, the default is
- * NULL and the turn gate refuses with the 503 models_not_configured
- * envelope. An unset thinkingLevel resolves from DEFAULT_THINKING_ORDER at
- * engine build (reported as absent here).
- */
-export function catalogDefaultsFor(
-	strong: EffectiveModelSpec | null,
-): CatalogDefaults | null {
-	const model = strong ? { provider: strong.provider, id: strong.id } : undefined;
-	if (!model) return null;
-	const level = strong?.thinkingLevel;
+/** Project a resolved spec to the client pin; null when nothing resolves
+ *  (BYOK: no factory floor, the UI shows "not configured"). */
+export function pinOf(spec: EffectiveModelSpec | null | undefined): ModelPin | null {
+	if (!spec) return null;
 	return {
-		model,
-		...(level !== undefined ? { thinkingLevel: level } : {}),
+		model: { provider: spec.provider, id: spec.id },
+		...(spec.thinkingLevel !== undefined ? { thinkingLevel: spec.thinkingLevel } : {}),
 	};
 }
 
-/** The conversation agents' resolved default — what a settings-less chat
- *  runs: the strong slot, i.e. the birth-default for new sessions. */
-function catalogDefaults(): CatalogDefaults | null {
-	return catalogDefaultsFor(effectiveSettings().models.strong);
-}
-
-/** Project the resolved per-role specs to the client DTO (pure — the
- *  settings UI's "Default: <actual pinned model>" caption reads this).
- *  BYOK (owner, 2026-09-22): an empty chain projects to NULL — the caption
- *  honestly shows "not configured", never a phantom default. */
-export function rolePinsFor(
-	models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>,
-): RolePins {
-	const pins = {} as RolePins;
-	for (const role of BACKGROUND_MODEL_ROLES) {
-		const spec = models[role];
-		pins[role] = spec
-			? {
-					model: { provider: spec.provider, id: spec.id },
-					...(spec.thinkingLevel !== undefined ? { thinkingLevel: spec.thinkingLevel } : {}),
-				}
-			: null;
-	}
-	return pins;
-}
-
-/** The background roles' RESOLVED pins: the user's agent-models
- *  override → tier slot → nothing — the same resolution the agent wiring
- *  uses (src/server/stores.ts effectiveSettings), so the caption can
- *  never drift from what actually runs. */
-export function catalogRolePins(): RolePins {
-	return rolePinsFor(effectiveSettings().agent.models);
-}
-
-/** The three slot tiers' RESOLVED pins — effectiveSettings().models
- *  verbatim: the same resolution the engine wiring uses, so the Models
- *  settings page's captions cannot drift from what actually runs. NULL
- *  per tier that holds no model. */
-export function catalogSlots(): SlotPins {
-	const slots = effectiveSettings().models;
-	const pins = {} as SlotPins;
-	for (const name of ["strong", "cheap", "vision"] as const) {
-		const slot: EffectiveModelSpec | null = slots[name];
-		pins[name] = slot
-			? {
-					model: { provider: slot.provider, id: slot.id },
-					...(slot.thinkingLevel !== undefined ? { thinkingLevel: slot.thinkingLevel } : {}),
-				}
-			: null;
-	}
-	return pins;
+/** Pins for every name in `names`, read from the resolved specs. */
+export function pinsOf<K extends string>(
+	names: readonly K[],
+	specs: Record<K, EffectiveModelSpec | null | undefined>,
+): Record<K, ModelPin | null> {
+	return Object.fromEntries(names.map((name) => [name, pinOf(specs[name])])) as Record<K, ModelPin | null>;
 }
 
 /** The providers surface (model slots wave, 2026-09-20): one row per
@@ -126,7 +62,7 @@ export function catalogProviders(): CatalogProvider[] {
 	const rows: CatalogProvider[] = AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
 		envVar: p.envVar,
-		keyPresent: keyValue(p.envVar) !== undefined,
+		keyPresent: providerKeyPresent(p.id),
 	}));
 	if (custom.endpoint) {
 		rows.push({
@@ -138,15 +74,8 @@ export function catalogProviders(): CatalogProvider[] {
 	return rows.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** The providers whose key is present — the picker federates exactly
- *  these (a keyless provider's models are unreachable by design; the
- *  Keys page is the discovery surface, same discipline as search). */
-function keyedProviderIds(): Set<string> {
-	return new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
-}
-
 /** Project one catalog model to the client DTO. */
-export function toModelDto(model: Model<Api>): ModelDto {
+export function toModelDto(model: Model<Api>): ModelCatalogEntry {
 	return {
 		id: model.id,
 		name: model.name,
@@ -176,7 +105,9 @@ export function toModelDto(model: Model<Api>): ModelDto {
  *  server-side through this. No hardcoded fallback exists anywhere:
  *  a model missing here reads limit-null (usage-only, honest render). */
 export function catalogContextLimits(): Map<string, number> {
-	const keyed = keyedProviderIds();
+	// The picker lists only providers whose key is present (the Keys page
+	// is where the others are discovered).
+	const keyed = new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
 	const index = new Map<string, number>();
 	const catalog = catalogModels();
 	for (const provider of catalog.getProviders()) {
@@ -193,8 +124,11 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
-	const keyed = keyedProviderIds();
+	// The picker lists only providers whose key is present (the Keys page
+	// is where the others are discovered).
+	const keyed = new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
 	const catalog = catalogModels();
+	const effective = effectiveSettings();
 	const models = catalog
 		.getProviders()
 		.filter((p) => keyed.has(p.id))
@@ -203,9 +137,10 @@ export function modelCatalog(): ModelCatalogResponse {
 		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)));
 	return {
 		models,
-		defaults: catalogDefaults(),
-		rolePins: catalogRolePins(),
-		slots: catalogSlots(),
+		// The strong slot is the new-session default (per-session models).
+		defaults: pinOf(effective.models.strong),
+		rolePins: pinsOf(BACKGROUND_MODEL_ROLES, effective.agent.models),
+		slots: pinsOf(MODEL_SLOTS, effective.models),
 		providers: catalogProviders(),
 	};
 }

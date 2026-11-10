@@ -288,8 +288,12 @@ export type ExtractionPhase = "queued" | "extracting" | "waiting" | "auditing" |
 
 /** One running extraction job as GET /api/graph/status reports it. */
 export interface ExtractionRunView {
+	/** The job's own key; one source's chunk rows share chatId. */
 	id: string;
 	chatId: string;
+	part?: { i: number; n: number };
+	/** The run's label (a notes file path), else the chat's title, plus the
+	 *  chunk suffix ("· 2/5") when the source fanned out. */
 	title: string;
 	phase: ExtractionPhase;
 	startedAt: number;

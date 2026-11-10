@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { GRAPH_FORMAT_FILE, LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../platform/index.ts";
 import type { ChatRecord } from "../session/model/index.ts";
-import type { GraphSnapshot } from "./model/types.ts";
+import type { ExtractionRunView, GraphSnapshot } from "./model/types.ts";
 import type { GraphCostSummary } from "../session/model/index.ts";
 import { graphCostSummary } from "../session/model/index.ts";
 import { graphSnapshot } from "./snapshot.ts";
@@ -12,6 +12,23 @@ import {
 } from "./model/deletion.ts";
 import { extractionStatuses } from "./extraction/pipeline.ts";
 import { stores } from "../stores.ts";
+
+/** The in-flight extraction jobs, oldest first, with their display titles. */
+export async function extractionRuns(): Promise<ExtractionRunView[]> {
+	const runs = extractionStatuses();
+	const chats = await stores.chatStore.getChats(runs.map((run) => run.chatId));
+	return runs
+		.map((run, index) => ({
+			id: run.id,
+			chatId: run.chatId,
+			part: run.part,
+			title: (run.label ?? chats[index]?.title ?? run.chatId) + (run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
+			phase: run.phase,
+			startedAt: run.startedAt,
+			usage: run.usage,
+		}))
+		.sort((a, b) => a.startedAt - b.startedAt);
+}
 
 /**
  * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
@@ -32,14 +49,11 @@ export async function graphView(): Promise<GraphSnapshot> {
 export async function graphCosts(): Promise<GraphCostSummary> {
 	const summaries = await stores.chatStore.listChats();
 	const chats: Array<{ title: string; extractions: NonNullable<ChatRecord["extractions"]> }> = [];
-	for (let i = 0; i < summaries.length; i += 3) {
-		const batch = summaries.slice(i, i + 3);
-		const records = await Promise.all(batch.map((summary) => stores.chatStore.getChat(summary.id)));
-		batch.forEach((summary, index) => {
-			const record = records[index];
-			if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
-		});
-	}
+	const records = await stores.chatStore.getChats(summaries.map((summary) => summary.id));
+	summaries.forEach((summary, index) => {
+		const record = records[index];
+		if (record?.extractions?.length) chats.push({ title: record.title ?? summary.id, extractions: record.extractions });
+	});
 	const sources = stores.graphStore
 		.readSources()
 		.filter((s) => s.extractions?.length)

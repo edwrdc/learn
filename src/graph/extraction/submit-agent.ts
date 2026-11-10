@@ -1,3 +1,4 @@
+import { isAbortError } from "../../platform/model/index.ts";
 /**
  * runSubmitAgent — the shared single-submit runner for the extraction
  * stages (the durable port of the old pi-agent loop). One TypeBox-validated
@@ -75,7 +76,7 @@ export async function runSubmitAgent<T>(opts: {
 		// A runtime close is a recoverable process death: the run stays
 		// indexed for the restart to reattach. An abort is marked failed by
 		// the runner, so it is safe to leave it too.
-		consumed = !(error instanceof Error && error.name === "AbortError");
+		consumed = !isAbortError(error);
 		throw error;
 	} finally {
 		// The caller holds the value/error now: a later identical stage is a

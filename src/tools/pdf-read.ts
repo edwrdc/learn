@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { USER_AGENT, isHttpUrl } from "./web/web.ts";
 import * as path from "node:path";
 import { Type } from "typebox";
 import type { AppTool } from "./adapter.ts";
@@ -22,8 +23,6 @@ import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "./pdf-ops.ts";
  * failure path returns a clear error STRING the researcher can adapt to.
  */
 
-const USER_AGENT =
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT_MS = 60_000;
 /** PDFs run bigger than pages — arxiv papers routinely 5-20 MB. */
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
@@ -102,13 +101,7 @@ export function createPdfReadTools(dir: string): Record<string, AppTool<any>> {
 				"Then read it with pdf_extract / pdf_search. Use when web_fetch reports a URL is a PDF.",
 			parameters: pdfFetchInput,
 			execute: serverExecute("web_fetch_pdf", pdfFetchInput, async ({ url }): Promise<PdfFetchSummary | string> => {
-				try {
-					const parsed = new URL(url);
-					if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-						throw new Error("Only http(s) URLs are supported");
-				} catch {
-					return `web_fetch_pdf failed: invalid URL "${url}"`;
-				}
+				if (!isHttpUrl(url)) return `web_fetch_pdf failed: invalid URL "${url}"`;
 				try {
 					const resp = await fetch(url, {
 						headers: {

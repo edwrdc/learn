@@ -34,8 +34,19 @@ import TurndownService from "turndown";
 
 // ── web_fetch ────────────────────────────────────────────────────────────────
 
-const USER_AGENT =
+/** A desktop browser's agent string: many sites refuse obvious bots. */
+export const USER_AGENT =
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+/** An absolute http(s) URL. URL.protocol keeps its trailing colon. */
+export function isHttpUrl(url: string): boolean {
+	try {
+		const { protocol } = new URL(url);
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
+}
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 /** Keep the researcher's context sane — long pages truncate with a marker. */
@@ -163,17 +174,7 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 				"Handles HTML pages and plain text; JS-rendered pages fall back to a reader service.",
 			parameters: webFetchInput,
 			execute: serverExecute("web_fetch", webFetchInput, async ({ url }): Promise<string> => {
-				try {
-					const parsed = new URL(url);
-					// URL.protocol carries a TRAILING COLON ("https:", WHATWG) — the
-					// colon-less comparison born from the py-harness port (urlparse's
-					// scheme has NO colon) rejected every valid URL ever fetched
-					// (owner-reported via OpenRouter logs, 2026-10-07).
-					if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-						throw new Error("Only http(s) URLs are supported");
-				} catch {
-					return `web_fetch failed: invalid URL "${url}"`;
-				}
+				if (!isHttpUrl(url)) return `web_fetch failed: invalid URL "${url}"`;
 				try {
 					return await fetchAndExtract(url);
 				} catch (err) {

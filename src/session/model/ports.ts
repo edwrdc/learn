@@ -13,6 +13,9 @@ export interface ChatStore {
 	 * transcript is a read projection over the durable entries (see
 	 * src/store/durable.ts), never a second in-memory authority. */
 	getChat(id: string): Promise<ChatRecord | null>;
+	/** Several records, in order (null for an unknown id). Opens at most
+	 *  three chat runtimes at a time; rejects when a read rejects. */
+	getChats(ids: string[]): Promise<(ChatRecord | null)[]>;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): Promise<ChatSummary[]>;
 	/** Upsert supplied native messages by id. Omitted messages remain;

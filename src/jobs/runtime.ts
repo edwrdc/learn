@@ -26,7 +26,7 @@
  */
 
 import { JOB_KINDS } from "../tools/model/index.ts";
-import { processState } from "../platform/model/index.ts";
+import { abortError, isAbortError, processState } from "../platform/model/index.ts";
 import { randomUUID } from "node:crypto";
 import {
 	defineDoc,
@@ -532,9 +532,7 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		await reportProgress();
 		if (settled.status !== "done") {
 			if (signal?.aborted) {
-				const stopped = new Error("aborted");
-				stopped.name = "AbortError";
-				throw stopped;
+				throw abortError("aborted");
 			}
 			// Surface the provider's own text, verbatim: the job's failure
 			// brief quotes it.
@@ -563,15 +561,11 @@ async function attachBackgroundConversation(request: BackgroundRunRequest): Prom
 		// committed checkpoint. Unwind like an abort so the caller does not
 		// deliver a failure result a later process would contradict.
 		if (runtime.closing) {
-			const closed = new Error("runtime closed while the run was live");
-			closed.name = "AbortError";
-			throw closed;
+			throw abortError("runtime closed while the run was live");
 		}
 		await updateIndex(runtime, request.jobId, { status: "failed" }).catch(() => undefined);
-		if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
-			const stopped = new Error(error instanceof Error ? error.message : String(error));
-			stopped.name = "AbortError";
-			throw stopped;
+		if (signal?.aborted || isAbortError(error)) {
+			throw abortError(error instanceof Error ? error.message : String(error));
 		}
 		// The caller's failure result may quote what the run had reached (the
 		// PDF brief's page sets).

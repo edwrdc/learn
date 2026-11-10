@@ -16,7 +16,7 @@ import { auditorGraphTools } from "../src/graph/extraction/graph-tools.ts";
 import type { ChatStore } from "../src/session/model/ports.ts";
 import type { GraphStore } from "../src/graph/model/ports.ts";
 import type { JobStore } from "../src/jobs/model/ports.ts";
-import type { ChatSummary } from "../src/session/model/types.ts";
+import type { ChatRecord, ChatSummary } from "../src/session/model/types.ts";
 import type { GraphChain, GraphNode } from "../src/graph/model/types.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -59,6 +59,8 @@ function fakeStores(
 			(over.chats ?? []).map((c) => ({ ...c, messageCount: 0 }) as unknown as ChatSummary),
 		getChat: (id: string) =>
 			((over.chats ?? []).find((c) => c.id === id) as unknown as ChatSummary) ?? undefined,
+		getChats: async (ids: string[]) =>
+			ids.map((id) => ((over.chats ?? []).find((c) => c.id === id) as unknown as ChatRecord) ?? null),
 	} as unknown as ChatStore;
 	return { chatStore, graphStore };
 }

@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { GraphChain, GraphNode, NotesSource } from "../src/graph/model/types.ts";
-import type { ChatSummary } from "../src/session/model/types.ts";
+import type { ChatRecord, ChatSummary } from "../src/session/model/types.ts";
 import type { ChatStore } from "../src/session/model/ports.ts";
 import type { GraphStore } from "../src/graph/model/ports.ts";
 import {
@@ -67,6 +67,8 @@ function fakeStores(
 			(over.chats ?? []).map((c) => ({ ...c, messageCount: 0 }) as unknown as ChatSummary),
 		getChat: (id: string) =>
 			((over.chats ?? []).find((c) => c.id === id) as unknown as ChatSummary) ?? undefined,
+		getChats: async (ids: string[]) =>
+			ids.map((id) => ((over.chats ?? []).find((c) => c.id === id) as unknown as ChatRecord) ?? null),
 	} as unknown as ChatStore;
 	return { chatStore, graphStore };
 }

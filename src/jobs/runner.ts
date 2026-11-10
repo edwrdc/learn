@@ -1,3 +1,4 @@
+import { isAbortError } from "../platform/model/index.ts";
 import type { PiEngine } from "../platform/index.ts";
 import type { SearchProvider } from "../tools/model/index.ts";
 import { buildSubagentSteer, type JobRecord, type JobResult, type SteerMessage } from "./model/types.ts";
@@ -127,7 +128,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		} catch (err) {
 			// An abort or a runtime close: the abort path owns the record, and a
 			// closed run stays recoverable — no failure may be delivered for it.
-			if (abort.signal.aborted || (err instanceof Error && err.name === "AbortError")) return;
+			if (abort.signal.aborted || isAbortError(err)) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			await finishJob(jobId, role.failure(roleInput, reason));
 		} finally {

@@ -1,3 +1,4 @@
+import { isAbortError } from "../../platform/model/index.ts";
 /**
  * A background role, defined once: what its conversation runs (prompt,
  * tools, durable hooks, initial state) and, for a job role, how a job's
@@ -133,7 +134,7 @@ export async function runRole<I, R extends JobResult, S extends RunState>(
 	try {
 		outcome = role.workspace ? await role.workspace(start) : await start({});
 	} catch (error) {
-		if (error instanceof Error && error.name === "AbortError") throw error;
+		if (isAbortError(error)) throw error;
 		const message = error instanceof Error ? error.message : String(error);
 		const state = error instanceof RunFailure ? (error.state as S) : undefined;
 		return role.failure(input, role.crashed ? `${role.crashed} — ${message}` : message, state);

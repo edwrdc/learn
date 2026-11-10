@@ -4,30 +4,11 @@
  * Thin transport over the pipeline's module-level registry: phase
  * (queued / extracting / waiting / auditing / merging) per job, oldest
  * first — a multi-chunk source shows one row PER CHUNK ("· i/N" suffix,
- * per-chunk jobs, owner 2026-09-28). Titles joined from the chat store;
- * a missing chat record still reports the run.
+ * per-chunk jobs, owner 2026-09-28). A missing chat record still
+ * reports the run.
  */
-import { chatStore } from "@/src/session";
-import { extractionStatuses } from "@/src/graph";
-import type { ExtractionRunView } from "@/src/graph/model";
+import { extractionRuns } from "@/src/graph";
 
 export async function GET() {
-	const runs: ExtractionRunView[] = await Promise.all(extractionStatuses().map(async (run) => ({
-		// One source's rows share chatId; the row id is the job's own key.
-		id: run.id,
-		chatId: run.chatId,
-		// The run's own label (the file path for notes imports) wins; chat
-		// runs fall back to the chat store's title. Chunk jobs append their
-		// part ("· 2/5") — one row per chunk of the fan-out.
-		title:
-			(run.label ?? (await chatStore.getChat(run.chatId))?.title ?? run.chatId) +
-			(run.part ? ` · ${run.part.i}/${run.part.n}` : ""),
-		phase: run.phase,
-		startedAt: run.startedAt,
-		// Live per-stage usage (the money channel): model + per-step CallUsage,
-		// accumulated as steps bill. Cost and context-window folds are the
-		// consumer's (core/prices.ts helpers — nothing stores dollars).
-		usage: run.usage,
-	})));
-	return Response.json({ runs });
+	return Response.json({ runs: await extractionRuns() });
 }

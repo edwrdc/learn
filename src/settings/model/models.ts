@@ -40,11 +40,9 @@ export interface ModelCatalogEntry {
 	maxTokens: number;
 }
 
-/** The conversation agents' resolved default (BYOK, owner 2026-09-22): the
- *  chat's model override over the STRONG slot — one controller, so one
- *  default. thinkingLevel is optional: unset resolves from the baked
- *  DEFAULT_THINKING_ORDER at engine build. */
-export interface CatalogDefaults {
+/** A resolved model pin: the model, plus its thinking level when one is
+ *  stored (unset resolves from DEFAULT_THINKING_ORDER at engine build). */
+export interface ModelPin {
 	model: { provider: string; id: string };
 	thinkingLevel?: ThinkingLevel;
 }
@@ -53,18 +51,12 @@ export interface CatalogDefaults {
  *  role actually runs today — role override → tier slot → NOTHING. NULL
  *  = the role's chain is empty (the per-need gates refuse its work); the
  *  settings UI shows "not configured" from it. */
-export type RolePins = Record<
-	BackgroundModelRole,
-	{ model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null
->;
+export type RolePins = Record<BackgroundModelRole, ModelPin | null>;
 
 /** One slot tier's RESOLVED pin (BYOK, owner 2026-09-22): NULL = the tier
  *  holds no model. The settings UI captions each slot row with it and the
  *  picker pre-fills from it. */
-export type SlotPins = Record<
-	ModelSlotName,
-	{ model: { provider: string; id: string }; thinkingLevel?: ThinkingLevel } | null
->;
+export type SlotPins = Record<ModelSlotName, ModelPin | null>;
 
 /** GET /api/models response. */
 export interface ModelCatalogResponse {
@@ -72,7 +64,7 @@ export interface ModelCatalogResponse {
 	/** The conversation agents' resolved default — NULL when the
 	 *  conversation chain is empty (no factory floor; the turn gate
 	 *  refuses with 503 models_not_configured). */
-	defaults: CatalogDefaults | null;
+	defaults: ModelPin | null;
 	/** The six background roles' resolved pins (same resolution the agent
 	 *  factories use — src/server/stores.ts effectiveSettings); NULL per
 	 *  role = chain empty. */
